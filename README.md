@@ -9,8 +9,19 @@ This is a runnable development foundation, not the completed production system.
 docker compose up --build -d
 ```
 
-Open http://localhost:8080. The default published address is loopback. For trusted
-LAN access set `MONITOR_BIND` to the server's LAN IP before starting Compose.
+Open http://localhost:8080. The default published address is loopback. To use a
+custom port or trusted LAN address, copy `.env.example` to `.env` and edit it:
+
+```dotenv
+MONITOR_BIND=127.0.0.1
+MONITOR_PORT=8090
+```
+
+Run `docker compose up --build -d` after changing these settings. The example
+publishes http://localhost:8090; for trusted LAN access use the server's LAN IP
+as `MONITOR_BIND`. The container port and health check remain on 8080.
+Keep machine-specific settings in `.env`, which Git ignores, rather than editing
+`compose.yaml`. If `.env` already exists, edit it without replacing other settings.
 There is no login yet: anyone able to reach the port can read, change, back up,
 and restore the system. Do not expose this version to the internet.
 

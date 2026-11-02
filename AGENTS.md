@@ -38,3 +38,6 @@ handling. `ensure_host_checks` backfills legacy assignments at startup and resto
 GitHub repository: https://github.com/camdenyoung/network-monitor (public).
 Git HTTPS credentials are not configured locally; use the connected GitHub app
 for publishing if needed. Never upload runtime databases or secrets.
+
+Compose host address/port use MONITOR_BIND and MONITOR_PORT in a gitignored
+.env file. Keep the container port and health check on 8080. Maintain .env.example.
