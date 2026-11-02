@@ -5,6 +5,8 @@ services:
       - "${MONITOR_BIND:-127.0.0.1}:${MONITOR_PORT:-8080}:8080"
     volumes:
       - monitor-data:/data
+      # Share the host timezone so backup filenames use the host local time.
+      - /etc/localtime:/etc/localtime:ro
     environment:
       MONITOR_DATA: /data
       MONITOR_ADMIN_PASSWORD: ${MONITOR_ADMIN_PASSWORD:-}

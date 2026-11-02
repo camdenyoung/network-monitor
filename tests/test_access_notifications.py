@@ -225,9 +225,9 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertIn(flag, cookie)
 
     def test_backup_requires_admin_and_excludes_live_sessions(self):
-        with patch.object(server.time, 'gmtime', return_value=(2026, 11, 2, 8, 9, 10, 0, 306, 0)):
+        with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):
             response = self.request('/api/backup', token=self.admin_token)
-        self.assertEqual(response['filename'], 'network-monitor-backup-2026-11-02_08-09-10_UTC.sqlite3')
+        self.assertEqual(response['filename'], 'network-monitor-backup-2026-11-02_19-09-10.sqlite3')
         self.assertEqual(response['status'], 200)
         restored = sqlite3.connect(':memory:')
         try:

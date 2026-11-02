@@ -246,4 +246,6 @@ shared active background follows toggles and restored browser preferences.
 
 The product name is Network Monitor. Retain legacy field-monitor localStorage keys
 to preserve browser preferences. Complete backup downloads use a server-generated
-network-monitor-backup-YYYY-MM-DD_HH-MM-SS_UTC.sqlite3 filename via Content-Disposition.
+network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposition,
+using the monitoring host local timezone. Compose mounts /etc/localtime read-only
+from the host so container time follows the host, including daylight saving.

@@ -1102,8 +1102,8 @@ class Handler(BaseHTTPRequestHandler):
                 destination.commit()
                 payload = destination.serialize()
                 destination.close()
-            # UTC makes portable backup filenames unambiguous across machines.
-            stamp = time.strftime('%Y-%m-%d_%H-%M-%S_UTC', time.gmtime())
+            # Use the monitoring host timezone, shared with the container by Compose.
+            stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
             self.send(payload, 'application/octet-stream',
                       filename=f'network-monitor-backup-{stamp}.sqlite3')
         elif self.path.startswith('/api/history?'):
