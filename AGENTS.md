@@ -261,3 +261,8 @@ deployment for the selected paused project; it never creates a run or resets his
 issues or per-service pause flags. New deployment remains a separate action and
 clears paused_run. Resume requires fresh reads and invalidates pre-pause in-flight
 results. Paused deployment survives restart; restore remains paused but resumable.
+
+Pause/Resume all monitoring is one toggle button. Running uses the active green
+background; paused uses a slow flashing amber background (static amber when reduced
+motion is requested). Resuming retains the paused deployment and still requires
+selecting its project. No existing deployment means Resume is disabled.

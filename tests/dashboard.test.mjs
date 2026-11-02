@@ -683,13 +683,35 @@ assert.ok(statusPage.indexOf('id="view-list"') < statusPage.indexOf('id="devices
 fixture.settings.active_run = '0';
 fixture.settings.paused_run = '1';
 await namedMain.refresh();
-assert.equal(element('resume').hidden, false);
-assert.equal(element('resume').disabled, false);
-assert.equal(element('pause').disabled, true);
+assert.equal(element('monitoring-toggle').textContent, 'Resume all monitoring');
+assert.equal(element('monitoring-toggle').disabled, false);
+assert.equal(element('monitoring-toggle').getAttribute('aria-pressed'), 'false');
 assert.match(element('active').textContent, /Paused: Test · deployment 1/);
 fixture.settings.active_run = '1';
 fixture.settings.paused_run = '0';
 await namedMain.refresh();
-assert.equal(element('resume').hidden, true);
-assert.equal(element('pause').disabled, false);
+assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
+assert.equal(element('monitoring-toggle').disabled, false);
+assert.equal(element('monitoring-toggle').getAttribute('aria-pressed'), 'true');
 console.log('Resume controls preserve paused deployment identity.');
+
+const monitoringRequests = [];
+const originalNamedFetch = namedMain.fetch;
+namedMain.fetch = async (path, options) => {
+    if (options) {
+        monitoringRequests.push({path,body:JSON.parse(options.body)});
+        fixture.settings.active_run = path === '/api/pause' ? '0' : '1';
+        fixture.settings.paused_run = path === '/api/pause' ? '1' : '0';
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return originalNamedFetch(path, options);
+};
+await element('monitoring-toggle').onclick();
+assert.equal(monitoringRequests[0].path, '/api/pause');
+assert.equal(element('monitoring-toggle').textContent, 'Resume all monitoring');
+await element('monitoring-toggle').onclick();
+assert.equal(monitoringRequests[1].path, '/api/resume');
+assert.equal(monitoringRequests[1].body.project, '1');
+assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
+assert.match(html, /@keyframes paused-monitoring/);
+assert.match(html, /prefers-reduced-motion: reduce/);

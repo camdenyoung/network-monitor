@@ -75,6 +75,15 @@
     .project-settings-panel .project-check input { width: 18px; height: 18px; flex: 0 0 18px; margin: 3px 0 0; }
     .project-logo-preview { height: 88px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; border: 1px dashed #435b78; border-radius: 6px; color: #a9bad0; }
     .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
+    #monitoring-toggle[aria-pressed="true"] { background: #176959; }
+    #monitoring-toggle.monitoring-paused { background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
+    @keyframes paused-monitoring {
+      0%, 100% { background: #765019; }
+      50% { background: #352819; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #monitoring-toggle.monitoring-paused { animation: none; }
+    }
     @media (max-width: 760px) { .project-settings-grid { grid-template-columns: 1fr; } }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
@@ -93,8 +102,7 @@
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
     <button data-admin id="activate" class="primary">Activate / start new deployment</button>
-    <button data-admin id="resume" hidden>Resume all monitoring</button>
-    <button data-admin id="pause">Pause all monitoring</button>
+    <button data-admin id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
     <small>15-second polling · issue persistence is configurable per service</small>
   </section>
   <div class="display-controls" role="group" aria-label="Dashboard section visibility">
@@ -638,11 +646,14 @@
         el('project-feedback').textContent = '';
       }
       const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
-      el('pause').disabled = !run;
-      el('resume').hidden = Boolean(run) || !pausedRun;
-      el('resume').disabled = String(pausedRun?.project) !== selectedProject;
-      el('resume').title = pausedRun && String(pausedRun.project) !== selectedProject
-        ? 'Select the paused project to resume its deployment.' : '';
+      const monitoringButton = el('monitoring-toggle');
+      monitoringButton.textContent = run ? 'Pause all monitoring' : 'Resume all monitoring';
+      monitoringButton.setAttribute('aria-pressed', String(Boolean(run)));
+      monitoringButton.classList.toggle('monitoring-paused', !run);
+      monitoringButton.disabled = !run && (!pausedRun || String(pausedRun.project) !== selectedProject);
+      monitoringButton.title = !run && !pausedRun ? 'Start a deployment to enable monitoring.'
+        : !run && String(pausedRun.project) !== selectedProject ? 'Select the paused project to resume its deployment.'
+        : run ? 'Monitoring is running. Click to pause.' : 'Monitoring is paused. Click to resume.';
       el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
         : pausedRun ? 'Paused: ' + state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'Monitoring paused';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
@@ -1274,8 +1285,10 @@
 
     el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
     el('activate').onclick = () => performAction('activate', {project: selectedProject}).catch(report);
-    el('resume').onclick = () => performAction('resume', {project: selectedProject}).catch(report);
-    el('pause').onclick = () => performAction('pause', {}).catch(report);
+    el('monitoring-toggle').onclick = () => {
+      const running = Number(state.settings.active_run) !== 0;
+      return performAction(running ? 'pause' : 'resume', running ? {} : {project: selectedProject}).catch(report);
+    };
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
       const menu = event.target.closest('.action-menu');
