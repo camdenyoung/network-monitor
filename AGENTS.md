@@ -30,6 +30,14 @@ The user requested readable, consistently indented code and explanatory comments
   is assigned, so project controls stay in place. Public status stacks the project
   logo above the project name in the centre, with Network Status on the left and
   the sign-in/dashboard button on the right (stack branding beneath on narrow screens).
+- Admins can duplicate a project into a uniquely named inactive project, copying
+  active assignments, current service configs/flags, logo and status settings against
+  shared inventory. Never copy runs, samples, incidents, sessions or outbox messages.
+- Public status supports persisted hostname/alias/host-status/severity sorting.
+- Status acknowledgement is an opt-in per-project Admin setting, default off.
+  Require a signed-in Admin/Operator and CSRF; enforce the flag/current project,
+  visible monitored source and dependency visibility on /api/status-ack. Anonymous
+  users and View Only users remain read-only.
 - Admins can rename projects and upload/replace/remove PNG/JPEG event logos.
   Logo blobs live in project_logos and are included in backups. Limit 2 MB and
   4096 pixels per side; disallow SVG/active formats. Public logo access is restricted

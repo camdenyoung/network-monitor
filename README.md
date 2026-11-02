@@ -22,8 +22,8 @@ publishes http://localhost:8090; for trusted LAN access use the server's LAN IP
 as `MONITOR_BIND`. The container port and health check remain on 8080.
 Keep machine-specific settings in `.env`, which Git ignores, rather than editing
 `compose.yaml`. If `.env` already exists, edit it without replacing other settings.
-The main dashboard requires login. The read-only `/status` overview is intentionally
-accessible without credentials. Use an HTTPS reverse proxy before sending passwords
+The main dashboard requires login. The `/status` overview is intentionally accessible without credentials and remains
+read-only for anonymous visitors. Use an HTTPS reverse proxy before sending passwords
 across untrusted networks; set `MONITOR_SECURE_COOKIE=true` when using HTTPS.
 
 The `monitor-data` named volume holds the SQLite database, including configuration,
@@ -159,7 +159,7 @@ CLI recovery command and versioned encrypted archives remain planned.
 
 ## Explicit limitations / next milestones
 
-- No public relay or remote acknowledgement yet. Outbound Telegram and WhatsApp
+- No public relay or chat-based remote acknowledgement yet. Outbound Telegram and WhatsApp
   Business notifications are supported directly from the local server.
 - Built-in TLS, audit actor identity and credential encryption remain pending.
   Account passwords are hashed; network/provider credentials in backups remain plaintext.
@@ -342,3 +342,20 @@ Both dashboards have **Hide services / Show services** for a host-only Cards or
 List display. Host details, incident badges/colours, and incident lists remain.
 This is a display preference, not a monitoring pause. It is saved per dashboard
 in browser storage and restored after refresh.
+
+**Edit selected project → Duplicate selected project** creates a new inactive
+project with a unique name. It copies the logo, current device assignments and
+aliases, services, monitoring/visibility/notification flags and status settings.
+Inventory records remain shared. History, incidents and deployment runs stay with
+the original project; review the copy before activating it. Removed assignments
+and removed services are excluded.
+
+Public status **Sort hosts** offers hostname A–Z/Z–A, alias, host status in either
+priority order, and incident severity. The selection is saved in browser storage
+and applies to both Cards and List views.
+
+Admins can enable **Allow status-page acknowledgement** under **Edit selected
+project**. It defaults off per project. When enabled, signed-in Admins and Operators
+see Acknowledge buttons on active public-status incidents. Anonymous visitors and
+View Only users stay read-only. Disabling the setting removes that ability from
+the status page; normal authorised acknowledgement on the main dashboard remains.

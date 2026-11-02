@@ -108,6 +108,15 @@
         <label>Project name<input name="name" required maxlength="100"></label>
         <button>Save project name</button>
       </form>
+      <form id="project-duplicate-form">
+        <label>Duplicate project as<input name="name" required maxlength="100"></label>
+        <button>Duplicate selected project</button>
+      </form>
+      <small>Copies configuration and logo against the same inventory. History stays with the original project; the duplicate is not activated.</small>
+      <form id="project-status-form">
+        <label>Allow status-page acknowledgement for signed-in Admins and Operators<input name="enabled" type="checkbox"></label>
+        <button>Save status dashboard settings</button>
+      </form>
       <form id="project-logo-form">
         <label>Project logo (PNG or JPEG, up to 2 MB)<input name="logo" type="file" accept="image/png,image/jpeg" required></label>
         <button>Upload / replace logo</button>
@@ -469,6 +478,8 @@
       if (editingProject !== selectedProject) {
         el('project-edit-form').elements.namedItem('name').value = project?.name || '';
         el('project-logo-form').reset();
+        el('project-duplicate-form').elements.namedItem('name').value = project ? (project.name + ' copy').slice(0, 100) : '';
+        el('project-status-form').elements.namedItem('enabled').checked = Boolean(project?.status_ack_enabled);
         editingProject = selectedProject;
         el('project-feedback').textContent = '';
       }
@@ -1012,6 +1023,28 @@
       try {
         await request('project-edit', {project: selectedProject, name});
         el('project-feedback').textContent = 'Project name updated successfully.';
+        await refresh();
+      } catch (error) { el('project-feedback').textContent = error.message; }
+    };
+    el('project-duplicate-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        await request('project-duplicate', {project: selectedProject, name: form.elements.namedItem('name').value});
+        form.reset();
+        el('project-feedback').textContent = 'Project duplicated successfully. Select it from the project menu to review or activate it.';
+        await refresh();
+      } catch (error) { el('project-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
+    el('project-status-form').onsubmit = async event => {
+      event.preventDefault();
+      try {
+        await request('project-status-settings', {project: selectedProject,
+          enabled: event.target.elements.namedItem('enabled').checked});
+        el('project-feedback').textContent = 'Status dashboard acknowledgement settings saved.';
         await refresh();
       } catch (error) { el('project-feedback').textContent = error.message; }
     };

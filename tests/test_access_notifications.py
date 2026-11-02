@@ -318,7 +318,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         incident = public['incidents'][0]
         self.assertEqual(incident['device'], 'Switch-1')
         self.assertEqual(incident['alias'], 'Stage switch')
-        self.assertEqual(set(incident), {'device', 'alias', 'service', 'status', 'opened'})
+        self.assertEqual(set(incident), {'id', 'device', 'alias', 'service', 'status', 'opened'})
         incident_id = server.snapshot()['incident_lists']['active'][0]['id']
         server.mutate('ack', {'id': incident_id})
         self.assertEqual(json.loads(self.request('/api/status')['content'])['incidents'], [])
@@ -572,6 +572,96 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertEqual(self.request('/api/assignment-remove', {'assignment': 1}, user_token, csrf)['status'], 403)
         self.assertEqual(self.request('/api/service-monitoring', {'service': service['id'], 'monitoring': False}, self.admin_token, self.admin['csrf'])['status'], 200)
         self.assertEqual(self.request('/api/assignment-remove', {'assignment': 1}, self.admin_token, self.admin['csrf'])['status'], 200)
+
+    def test_duplicate_project_copies_current_configuration_but_not_history(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+        server.mutate('service', {'assignment': 1, 'name': 'RSSI', 'kind': 'snmp',
+            'target': '.1.2.3', 'direction': 'below', 'warning': '-65', 'critical': '-75',
+            'units': 'dBm', 'community': 'test-community'})
+        service = next(row for row in server.snapshot()['services'] if row['name'] == 'RSSI')
+        server.mutate('service-monitoring', {'service': service['id'], 'monitoring': False})
+        server.mutate('toggle', {'id': 1, 'field': 'notifications'})
+        server.mutate('project-status-settings', {'project': 1, 'enabled': True})
+        self.upload_logo(self.admin_token, self.admin['csrf'], self.logo_image())
+        response = self.request('/api/project-duplicate', {'project': 1, 'name': 'Second deployment'},
+                                self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        state = server.snapshot()
+        duplicate = next(row for row in state['projects'] if row['name'] == 'Second deployment')
+        assignment = next(row for row in state['assignments'] if row['project'] == duplicate['id'])
+        self.assertEqual(assignment['device'], 1)
+        self.assertEqual(assignment['alias'], 'Stage switch')
+        self.assertEqual(assignment['notifications'], 0)
+        self.assertEqual(duplicate['status_ack_enabled'], 1)
+        self.assertIsNotNone(duplicate['logo_url'])
+        copied = next(row for row in state['services'] if row['assignment'] == assignment['id'] and row['kind'] == 'snmp')
+        self.assertEqual(copied['warning'], -65)
+        self.assertEqual(copied['critical'], -75)
+        self.assertEqual(copied['monitoring'], 0)
+        self.assertEqual(copied['revision'], 1)
+        self.assertEqual(len(state['devices']), 1)
+        self.assertEqual(len(state['runs']), 1)
+        self.assertEqual(state['settings']['active_run'], '1')
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT community FROM services WHERE id=?', (copied['id'],)).fetchone()[0], 'test-community')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples WHERE service=?', (copied['id'],)).fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM project_logos').fetchone()[0], 2)
+        server.mutate('service-edit', {'service': service['id'], 'name': 'Changed', 'kind': 'snmp',
+            'target': '.1.9', 'direction': 'below', 'warning': '-50', 'critical': '-60'})
+        self.assertEqual(next(row for row in server.snapshot()['services'] if row['id'] == copied['id'])['name'], 'RSSI')
+
+    def test_duplicate_project_rejects_duplicate_names_and_skips_archived_assignments(self):
+        self.create_host()
+        server.mutate('assignment-remove', {'assignment': 1})
+        server.mutate('project-duplicate', {'project': 1, 'name': 'Empty copy'})
+        self.assertEqual(len(server.snapshot()['assignments']), 1)
+        response = self.request('/api/project-duplicate', {'project': 1, 'name': 'Deployment'},
+                                self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 400)
+        self.assertEqual(len(server.snapshot()['projects']), 2)
+
+    def test_status_acknowledgement_requires_project_opt_in_and_operator_session(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        token, operator = self.create_operator()
+        self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token, operator['csrf'])['status'], 400)
+        self.assertEqual(self.request('/api/project-status-settings', {'project':1,'enabled':True},
+                                      self.admin_token,self.admin['csrf'])['status'], 200)
+        for actor_token in (None, self.viewer_token):
+            overview = json.loads(self.request('/api/status', token=actor_token)['content'])
+            self.assertTrue(overview['acknowledge_enabled'])
+            self.assertFalse(overview['can_acknowledge'])
+            self.assertNotIn('csrf', overview)
+        overview = json.loads(self.request('/api/status', token=token)['content'])
+        self.assertTrue(overview['can_acknowledge'])
+        self.assertEqual(overview['csrf'], operator['csrf'])
+        self.assertEqual(self.request('/api/status-ack', {'id': incident['id']})['status'], 401)
+        self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, self.viewer_token, self.viewer['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token)['status'], 403)
+        self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token, operator['csrf'])['status'], 200)
+        self.assertEqual(server.status_overview()['incidents'], [])
+
+    def test_status_ack_disabling_and_hidden_hosts_are_enforced_server_side(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('project-status-settings', {'project':1,'enabled':True})
+        server.mutate('toggle', {'id':1,'field':'visible'})
+        self.assertEqual(self.request('/api/status-ack', {'id':incident['id']}, self.admin_token,self.admin['csrf'])['status'],400)
+        server.mutate('toggle', {'id':1,'field':'visible'})
+        server.mutate('project-status-settings', {'project':1,'enabled':False})
+        self.assertEqual(self.request('/api/status-ack', {'id':incident['id']}, self.admin_token,self.admin['csrf'])['status'],400)
+        self.assertIsNone(server.snapshot()['incident_lists']['active'][0]['acknowledged'])
+        token, operator = self.create_operator()
+        for action in ('project-duplicate','project-status-settings'):
+            self.assertEqual(self.request('/api/'+action, {'project':1,'name':'Denied','enabled':True}, token,operator['csrf'])['status'],403)
 
     def test_provider_payloads_use_group_id_and_three_whatsapp_parameters(self):
         self.configure_channels()

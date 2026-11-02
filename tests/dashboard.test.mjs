@@ -415,3 +415,85 @@ assert.doesNotMatch(publicNodes.get('devices').innerHTML, /<th>Services<\/th>|Re
 publicNodes.get('toggle-services').onclick();
 assert.match(publicNodes.get('devices').innerHTML, /Remote RSSI/);
 console.log('Host-only Cards/List views and service visibility persistence passed on both dashboards.');
+
+publicData.devices = [
+    {name:'SW10',alias:'Alpha',status:'healthy',incident_status:null,services:[]},
+    {name:'SW2',alias:'Zulu',status:'unreachable',incident_status:'critical',services:[]},
+    {name:'SW1',alias:'Middle',status:'unknown',incident_status:'warning',services:[]},
+];
+publicNodes.get('host-sort').value = 'hostname';
+publicNodes.get('host-sort').onchange();
+await hostOnlyPublic.refresh();
+let ordered = publicNodes.get('devices').innerHTML;
+assert.ok(ordered.indexOf('SW1 -') < ordered.indexOf('SW2 -'));
+assert.ok(ordered.indexOf('SW2 -') < ordered.indexOf('SW10 -'));
+publicNodes.get('host-sort').value = 'status';
+publicNodes.get('host-sort').onchange();
+ordered = publicNodes.get('devices').innerHTML;
+assert.ok(ordered.indexOf('SW2 -') < ordered.indexOf('SW1 -'));
+assert.ok(ordered.indexOf('SW1 -') < ordered.indexOf('SW10 -'));
+publicNodes.get('host-sort').value = 'status-ok';
+publicNodes.get('host-sort').onchange();
+assert.ok(publicNodes.get('devices').innerHTML.indexOf('SW10 -') < publicNodes.get('devices').innerHTML.indexOf('SW2 -'));
+publicNodes.get('host-sort').value = 'severity';
+publicNodes.get('host-sort').onchange();
+assert.ok(publicNodes.get('devices').innerHTML.indexOf('SW2 -') < publicNodes.get('devices').innerHTML.indexOf('SW1 -'));
+publicNodes.get('host-sort').value = 'alias';
+publicNodes.get('host-sort').onchange();
+assert.equal(publicStorage.get('field-monitor.status.host-sort'), 'alias');
+const sortedPublic = vm.createContext({
+    document:publicContext.document,localStorage:publicContext.localStorage,
+    fetch:async () => ({ok:true,json:async () => publicData}),setInterval(){},
+});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(sortedPublic);
+await sortedPublic.refresh();
+assert.equal(publicNodes.get('host-sort').value, 'alias');
+ordered = publicNodes.get('devices').innerHTML;
+assert.ok(ordered.indexOf('SW10 -') < ordered.indexOf('SW1 -'));
+assert.ok(ordered.indexOf('SW1 -') < ordered.indexOf('SW2 -'));
+publicData.acknowledge_enabled = true;
+publicData.can_acknowledge = true;
+publicData.csrf = 'status-csrf';
+publicData.incidents = [{id:42,device:'SW2',alias:'Zulu',service:'Host ping',status:'unreachable',opened:now}];
+await sortedPublic.refresh();
+assert.match(publicNodes.get('incidents').innerHTML, /data-status-ack="42"/);
+let statusAcknowledgement;
+sortedPublic.fetch = async (path, options) => {
+    if (path === '/api/status-ack') {
+        statusAcknowledgement = {headers:options.headers,body:JSON.parse(options.body)};
+        publicData.incidents = [];
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return {ok:true,json:async () => publicData};
+};
+await publicNodes.get('incidents').onclick({target:{dataset:{statusAck:'42'},disabled:false}});
+assert.equal(statusAcknowledgement.body.id, '42');
+assert.equal(statusAcknowledgement.headers['X-CSRF-Token'], 'status-csrf');
+assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
+publicData.can_acknowledge = false;
+publicData.incidents = [{id:42,device:'SW2',alias:'Zulu',service:'Host ping',status:'unreachable',opened:now}];
+await sortedPublic.refresh();
+assert.doesNotMatch(publicNodes.get('incidents').innerHTML, /data-status-ack/);
+assert.equal(publicNodes.get('status-ack-note').hidden, false);
+
+let projectSubmission;
+hostOnlyMain.fetch = async (path, options) => {
+    if (options) {
+        projectSubmission = {path,body:JSON.parse(options.body)};
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return {ok:true,json:async () => fixture};
+};
+const duplicateForm = element('project-duplicate-form');
+duplicateForm.elements.namedItem('name').value = 'Copied event';
+await duplicateForm.onsubmit({preventDefault(){},target:duplicateForm});
+assert.equal(projectSubmission.path, '/api/project-duplicate');
+assert.equal(projectSubmission.body.project, '1');
+assert.equal(projectSubmission.body.name, 'Copied event');
+assert.equal(duplicateForm.elements.namedItem('name').value, '');
+const statusSettingsForm = element('project-status-form');
+statusSettingsForm.elements.namedItem('enabled').checked = true;
+await statusSettingsForm.onsubmit({preventDefault(){},target:statusSettingsForm});
+assert.equal(projectSubmission.path, '/api/project-status-settings');
+assert.equal(projectSubmission.body.enabled, true);
+console.log('Project duplication/settings, persisted host sorting and authenticated status acknowledgement UI tests passed.');

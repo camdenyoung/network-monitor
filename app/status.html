@@ -76,6 +76,11 @@
     <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
     <button id="view-cards" aria-pressed="true">Cards</button>
     <button id="view-list" aria-pressed="false">List</button>
+    <label>Sort hosts<select id="host-sort">
+      <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
+      <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
+      <option value="status-ok">Host status: healthy first</option><option value="severity">Incident severity</option>
+    </select></label>
     <button id="toggle-services" aria-pressed="true">Hide services</button>
     <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
     <datalist id="service-filter-options"></datalist>
@@ -84,6 +89,8 @@
   <small>Service filters narrow host readings. Incident lists show all active incidents.</small>
   <section aria-labelledby="incidents-title">
     <h2 id="incidents-title">Active incidents</h2>
+    <p id="status-ack-note" hidden>Sign in as an Admin or Operator to acknowledge incidents from this page.</p>
+    <p id="status-ack-feedback" role="status"></p>
     <div id="incidents" aria-live="polite"></div>
   </section>
   <div id="devices" class="grid"></div><p id="updated"></p>
@@ -93,11 +100,14 @@
     const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed',paused:'Paused'};
     let publicState = null;
     let hostView = 'cards';
+    let hostSort = 'hostname';
     let showServices = true;
     let serviceFilter = '';
     let showHosts = true;
     try {
       showHosts = localStorage.getItem('field-monitor.status.hide-hosts') !== 'true';
+      const savedSort = localStorage.getItem('field-monitor.status.host-sort');
+      if (['hostname','hostname-desc','alias','status','status-ok','severity'].includes(savedSort)) hostSort = savedSort;
       showServices = localStorage.getItem('field-monitor.status.hide-services') !== 'true';
       hostView = localStorage.getItem('field-monitor.status.host-view') === 'list' ? 'list' : 'cards';
       serviceFilter = (localStorage.getItem('field-monitor.status.service-filter') || '').slice(0, 100);
@@ -121,6 +131,7 @@
     }
     function saveHostDisplay() {
       try {
+        localStorage.setItem('field-monitor.status.host-sort', hostSort);
         localStorage.setItem('field-monitor.status.hide-services', String(!showServices));
         localStorage.setItem('field-monitor.status.host-view', hostView);
         localStorage.setItem('field-monitor.status.service-filter', serviceFilter);
@@ -128,6 +139,7 @@
       hostVisibility();
       if (publicState) renderHosts();
     }
+    document.getElementById('host-sort').onchange = () => { hostSort = document.getElementById('host-sort').value; saveHostDisplay(); };
     document.getElementById('toggle-services').onclick = () => { showServices = !showServices; saveHostDisplay(); };
     document.getElementById('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
     document.getElementById('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
@@ -137,10 +149,27 @@
     };
     document.getElementById('clear-service-filter').onclick = () => { serviceFilter = ''; saveHostDisplay(); };
 
+    function compareHosts(left, right) {
+      const name = (left.name || '').localeCompare(right.name || '', undefined, {numeric:true,sensitivity:'base'});
+      if (hostSort === 'hostname-desc') return -name;
+      if (hostSort === 'alias') return (left.alias || '').localeCompare(right.alias || '', undefined, {numeric:true,sensitivity:'base'}) || name;
+      if (hostSort === 'status' || hostSort === 'status-ok') {
+        const rank = {unreachable:0,unknown:1,healthy:2};
+        const difference = (rank[left.status] ?? 1) - (rank[right.status] ?? 1);
+        return (hostSort === 'status-ok' ? -difference : difference) || name;
+      }
+      if (hostSort === 'severity') {
+        const rank = {critical:0,warning:1};
+        return (rank[left.incident_status] ?? 2) - (rank[right.incident_status] ?? 2) || name;
+      }
+      return name;
+    }
+
     function renderHosts() {
-      const matches = publicState.devices.filter(device => !serviceFilter.trim() || device.services.some(serviceMatches));
+      const matches = publicState.devices.filter(device => !serviceFilter.trim() || device.services.some(serviceMatches)).sort(compareHosts);
       const online = matches.filter(device => device.status === 'healthy').length;
       document.getElementById('summary').textContent = `Showing ${matches.length} of ${publicState.devices.length} displayed hosts · ${online} online`;
+      document.getElementById('host-sort').value = hostSort;
       document.getElementById('toggle-services').textContent = showServices ? 'Hide services' : 'Show services';
       document.getElementById('toggle-services').setAttribute('aria-pressed', String(showServices));
       document.getElementById('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
@@ -177,11 +206,13 @@
         if (data.logo_url && image.getAttribute('src') !== data.logo_url) image.setAttribute('src', data.logo_url);
         image.alt = (data.project || 'Project') + ' logo';
         publicState = data;
+        document.getElementById('status-ack-note').hidden = !data.acknowledge_enabled || data.can_acknowledge;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
+            ${data.can_acknowledge ? `<button data-status-ack="${incident.id}">Acknowledge</button>` : ''}
           </div>`).join('') || '<p>No active incidents.</p>';
         renderHosts();
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
@@ -189,6 +220,20 @@
         document.getElementById('summary').textContent = error.message + ' — displayed information may be stale.';
       }
     }
+    document.getElementById('incidents').onclick = async event => {
+      const id = event.target.dataset.statusAck;
+      if (!id || !publicState?.can_acknowledge) return;
+      event.target.disabled = true;
+      try {
+        const response = await fetch('/api/status-ack', {method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRF-Token':publicState.csrf}, body:JSON.stringify({id})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        document.getElementById('status-ack-feedback').textContent = 'Incident acknowledged.';
+        await refresh();
+      } catch (error) { document.getElementById('status-ack-feedback').textContent = error.message; }
+      finally { event.target.disabled = false; }
+    };
     refresh(); setInterval(refresh,10000);
   </script>
 </body></html>

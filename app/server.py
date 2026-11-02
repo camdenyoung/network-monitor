@@ -83,10 +83,16 @@ def initialize():
         ensure_service_library(db)
         migrate_value_types(db)
         ensure_host_checks(db)
+        migrate_project_settings(db)
         logos.ensure_table(db)
         notifications.ensure_tables(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
+
+
+def migrate_project_settings(db):
+    if 'status_ack_enabled' not in {row[1] for row in db.execute('PRAGMA table_info(projects)')}:
+        db.execute('ALTER TABLE projects ADD COLUMN status_ack_enabled INTEGER NOT NULL DEFAULT 0')
 
 
 def migrate_inventory_addresses(db):
@@ -612,6 +618,54 @@ def insert_service(db, assignment_id, details):
         (next_record_id(db, 'services'), assignment_id, *details))
 
 
+def duplicate_project(db, source_id, name):
+    """Copy current configuration against shared inventory, with fresh history."""
+    name = name.strip()
+    if not name or len(name) > 100:
+        raise ValueError('Project names must contain 1–100 characters')
+    source = db.execute('SELECT * FROM projects WHERE id=?', (source_id,)).fetchone()
+    if source is None:
+        raise ValueError('Unknown source project')
+    project = db.execute('INSERT INTO projects(name,status_ack_enabled) VALUES(?,?)',
+                         (name, source['status_ack_enabled'])).lastrowid
+    db.execute("""INSERT INTO project_logos(project,image,mime,digest)
+        SELECT ?,image,mime,digest FROM project_logos WHERE project=?""", (project, source_id))
+    for assignment in db.execute('SELECT * FROM assignments WHERE project=? AND removed=0', (source_id,)).fetchall():
+        target = next_record_id(db, 'assignments')
+        db.execute("""INSERT INTO assignments
+            (id,project,device,alias,monitoring,visible,notifications) VALUES(?,?,?,?,?,?,?)""",
+            (target, project, assignment['device'], assignment['alias'], assignment['monitoring'],
+             assignment['visible'], assignment['notifications']))
+        fields = ('name','kind','target','community','unit','scale','units','direction',
+                  'warning','critical','persistence','value_type','state_map','monitoring')
+        for service in db.execute('SELECT * FROM services WHERE assignment=? AND enabled=1', (assignment['id'],)).fetchall():
+            values = (next_record_id(db, 'services'), target, *(service[field] for field in fields))
+            db.execute('INSERT INTO services(id,assignment,' + ','.join(fields) + ') VALUES(' +
+                       ','.join('?' for _ in values) + ')', values)
+    ensure_host_checks(db)
+
+
+def acknowledge_status_incident(db, incident_id):
+    """Enforce active-project opt-in and the same public incident visibility rules."""
+    row = db.execute("""SELECT i.*,s.assignment,s.kind,s.revision,s.monitoring_since,d.address
+        FROM incidents i JOIN services s ON s.id=i.service
+        JOIN assignments a ON a.id=s.assignment JOIN projects p ON p.id=a.project
+        JOIN devices d ON d.id=a.device JOIN runs r ON r.project=p.id AND r.id=i.run
+        JOIN settings setting ON setting.key='active_run' AND r.id=CAST(setting.value AS INTEGER)
+        WHERE i.id=? AND i.closed IS NULL AND p.status_ack_enabled=1
+          AND a.visible=1 AND a.monitoring=1 AND a.removed=0 AND s.enabled=1 AND s.monitoring=1""", (incident_id,)).fetchone()
+    if not row:
+        raise ValueError('Status acknowledgement disabled or incident unavailable')
+    if row['kind'] != 'ping':
+        latest = db.execute("""SELECT status FROM samples WHERE service=? AND run=? AND revision=?
+            AND timestamp>=? ORDER BY id DESC LIMIT 1""",
+            (row['service'], row['run'], row['revision'], row['monitoring_since'])).fetchone()
+        if not host_is_up(db, row, row['run']) or not latest or latest[0] in ('blocked','paused','unknown'):
+            raise ValueError('Service incident is suppressed')
+    db.execute('UPDATE incidents SET acknowledged=COALESCE(acknowledged,?) WHERE id=?',
+               (time.time(), incident_id))
+
+
 def mutate(action, body):
     with LOCK, connect() as db:
         if action == 'project':
@@ -619,6 +673,17 @@ def mutate(action, body):
             if not name or len(name) > 100:
                 raise ValueError('Project names must contain 1–100 characters')
             db.execute('INSERT INTO projects(name) VALUES(?)', (name,))
+        elif action == 'project-duplicate':
+            duplicate_project(db, int(body['project']), body['name'])
+        elif action == 'project-status-settings':
+            if type(body['enabled']) is not bool:
+                raise ValueError('Enabled must be true or false')
+            cursor = db.execute('UPDATE projects SET status_ack_enabled=? WHERE id=?',
+                                (int(body['enabled']), int(body['project'])))
+            if cursor.rowcount != 1:
+                raise ValueError('Unknown project')
+        elif action == 'status-ack':
+            acknowledge_status_incident(db, int(body['id']))
         elif action == 'project-edit':
             name = body['name'].strip()
             if not name or len(name) > 100:
@@ -806,7 +871,7 @@ def status_overview():
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
-        return {'project': None, 'logo_url': None, 'devices': [], 'incidents': [], 'updated': time.time()}
+        return {'project': None, 'logo_url': None, 'devices': [], 'incidents': [], 'acknowledge_enabled': False, 'updated': time.time()}
     project = next(row for row in data['projects'] if row['id'] == run['project'])
     devices = {row['id']: row for row in data['devices']}
     latest = {row['service']: row for row in data['latest']}
@@ -844,12 +909,12 @@ def status_overview():
         assignment = assignments.get(service['assignment']) if service else None
         if assignment is None:
             continue
-        incidents.append({'device': devices[assignment['device']]['name'],
+        incidents.append({'id': incident['id'], 'device': devices[assignment['device']]['name'],
             'alias': assignment['alias'], 'service': service['name'],
             'status': incident['status'], 'opened': incident['opened']})
     return {'project': project['name'],
             'logo_url': project['logo_url'].replace('/api/project-logo?', '/api/public-logo?') if project['logo_url'] else None, 'devices': output,
-            'incidents': incidents, 'updated': time.time()}
+            'incidents': incidents, 'acknowledge_enabled': bool(project['status_ack_enabled']), 'updated': time.time()}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -874,7 +939,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send('{"error":"Change your temporary password first"}', status=403)
             return None
         if (admin and user['role'] != 'admin') or (roles is not None and user['role'] not in roles):
-            self.send('{"error":"Administrator access required"}', status=403)
+            message = 'Administrator access required' if admin else 'Admin or Operator access required'
+            self.send(json.dumps({'error': message}), status=403)
             return None
         return user
 
@@ -916,7 +982,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/status':
             return self.send(Path(__file__).with_name('status.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/status':
-            return self.send(json.dumps(status_overview()))
+            overview = status_overview()
+            with connect() as db:
+                user = auth.session_user(db, self.headers.get('Cookie'))
+            can_acknowledge = bool(overview['acknowledge_enabled'] and user
+                and not user['must_change_password'] and user['role'] in ('admin','operator'))
+            overview['can_acknowledge'] = can_acknowledge
+            if can_acknowledge:
+                overview['csrf'] = user['csrf']
+            return self.send(json.dumps(overview))
         if self.path == '/':
             with connect() as db:
                 user = auth.session_user(db, self.headers.get('Cookie'))
@@ -986,9 +1060,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"Origin rejected"}', status=403)
         user = None
         if self.path != '/api/login':
-            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password', '/api/ack'),
+            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password', '/api/ack', '/api/status-ack'),
                                      allow_password_change=self.path in ('/api/logout', '/api/password'),
-                                     roles=('admin', 'operator') if self.path == '/api/ack' else None)
+                                     roles=('admin', 'operator') if self.path in ('/api/ack','/api/status-ack') else None)
             if not user:
                 return
             if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), user['csrf']):
@@ -1022,6 +1096,7 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_service_library(candidate)
                     migrate_value_types(candidate)
                     ensure_host_checks(candidate)
+                    migrate_project_settings(candidate)
                     logos.ensure_table(candidate)
                     notifications.ensure_tables(candidate)
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
