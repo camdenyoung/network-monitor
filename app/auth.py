@@ -34,7 +34,8 @@ def ensure_accounts(db, bootstrap_path=None, initial_password=None):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL COLLATE NOCASE UNIQUE,
             password_hash TEXT NOT NULL, role TEXT NOT NULL,
-            must_change_password INTEGER NOT NULL DEFAULT 1
+            must_change_password INTEGER NOT NULL DEFAULT 1,
+            email TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -44,6 +45,9 @@ def ensure_accounts(db, bootstrap_path=None, initial_password=None):
             key TEXT PRIMARY KEY, failures INTEGER NOT NULL, started REAL NOT NULL
         );
     ''')
+    # Legacy accounts retain access and their password policy on upgrade/restore.
+    if 'email' not in {row[1] for row in db.execute('PRAGMA table_info(users)')}:
+        db.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     if bootstrap_path is not None and not db.execute('SELECT 1 FROM users LIMIT 1').fetchone():
         password = initial_password or secrets.token_urlsafe(18)
         encoded = password_hash(password)
@@ -58,7 +62,7 @@ def ensure_accounts(db, bootstrap_path=None, initial_password=None):
 
 
 def public_user(user):
-    return {key: user[key] for key in ('id', 'username', 'role', 'must_change_password')}
+    return {key: user[key] for key in ('id', 'username', 'role', 'must_change_password', 'email')}
 
 
 def session_user(db, cookie_header):
@@ -114,8 +118,10 @@ def manage_user(db, action, body, actor):
         raise ValueError('Admin required')
     if action == 'user-create':
         username, role = user_details(body)
-        db.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?)',
-                   (username, password_hash(body['password']), role))
+        email = email_address(body.get('email', ''))
+        required = password_change_required(body, True)
+        db.execute('''INSERT INTO users(username,password_hash,role,email,must_change_password)
+            VALUES(?,?,?,?,?)''', (username, password_hash(body['password']), role, email, required))
         return
     target = db.execute('SELECT * FROM users WHERE id=?', (int(body['user']),)).fetchone()
     if target is None:
@@ -126,6 +132,10 @@ def manage_user(db, action, body, actor):
         role = None
     else:
         username, role = user_details(body)
+        email = email_address(body.get('email', target['email']))
+        # Explicit choice wins. Older clients retain the previous reset behaviour.
+        default = True if body.get('password') else bool(target['must_change_password'])
+        required = password_change_required(body, default)
     if target['role'] == 'admin' and role != 'admin':
         count = db.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
         if count <= 1:
@@ -134,15 +144,33 @@ def manage_user(db, action, body, actor):
     if action == 'user-delete':
         db.execute('DELETE FROM users WHERE id=?', (target['id'],))
     else:
-        db.execute('UPDATE users SET username=?,role=? WHERE id=?', (username, role, target['id']))
+        db.execute('UPDATE users SET username=?,role=?,email=?,must_change_password=? WHERE id=?',
+                   (username, role, email, required, target['id']))
         if body.get('password'):
-            db.execute('UPDATE users SET password_hash=?,must_change_password=1 WHERE id=?',
+            db.execute('UPDATE users SET password_hash=? WHERE id=?',
                        (password_hash(body['password']), target['id']))
+
+
+def email_address(value):
+    """Store an optional contact address; verification/reset delivery is future work."""
+    if not isinstance(value, str):
+        raise ValueError('Email must be text')
+    value = value.strip()
+    if value and (len(value) > 254 or not re.fullmatch(r'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', value)):
+        raise ValueError('Enter a valid email address')
+    return value
+
+
+def password_change_required(body, default):
+    value = body.get('must_change_password', default)
+    if type(value) is not bool:
+        raise ValueError('Password change option must be true or false')
+    return int(value)
 
 
 def user_details(body):
     username = body['username'].strip()
     role = body['role']
-    if not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}', username) or role not in ('admin', 'viewer'):
-        raise ValueError('Use a valid username and Admin or View Only role')
+    if not re.fullmatch(r'[A-Za-z0-9_.@-]{1,64}', username) or role not in ('admin', 'operator', 'viewer'):
+        raise ValueError('Use a valid username and Admin, Operator or View Only role')
     return username, role

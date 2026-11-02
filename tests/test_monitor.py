@@ -708,6 +708,51 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(lists['acknowledged'][0]['suppressed'])
         self.assertEqual(lists['suppressed'], [])
 
+    def test_host_card_uses_highest_open_service_severity_until_recovery(self):
+        self.poll_ping(True)
+        self.poll(-70)
+        self.poll(-70)
+        self.assertEqual(server.snapshot()['assignments'][0]['incident_status'], 'warning')
+        server.mutate('service', {'assignment': 1, 'name': 'Temperature', 'kind': 'snmp',
+            'target': '.1.2.5', 'direction': 'above', 'warning': '70', 'critical': '80'})
+        with server.connect() as db:
+            temperature = dict(db.execute("""SELECT s.*, d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+                WHERE s.name='Temperature'""").fetchone())
+        with patch.object(server, 'read_metric', return_value=90):
+            server.poll_one(temperature, 1)
+            server.poll_one(temperature, 1)
+        state = server.snapshot()
+        self.assertEqual(state['assignments'][0]['incident_status'], 'critical')
+        critical = next(row for row in state['incident_lists']['active'] if row['status'] == 'critical')
+        server.mutate('ack', {'id': critical['id']})
+        self.assertEqual(server.status_overview()['devices'][0]['incident_status'], 'critical')
+        with patch.object(server, 'read_metric', return_value=50):
+            server.poll_one(temperature, 1)
+            server.poll_one(temperature, 1)
+        self.assertEqual(server.snapshot()['assignments'][0]['incident_status'], 'warning')
+        self.poll(-50)
+        self.poll(-50)
+        self.assertIsNone(server.snapshot()['assignments'][0]['incident_status'])
+
+    def test_host_card_ignores_unconfirmed_faults_and_paused_monitoring(self):
+        self.poll_ping(True)
+        self.poll(-80)
+        self.assertIsNone(server.snapshot()['assignments'][0]['incident_status'])
+        self.poll(-80)
+        self.assertEqual(server.snapshot()['assignments'][0]['incident_status'], 'critical')
+        server.mutate('toggle', {'id': 1, 'field': 'monitoring'})
+        self.assertIsNone(server.snapshot()['assignments'][0]['incident_status'])
+
+    def test_capitalised_state_severities_are_normalised_for_storage(self):
+        server.mutate('service-edit', self.edited_service_body(value_type='state', state_map={
+            '1': {'label': 'Up', 'status': 'Healthy'},
+            '2': {'label': 'Down', 'status': 'Critical'},
+        }))
+        self.reload_service()
+        self.assertEqual(server.classify(1, self.service), 'healthy')
+        self.assertEqual(server.classify(2, self.service), 'critical')
+
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):
             server.poll_one(self.service, 1)

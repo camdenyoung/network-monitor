@@ -6,6 +6,10 @@ The user requested readable, consistently indented code and explanatory comments
 ## Requirements
 - Project assignment aliases are editable independently; preserve assignment IDs,
   services, history and aliases in other projects.
+- Display Healthy, Warning and Critical with initial capitals; keep stored status
+  codes lowercase. Confirmed unresolved incidents tint host cards by highest
+  severity on both dashboards; acknowledged faults retain colour until recovery.
+  Ignore suppressed child faults, stale checks and paused monitoring for card colour.
 - Monitor card headings use `Device ID - Alias`.
 - Services depend on a fresh healthy host ping. Poll ping first; suppress child
   polling/failure reports for offline, stale or unknown hosts. Preserve existing
@@ -19,10 +23,17 @@ The user requested readable, consistently indented code and explanatory comments
 - Device deletion purges all linked assignments, services, history and incidents;
   preserve shared projects/runs and all other equipment.
 - IP addresses belong to inventory devices and are shared across all projects.
-- Local accounts: Admin and View Only roles enforced by the server. Admins manage
-  users, all configuration, acknowledgements and backups. Viewers inspect only.
+- Accounts include an optional validated email for future password resets. No reset
+  email flow yet. Admins choose must_change_password when creating/editing accounts;
+  default true on creation, preserve on edits unless explicitly changed. Bootstrap
+  admin always requires an initial change. Migrate old accounts without lockouts.
+- Local accounts: Admin, Operator and View Only roles enforced by the server. Admins manage
+  users, all configuration, acknowledgements and backups. Operators can inspect
+  and acknowledge incidents but cannot modify projects/configuration. Viewers inspect only.
 - First-run admin password is generated in /data/initial-admin-password.txt or supplied
   via MONITOR_ADMIN_PASSWORD; require change on first login. Never commit defaults.
+- Public /status has a show/hide host cards toggle, persisted per browser. The
+  active incident list stays visible when host cards are hidden.
 - Public /status overview shows active incidents above host cards. Reuse dependency-
   aware active incidents, excluding acknowledged/resolved/suppressed faults and
   hidden, paused or inactive equipment. Allowlist display fields only.

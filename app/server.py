@@ -502,6 +502,7 @@ def snapshot():
                 else:
                     visible.append(incident)
             result['incident_lists'][category] = visible
+        update_card_incidents(result)
         return result
 
 
@@ -551,6 +552,9 @@ def service_details(body, existing=None):
                 raise ValueError('State labels must be text')
             label = label.strip()
             status = definition.get('status', 'healthy')
+            if not isinstance(status, str):
+                raise ValueError('State severity must be text')
+            status = status.strip().lower()
             if not label or len(label) > 100 or any(c in label for c in '|\r\n') or status not in ('healthy', 'warning', 'critical'):
                 raise ValueError('Invalid state label or severity')
             normalized[numeric_key] = {'label': label, 'status': status}
@@ -694,6 +698,36 @@ def mutate(action, body):
             raise ValueError('Unknown action')
 
 
+def update_card_incidents(data):
+    """Roll up confirmed open incidents, including acknowledged unresolved faults."""
+    priorities = {'warning': 1, 'critical': 2, 'unreachable': 2}
+    run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
+    assignments = {row['id']: row for row in data['assignments']}
+    services = {row['id']: row for row in data['services']}
+    latest = {row['service']: row for row in data['latest']}
+    online = {}
+    for assignment in assignments.values():
+        assignment['incident_status'] = None
+    for service in services.values():
+        if service['kind'] == 'ping':
+            sample = latest.get(service['id'])
+            online[service['assignment']] = sample['status'] if (
+                sample and time.time() - sample['timestamp'] <= 60) else 'unknown'
+    candidates = data['incident_lists']['active'] + data['incident_lists']['acknowledged']
+    for incident in candidates:
+        service = services.get(incident['service'])
+        assignment = assignments.get(service['assignment']) if service else None
+        if (not run or not assignment or not assignment['monitoring'] or not service['enabled']
+                or assignment['project'] != run['project'] or incident['closed'] or incident.get('suppressed')):
+            continue
+        host = online.get(assignment['id'], 'unknown')
+        if host == 'unknown' or (service['kind'] != 'ping' and host != 'healthy'):
+            continue
+        level = 'critical' if priorities.get(incident['status'], 0) == 2 else incident['status']
+        if priorities.get(level, 0) > priorities.get(assignment['incident_status'], 0):
+            assignment['incident_status'] = level
+
+
 def status_overview():
     """Allowlist public output: no addresses, OIDs, secrets, users or history."""
     data = snapshot()
@@ -724,7 +758,8 @@ def status_overview():
                 'value': sample['display_value'] if usable and status != 'blocked' else None,
                 'units': service['units'] if service['value_type'] == 'metric' else ''})
         output.append({'name': device['name'], 'alias': assignment['alias'],
-                       'status': host_status, 'services': children})
+                       'status': host_status, 'services': children,
+                       'incident_status': assignment['incident_status']})
     # Reuse dependency-aware active incidents, then allowlist only displayed hosts.
     # Acknowledged/resolved/suppressed incidents and hidden equipment stay private.
     assignments = {row['id']: row for row in data['assignments']
@@ -755,7 +790,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def require_user(self, admin=False, allow_password_change=False):
+    def require_user(self, admin=False, allow_password_change=False, roles=None):
         with connect() as db:
             user = auth.session_user(db, self.headers.get('Cookie'))
         if user is None:
@@ -764,7 +799,7 @@ class Handler(BaseHTTPRequestHandler):
         if user['must_change_password'] and not allow_password_change:
             self.send('{"error":"Change your temporary password first"}', status=403)
             return None
-        if admin and user['role'] != 'admin':
+        if (admin and user['role'] != 'admin') or (roles is not None and user['role'] not in roles):
             self.send('{"error":"Administrator access required"}', status=403)
             return None
         return user
@@ -856,8 +891,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"Origin rejected"}', status=403)
         user = None
         if self.path != '/api/login':
-            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password'),
-                                     allow_password_change=self.path in ('/api/logout', '/api/password'))
+            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password', '/api/ack'),
+                                     allow_password_change=self.path in ('/api/logout', '/api/password'),
+                                     roles=('admin', 'operator') if self.path == '/api/ack' else None)
             if not user:
                 return
             if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), user['csrf']):
@@ -894,7 +930,10 @@ class Handler(BaseHTTPRequestHandler):
                     if not candidate.execute('SELECT 1 FROM users LIMIT 1').fetchone():
                         with connect() as current:
                             for account in current.execute('SELECT * FROM users'):
-                                candidate.execute('INSERT INTO users VALUES(?,?,?,?,?)', tuple(account))
+                                candidate.execute('''INSERT INTO users
+                                    (id,username,password_hash,role,must_change_password,email)
+                                    VALUES(?,?,?,?,?,?)''', tuple(account[key] for key in
+                                    ('id','username','password_hash','role','must_change_password','email')))
                     if not candidate.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone():
                         raise ValueError('Backup has no administrator')
                     candidate.execute('DELETE FROM sessions')

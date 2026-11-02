@@ -6,6 +6,9 @@
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
+    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
+    .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
@@ -36,6 +39,7 @@
 <body>
   <header><div><h1>Network status</h1><p id="project">Loading…</p></div><a href="/">Sign in / dashboard</a></header>
   <p id="summary" role="status"></p>
+  <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
   <section aria-labelledby="incidents-title">
     <h2 id="incidents-title">Active incidents</h2>
     <div id="incidents" aria-live="polite"></div>
@@ -43,7 +47,24 @@
   <div id="devices" class="grid"></div><p id="updated"></p>
   <script>
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const formatStatus = value => String(value ?? '').replace(/^./, char => char.toUpperCase());
     const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed'};
+    let showHosts = true;
+    try { showHosts = localStorage.getItem('field-monitor.status.hide-hosts') !== 'true'; }
+    catch (error) { /* Private browsing may disable storage; the toggle still works. */ }
+    function hostVisibility() {
+      document.getElementById('devices').hidden = !showHosts;
+      const button = document.getElementById('toggle-hosts');
+      button.textContent = showHosts ? 'Hide host cards' : 'Show host cards';
+      button.setAttribute('aria-expanded', String(showHosts));
+    }
+    document.getElementById('toggle-hosts').onclick = () => {
+      showHosts = !showHosts;
+      hostVisibility();
+      try { localStorage.setItem('field-monitor.status.hide-hosts', String(!showHosts)); }
+      catch (error) { /* Visibility remains available for this page session. */ }
+    };
+    hostVisibility();
     async function refresh() {
       try {
         const response = await fetch('/api/status');
@@ -54,11 +75,11 @@
         document.getElementById('summary').textContent = `${online} of ${data.devices.length} displayed hosts online`;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">
-            <strong class="${escape(incident.status)}">${escape(labels[incident.status] || incident.status)}</strong>
+            <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
           </div>`).join('') || '<p>No active incidents.</p>';
-        document.getElementById('devices').innerHTML = data.devices.map(device => `<article><h2>${escape(device.name)} - ${escape(device.alias)}</h2><p class="${escape(device.status)}">${escape(labels[device.status] || device.status)}</p>${device.services.map(service => `<div class="metric"><strong>${escape(service.name)}</strong><p class="${escape(service.status)}">${escape(service.value ?? labels[service.status] ?? service.status)} ${escape(service.units)} · ${escape(service.status)}</p></div>`).join('')}</article>`).join('') || '<section>No active equipment to display.</section>';
+        document.getElementById('devices').innerHTML = data.devices.map(device => `<article class="host-card ${device.incident_status ? 'incident-' + escape(device.incident_status) : ''}"><h2>${escape(device.name)} - ${escape(device.alias)}</h2>${device.incident_status ? `<span class="incident-badge ${escape(device.incident_status)}">${formatStatus(device.incident_status)} incident</span>` : ''}<p class="${escape(device.status)}">${escape(labels[device.status] || device.status)}</p>${device.services.map(service => `<div class="metric"><strong>${escape(service.name)}</strong><p class="${escape(service.status)}">${escape(service.value ?? labels[service.status] ?? formatStatus(service.status))} ${escape(service.units)} · ${escape(formatStatus(service.status))}</p></div>`).join('')}</article>`).join('') || '<section>No active equipment to display.</section>';
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
       } catch (error) {
         document.getElementById('summary').textContent = error.message + ' — displayed information may be stale.';

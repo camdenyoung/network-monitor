@@ -81,6 +81,8 @@ assert.equal(element('alias-edit-form').elements.namedItem('alias').value, 'Stag
 context.openServiceEditor(2);
 const payload = context.servicePayload(element('service-edit-form'));
 assert.equal(payload.state_map['2'].label, 'Down');
+assert.match(element('service-edit-form').elements.namedItem('state_map').value, /2 \| Down \| Critical/);
+assert.equal(payload.state_map['2'].status, 'critical');
 fixture.latest[0].status = 'unreachable';
 await context.refresh();
 assert.match(element('dashboard').innerHTML, /Suppressed — host offline/);
@@ -121,9 +123,11 @@ const publicData = {
     devices: [{ name: 'SW001', alias: 'Stage', status: 'unreachable', services: [] }],
     incidents: [{ device: 'SW001', alias: '<img src=x>', service: 'Host ping', status: 'unreachable', opened: now }],
 };
+const publicStorage = new Map();
 const publicContext = vm.createContext({
+    localStorage: {getItem: key => publicStorage.get(key), setItem: (key, value) => publicStorage.set(key, value)},
     document: { getElementById(id) {
-        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '' });
+        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '', attributes: {}, setAttribute(key, value) { this.attributes[key] = value; } });
         return publicNodes.get(id);
     } },
     fetch: async () => ({ ok: true, json: async () => publicData }),
@@ -138,3 +142,76 @@ publicData.incidents = [];
 await publicContext.refresh();
 assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
 console.log('Public incident overview smoke tests passed.');
+
+// Checkbox values must be sent as booleans, including an explicit false when
+// an administrator allows the user to keep their assigned password.
+let submittedUser;
+context.fetch = async (path, options) => {
+    if (options) submittedUser = { path, body: JSON.parse(options.body) };
+    let data = {};
+    if (path === '/api/users') data = [{ id: 2, username: 'reader', email: 'reader@example.com', role: 'viewer', must_change_password: 0 }];
+    if (path === '/api/telegram' || path === '/api/whatsapp') data = { configuration: {}, outbox: [] };
+    return { ok: true, json: async () => data };
+};
+const userForm = element('user-form');
+for (const [key, value] of Object.entries({user: '', username: 'new-reader', email: 'reader@example.com', role: 'viewer', password: 'Assigned-password-123'})) {
+    userForm.elements.namedItem(key).value = value;
+}
+userForm.elements.namedItem('must_change_password').checked = false;
+await userForm.onsubmit({ preventDefault() {}, target: userForm });
+assert.equal(submittedUser.path, '/api/user-create');
+assert.equal(submittedUser.body.email, 'reader@example.com');
+assert.equal(submittedUser.body.must_change_password, false);
+assert.match(element('users').innerHTML, /reader@example.com/);
+assert.match(element('users').innerHTML, /Assigned password allowed/);
+console.log('Account email and password-policy form smoke tests passed.');
+
+// Operators can acknowledge, but never see configuration actions on the cards.
+const previousFetch = context.fetch;
+context.fetch = async (path, options) => path === '/api/state'
+    ? {ok: true, json: async () => fixture} : previousFetch(path, options);
+vm.runInContext('currentUser.role = "operator"', context);
+fixture.assignments[0].incident_status = 'warning';
+await context.refresh();
+assert.match(element('dashboard').innerHTML, /host-card incident-warning/);
+assert.match(element('dashboard').innerHTML, /Warning incident/);
+assert.doesNotMatch(element('dashboard').innerHTML, /data-copy-service|data-edit-service/);
+const incident = {id: 1,service: 2,status: 'critical',opened: now,closed: null,acknowledged: null};
+assert.match(context.renderIncidents([incident], true), /data-ack/);
+assert.match(context.renderIncidents([incident], true), />Critical<\/span>/);
+vm.runInContext('currentUser.role = "viewer"', context);
+assert.doesNotMatch(context.renderIncidents([incident], true), /data-ack/);
+assert.equal(vm.runInContext("formatStatus('healthy')", context), 'Healthy');
+assert.equal(vm.runInContext("formatStatus('warning')", context), 'Warning');
+assert.equal(vm.runInContext("formatStatus('critical')", context), 'Critical');
+publicData.devices[0].incident_status = 'critical';
+await publicContext.refresh();
+assert.match(publicNodes.get('devices').innerHTML, /host-card incident-critical/);
+assert.match(publicNodes.get('devices').innerHTML, /Critical incident/);
+publicNodes.get('toggle-hosts').onclick();
+assert.equal(publicNodes.get('devices').hidden, true);
+assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host cards');
+assert.equal(publicNodes.get('toggle-hosts').attributes['aria-expanded'], 'false');
+assert.equal(publicStorage.get('field-monitor.status.hide-hosts'), 'true');
+await publicContext.refresh();
+assert.equal(publicNodes.get('devices').hidden, true);
+assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
+publicNodes.get('toggle-hosts').onclick();
+assert.equal(publicNodes.get('devices').hidden, false);
+assert.equal(publicNodes.get('toggle-hosts').textContent, 'Hide host cards');
+console.log('Operator permissions, capitalised labels, card colours and host visibility smoke tests passed.');
+
+// Simulate a full reload: fresh JavaScript globals, same browser storage.
+publicNodes.get('toggle-hosts').onclick();
+assert.equal(publicStorage.get('field-monitor.status.hide-hosts'), 'true');
+const reloadedPublicContext = vm.createContext({
+    document: publicContext.document,
+    localStorage: publicContext.localStorage,
+    fetch: async () => ({ ok: true, json: async () => publicData }),
+    setInterval() {},
+});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(reloadedPublicContext);
+await reloadedPublicContext.refresh();
+assert.equal(publicNodes.get('devices').hidden, true);
+assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host cards');
+console.log('Host visibility preference survives a simulated full page reload.');

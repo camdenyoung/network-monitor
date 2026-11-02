@@ -359,6 +359,119 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(len(incidents), 1)
         self.assertEqual(incidents[0]['service'], 'Host ping')
 
+    def test_admin_can_choose_password_policy_when_creating_users(self):
+        for required in (False, True):
+            username = 'require-change' if required else 'assigned-password'
+            response = self.request('/api/user-create', {
+                'username': username, 'email': username + '@example.com',
+                'role': 'viewer', 'password': 'Assigned-password-123',
+                'must_change_password': required,
+            }, self.admin_token, self.admin['csrf'])
+            self.assertEqual(response['status'], 200)
+            with server.connect() as db:
+                token, status = auth.login(db, username, 'Assigned-password-123', username)
+                self.assertEqual(status, 200)
+                user = auth.session_user(db, 'monitor_session=' + token)
+                self.assertEqual(user['email'], username + '@example.com')
+                self.assertEqual(bool(user['must_change_password']), required)
+            self.assertEqual(self.request('/api/state', token=token)['status'], 403 if required else 200)
+
+    def test_admin_can_edit_email_and_allow_a_replacement_password(self):
+        response = self.request('/api/user-edit', {
+            'user': 2, 'username': 'reader', 'email': '  operations@example.com  ',
+            'role': 'viewer', 'password': 'Assigned-replacement-123',
+            'must_change_password': False,
+        }, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            row = db.execute('SELECT * FROM users WHERE id=2').fetchone()
+            self.assertEqual(row['email'], 'operations@example.com')
+            self.assertEqual(row['must_change_password'], 0)
+            self.assertTrue(auth.password_matches('Assigned-replacement-123', row['password_hash']))
+        self.assertEqual(self.request('/api/state', token=self.viewer_token)['status'], 401)
+        users = json.loads(self.request('/api/users', token=self.admin_token)['content'])
+        self.assertEqual(next(user for user in users if user['id'] == 2)['email'], 'operations@example.com')
+        self.assertNotIn('operations@example.com', self.request('/api/status')['content'])
+
+    def test_admin_can_require_password_change_without_replacing_password(self):
+        with server.connect() as db:
+            old_hash = db.execute('SELECT password_hash FROM users WHERE id=2').fetchone()[0]
+        response = self.request('/api/user-edit', {
+            'user': 2, 'username': 'reader', 'role': 'viewer', 'email': '',
+            'password': '', 'must_change_password': True,
+        }, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            row = db.execute('SELECT * FROM users WHERE id=2').fetchone()
+            self.assertEqual(row['password_hash'], old_hash)
+            self.assertEqual(row['must_change_password'], 1)
+
+    def test_invalid_email_or_password_policy_does_not_partially_edit_user(self):
+        for fields in ({'email': 'not-an-email'}, {'email': 'a@example.com\nBcc:other@example.com'},
+                       {'must_change_password': 'false'}):
+            body = {'user': 2, 'username': 'changed', 'role': 'viewer', **fields}
+            response = self.request('/api/user-edit', body, self.admin_token, self.admin['csrf'])
+            self.assertEqual(response['status'], 400)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT username FROM users WHERE id=2').fetchone()[0], 'reader')
+            self.assertIsNotNone(auth.session_user(db, 'monitor_session=' + self.viewer_token))
+
+    def test_existing_accounts_gain_email_without_changing_password_or_policy(self):
+        with server.connect() as db:
+            before = db.execute('SELECT password_hash,must_change_password FROM users WHERE id=2').fetchone()
+            db.execute('ALTER TABLE users DROP COLUMN email')
+        server.initialize()
+        with server.connect() as db:
+            after = db.execute('SELECT password_hash,must_change_password,email FROM users WHERE id=2').fetchone()
+        self.assertEqual(tuple(before), tuple(after)[:2])
+        self.assertEqual(after['email'], '')
+
+    def create_operator(self):
+        response = self.request('/api/user-create', {
+            'username': 'operator', 'email': 'operator@example.com', 'role': 'operator',
+            'password': 'Operator-password-123', 'must_change_password': False,
+        }, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            token, status = auth.login(db, 'operator', 'Operator-password-123', 'operator-test')
+            self.assertEqual(status, 200)
+            user = auth.session_user(db, 'monitor_session=' + token)
+        return token, user
+
+    def test_operator_can_acknowledge_incidents_but_cannot_change_configuration(self):
+        token, operator = self.create_operator()
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        self.assertEqual(self.request('/api/state', token=token)['status'], 200)
+        self.assertEqual(self.request('/api/history?service=1&run=1', token=token)['status'], 200)
+        response = self.request('/api/ack', {'id': incident['id']}, token, operator['csrf'])
+        self.assertEqual(response['status'], 200)
+        self.assertEqual(server.snapshot()['incident_lists']['active'], [])
+        self.assertEqual(len(server.snapshot()['incident_lists']['acknowledged']), 1)
+        for action in ('project', 'activate', 'pause', 'assignment-edit', 'device-edit',
+                       'service-edit', 'service-copy', 'template-create', 'retention',
+                       'user-edit', 'telegram-save', 'whatsapp-save', 'restore'):
+            self.assertEqual(self.request('/api/' + action, {}, token, operator['csrf'])['status'], 403)
+        for path in ('/api/users', '/api/backup', '/api/telegram', '/api/telegram-chats', '/api/whatsapp'):
+            self.assertEqual(self.request(path, token=token)['status'], 403)
+
+    def test_operator_acknowledgement_requires_csrf(self):
+        token, operator = self.create_operator()
+        self.assertEqual(self.request('/api/ack', {'id': 1}, token=token)['status'], 403)
+        self.assertEqual(self.request('/api/user-edit', {
+            'user': operator['id'], 'username': 'operator', 'role': 'admin',
+        }, token, operator['csrf'])['status'], 403)
+
+    def test_last_admin_cannot_be_demoted_to_operator(self):
+        response = self.request('/api/user-edit', {
+            'user': 1, 'username': 'admin', 'role': 'operator',
+        }, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 400)
+        self.assertEqual(self.request('/api/state', token=self.admin_token)['status'], 200)
+
     def test_provider_payloads_use_group_id_and_three_whatsapp_parameters(self):
         self.configure_channels()
         captured = []

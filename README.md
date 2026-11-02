@@ -55,12 +55,19 @@ Alternatively, set `MONITOR_ADMIN_PASSWORD` in `.env` before the first startup.
 This variable never resets an existing account. Sign in at `/login` and change the
 temporary password before configuring the system. Passwords require 10–256
 characters. Admins can add, edit, reset or remove users in **User management**.
-New/reset passwords require a change at first login. Blank edited passwords keep
-the existing password. The last Admin cannot be demoted, and self-deletion is blocked.
+Accounts have an optional email field for a future reset flow; no email is sent yet.
+The **Require password change on next login** checkbox is selected by default for
+new users. Leave it selected for a temporary password, or clear it to let the user
+keep the assigned password. Editing a user loads their current setting, which can
+also be changed without replacing their password. Blank edited passwords keep
+the existing password. Existing accounts migrate with a blank email while keeping
+their current password and password-change setting. The last Admin cannot be demoted, and self-deletion is blocked.
 
 **Admins** configure equipment, acknowledge incidents, manage users, notifications,
-backups and restore. **View Only** users can inspect monitoring data and history but
-cannot mutate configuration or acknowledge incidents. Both can change their own
+backups and restore. **Operators** can inspect status/history and acknowledge
+incidents but cannot edit projects, equipment, services or any other configuration.
+**View Only** users can inspect monitoring data and history but
+cannot mutate configuration or acknowledge incidents. All three roles can change their own
 password. User edits, password resets and deletion revoke that user's sessions.
 Sessions last 12 hours, use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
@@ -287,3 +294,14 @@ Restoring a backup cancels unsent messages and pauses polling.
 network timeout after provider acceptance can cause a duplicate on retry. No real
 provider delivery has been verified without credentials. Tokens are hidden in the
 UI and logs, but remain in admin backups; protect those backups.
+
+Admins can select **Operator** when adding or editing a user. Operators can view
+monitoring/history and acknowledge incidents, but all configuration remains
+Admin-only. **Healthy**, **Warning**, and **Critical** use capitalised labels.
+Host cards use amber/red backgrounds for confirmed Warning/Critical incidents;
+the highest open severity wins. Acknowledgement does not remove the colour until
+the fault recovers. Suppressed child faults do not add a second fault indication.
+
+The public status overview has a **Hide host cards / Show host cards** button.
+Hide cards for an incident-only view. The choice is stored in that browser and
+is preserved during live updates and page reloads.

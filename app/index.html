@@ -11,8 +11,11 @@
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
+    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
+    .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
-    body[data-role="viewer"] [data-admin] { display: none !important; }
+    body:not([data-role="admin"]) [data-admin] { display: none !important; }
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
     input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
@@ -77,8 +80,8 @@
         <option value="state">Numeric state codes with labels</option>
       </select></label>
       <label data-state hidden>State mappings: number | label | severity
-        <textarea name="state_map" rows="4" placeholder="1 | Up | healthy&#10;2 | Down | critical"></textarea>
-        <small>One per line. Severity: healthy, warning, or critical. Unmapped codes warn.</small>
+        <textarea name="state_map" rows="4" placeholder="1 | Up | Healthy&#10;2 | Down | Critical"></textarea>
+        <small>One per line. Severity: Healthy, Warning, or Critical. Unmapped codes warn.</small>
       </label>
         <label data-numeric>Scale<input name="scale" type="number" step="any" value="1" required></label>
         <label data-numeric>Units<input name="units" placeholder="dBm"></label>
@@ -101,12 +104,14 @@
     <div id="service-library"></div>
   </section></details>
   <details data-admin><summary>User management</summary><section>
-    <h2>Users</h2><p>Admins can configure the monitor and acknowledge incidents. View Only users can inspect status and history. New/reset passwords must be changed on first login.</p>
+    <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge incidents. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
     <form id="user-form">
       <input name="user" type="hidden">
       <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
-      <label>Role<select name="role"><option value="viewer">View Only</option><option value="admin">Admin</option></select></label>
+      <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
+      <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
       <label>Password (blank when editing keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
+      <label>Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
       <button>Save user</button><button id="cancel-user-edit" type="button">Clear</button>
     </form><p id="user-feedback" role="status"></p><div id="users"></div>
   </section></details>
@@ -196,8 +201,8 @@
         <option value="state">Numeric state codes with labels</option>
       </select></label>
       <label data-state hidden>State mappings: number | label | severity
-        <textarea name="state_map" rows="4" placeholder="1 | Up | healthy&#10;2 | Down | critical"></textarea>
-        <small>One per line. Severity: healthy, warning, or critical. Unmapped codes warn.</small>
+        <textarea name="state_map" rows="4" placeholder="1 | Up | Healthy&#10;2 | Down | Critical"></textarea>
+        <small>One per line. Severity: Healthy, Warning, or Critical. Unmapped codes warn.</small>
       </label>
       <label data-numeric>Scale<input name="scale" type="number" step="any" required></label>
       <label data-numeric>Units<input name="units"></label>
@@ -243,9 +248,11 @@
     // Escape all operator/device content before inserting it into HTML.
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const el = id => document.getElementById(id);
+    const formatStatus = value => String(value ?? '').replace(/^./, char => char.toUpperCase());
     const date = value => value ? new Date(value * 1000).toLocaleString() : '—';
     let state;
     let currentUser = null;
+    const roleLabels = {admin: 'Admin', operator: 'Operator', viewer: 'View Only'};
     let users = [];
     let telegramLoaded = false;
     let whatsappLoaded = false;
@@ -282,7 +289,7 @@
     }
 
     function serviceActions(service) {
-      if (currentUser?.role === 'viewer') return `<button data-history="${service.id}">History / graph</button>`;
+      if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History / graph</button>`;
       return `<details class="action-menu" data-service-actions="${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
         <div class="menu-buttons">
@@ -337,7 +344,7 @@
           const blocked = hostStatus !== 'healthy' || reading?.status === 'blocked';
           const status = blocked ? 'blocked' : readingStatus(reading, assignment, run);
           const statusLabel = blocked
-            ? (hostStatus === 'unreachable' ? 'Suppressed — host offline' : 'Awaiting host / service check') : status;
+            ? (hostStatus === 'unreachable' ? 'Suppressed — host offline' : 'Awaiting host / service check') : formatStatus(status);
           const value = blocked ? '—' : (reading?.display_value ?? reading?.value ?? '—');
           const units = service.value_type === 'state' ? '' : service.units;
           return `<div class="metric">
@@ -351,7 +358,7 @@
             <small>${date(reading?.timestamp)}</small>
           </div>`;
         }).join('');
-        return `<article><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
+        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
       document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
       el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
@@ -388,9 +395,9 @@
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
           ? `Acknowledged ${date(incident.acknowledged)}`
-          : allowAcknowledgement && currentUser?.role !== 'viewer' ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
+          : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
-        const status = isSuppressed ? 'Suppressed — awaiting host / service check' : incident.status;
+        const status = isSuppressed ? 'Suppressed — awaiting host / service check' : formatStatus(incident.status);
         return `<p><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
           · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</p>`;
@@ -427,7 +434,7 @@
           }
           const key = String(number);
           if (Object.hasOwn(mapping, key)) throw new Error('Each state number must be unique.');
-          mapping[key] = {label: parts[1], status: parts[2]};
+          mapping[key] = {label: parts[1], status: parts[2].toLowerCase()};
         }
         body.state_map = mapping;
         body.direction = 'below';
@@ -552,7 +559,7 @@
       }
       const mapping = configuration.state_map || {};
       form.elements.namedItem('state_map').value = Object.entries(mapping)
-        .map(([value, entry]) => `${value} | ${entry.label} | ${entry.status}`).join('\n');
+        .map(([value, entry]) => `${value} | ${entry.label} | ${formatStatus(entry.status)}`).join('\n');
       updateValueMode(form);
       // Credentials are never fetched or prefilled. Blank keeps the source secret.
       form.elements.namedItem('community').value = '';
@@ -769,7 +776,7 @@
         for (const [level, colour] of [['warning', '#ffcb69'], ['critical', '#ff8b96']]) {
           const limit = service[level];
           if (limit !== null && limit !== undefined && limit >= minValue && limit <= maxValue) {
-            svg += `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(limit)}" y2="${y(limit)}" stroke="${colour}" stroke-dasharray="5 5"><title>${level}: ${limit}</title></line>`;
+            svg += `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(limit)}" y2="${y(limit)}" stroke="${colour}" stroke-dasharray="5 5"><title>${formatStatus(level)}: ${limit}</title></line>`;
           }
         }
       }
@@ -790,7 +797,7 @@
       for (const row of points) {
         const colour = row.status === 'critical' ? '#ff8b96' : row.status === 'warning' ? '#ffcb69' : '#7cddd0';
         svg += `<circle cx="${x(row.timestamp)}" cy="${y(row.value)}" r="3" fill="${colour}">
-          <title>${escapeHtml(date(row.timestamp))}: ${escapeHtml(row.display_value ?? row.value)} ${escapeHtml(stateMode ? '' : service.units)} (${escapeHtml(row.status)})</title></circle>`;
+          <title>${escapeHtml(date(row.timestamp))}: ${escapeHtml(row.display_value ?? row.value)} ${escapeHtml(stateMode ? '' : service.units)} (${escapeHtml(formatStatus(row.status))})</title></circle>`;
       }
       return svg + '</svg><small>Hover over a point for its reading. Gaps indicate missing or suppressed checks. Dashed lines show thresholds within the plotted range.</small>';
     }
@@ -805,7 +812,7 @@
       el('history-description').textContent = 'Latest 200 readings from the active deployment. Graph uses the current configuration; table includes earlier configurations.';
       el('history-graph').innerHTML = historyGraph(rows, service);
       el('readings').innerHTML = '<table><tr><th>Time</th><th>Value</th><th>Status</th></tr>' + rows.map(row =>
-        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(row.status)}</td></tr>`
+        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td></tr>`
       ).join('') + '</table>';
       historyView(true);
       el('history').showModal();
@@ -886,7 +893,7 @@
       const responses = await Promise.all([fetch('/api/users'), fetch('/api/telegram'), fetch('/api/whatsapp')]);
       if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
       users = await responses[0].json();
-      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.username)} · ${user.role === 'admin' ? 'Admin' : 'View Only'}
+      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.username)} · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}
         <button data-edit-user="${user.id}">Edit</button>
         ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</p>`).join('');
       const telegram = await responses[1].json();
@@ -914,6 +921,7 @@
       event.preventDefault();
       const form = event.target;
       const body = Object.fromEntries(new FormData(form));
+      body.must_change_password = form.elements.namedItem('must_change_password').checked;
       try {
         await request(body.user ? 'user-edit' : 'user-create', body);
         form.reset();
@@ -931,6 +939,8 @@
           form.elements.namedItem('user').value = user.id;
           form.elements.namedItem('username').value = user.username;
           form.elements.namedItem('role').value = user.role;
+          form.elements.namedItem('email').value = user.email || '';
+          form.elements.namedItem('must_change_password').checked = Boolean(user.must_change_password);
           form.elements.namedItem('password').value = '';
           form.elements.namedItem('username').focus();
         }
@@ -1014,7 +1024,7 @@
       currentUser = await response.json();
       if (currentUser.must_change_password) return location.assign('/login');
       document.body.dataset.role = currentUser.role;
-      el('signed-in').textContent = currentUser.username + ' · ' + (currentUser.role === 'admin' ? 'Admin' : 'View Only');
+      el('signed-in').textContent = currentUser.username + ' · ' + (roleLabels[currentUser.role] || 'Unknown');
       await refresh();
     }
     initializeSession().catch(report);
