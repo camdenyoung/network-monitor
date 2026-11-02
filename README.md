@@ -386,3 +386,6 @@ falling back to username for existing accounts. Acknowledgements snapshot the fu
 name at acknowledgement time; later profile edits do not rewrite history. Both
 startup and restore migrate account/audit fields. Public issue attribution includes
 this display name. The main navigation link is labelled Status Dashboard.
+
+User editing opens a separate dialog with Save changes and Cancel. The inline
+user form is dedicated to adding accounts and is not overwritten by editing.

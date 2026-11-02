@@ -217,3 +217,7 @@ falling back to username for existing accounts. Acknowledgements snapshot the fu
 name at acknowledgement time; later profile edits do not rewrite history. Both
 startup and restore migrate account/audit fields. Public issue attribution includes
 this display name. The main navigation link is labelled Status Dashboard.
+
+User management keeps the add-user form independent. Edit opens a native dialog
+with all account fields and inline errors; Cancel leaves the creation form intact.
+Populate the editor only when opened; background refresh must preserve edits.

@@ -168,6 +168,37 @@ assert.match(element('users').innerHTML, /reader@example.com/);
 assert.match(element('users').innerHTML, /Assigned password allowed/);
 console.log('Account email and password-policy form smoke tests passed.');
 
+// User edits use an independent dialog and preserve the add-user draft.
+userForm.elements.namedItem('username').value = 'unfinished-new-user';
+context.openUserEditor(2);
+const userEdit = element('user-edit-form');
+assert.equal(element('user-editor').open, true);
+assert.equal(userEdit.elements.namedItem('username').value, 'reader');
+assert.equal(userEdit.elements.namedItem('email').value, 'reader@example.com');
+assert.equal(userEdit.elements.namedItem('must_change_password').checked, false);
+assert.equal(userForm.elements.namedItem('username').value, 'unfinished-new-user');
+element('cancel-user-edit').onclick();
+assert.equal(element('user-editor').open, false);
+context.openUserEditor(2);
+userEdit.elements.namedItem('full_name').value = 'Changed Full Name';
+await context.loadAdmin();
+assert.equal(userEdit.elements.namedItem('full_name').value, 'Changed Full Name');
+const validUserFetch = context.fetch;
+context.fetch = async (path, options) => options
+    ? {ok:false,json:async () => ({error:'Invalid account details'})} : validUserFetch(path, options);
+await userEdit.onsubmit({preventDefault(){},target:userEdit});
+assert.equal(element('user-editor').open, true);
+assert.equal(userEdit.elements.namedItem('full_name').value, 'Changed Full Name');
+assert.equal(element('user-edit-feedback').textContent, 'Invalid account details');
+context.fetch = validUserFetch;
+await userEdit.onsubmit({preventDefault(){},target:userEdit});
+assert.equal(submittedUser.path, '/api/user-edit');
+assert.equal(submittedUser.body.full_name, 'Changed Full Name');
+assert.equal(Number(submittedUser.body.user), 2);
+assert.equal(element('user-editor').open, false);
+assert.equal(userForm.elements.namedItem('username').value, 'unfinished-new-user');
+console.log('Separate user editing dialog, cancel, errors and save passed.');
+
 // Operators can acknowledge, but never see configuration actions on the cards.
 const previousFetch = context.fetch;
 context.fetch = async (path, options) => path === '/api/state'

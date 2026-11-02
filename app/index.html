@@ -243,14 +243,13 @@
   <details data-admin><summary>User management</summary><section>
     <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge issues. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
     <form id="user-form">
-      <input name="user" type="hidden">
       <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
       <label>Full Name<input name="full_name" maxlength="150" autocomplete="name"></label>
       <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
       <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
-      <label>Password (blank when editing keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
+      <label>Password<input name="password" required type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
       <label>Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
-      <button>Save user</button><button id="cancel-user-edit" type="button">Clear</button>
+      <button>Add user</button><button id="clear-new-user" type="button">Clear</button>
     </form><p id="user-feedback" role="status"></p><div id="users"></div>
   </section></details>
   <details data-admin><summary>Telegram notifications</summary><section>
@@ -304,6 +303,21 @@
     </div>
     <div id="history-graph"></div>
     <div id="readings" class="scroll" hidden></div>
+  </dialog>
+  <dialog id="user-editor" aria-labelledby="user-editor-title">
+    <h2 id="user-editor-title">Edit user</h2>
+    <form id="user-edit-form">
+      <input name="user" type="hidden">
+      <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
+      <label>Full Name<input name="full_name" maxlength="150" autocomplete="name"></label>
+      <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
+      <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
+      <label>Password (blank keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
+      <label>Require password change on next login<input name="must_change_password" type="checkbox"></label>
+      <button class="primary">Save changes</button>
+      <button id="cancel-user-edit" type="button">Cancel</button>
+    </form>
+    <p id="user-edit-feedback" role="status"></p>
   </dialog>
   <dialog id="device-editor">
     <h2>Edit inventory item</h2>
@@ -1307,35 +1321,49 @@
       el('telegram-queue').innerHTML = telegram.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
     }
 
-    el('cancel-user-edit').onclick = () => el('user-form').reset();
-    el('user-form').onsubmit = async event => {
-      event.preventDefault();
-      const form = event.target;
-      const body = Object.fromEntries(new FormData(form));
-      body.must_change_password = form.elements.namedItem('must_change_password').checked;
-      try {
-        await request(body.user ? 'user-edit' : 'user-create', body);
-        form.reset();
-        if (Number(body.user) === currentUser.id) { location.assign('/login'); return; }
-        el('user-feedback').textContent = 'User saved successfully.';
-        await loadAdmin();
-      } catch (error) { el('user-feedback').textContent = error.message; }
-    };
+    function openUserEditor(id) {
+      const user = users.find(row => row.id === Number(id));
+      if (!user) throw new Error('User no longer exists. Refresh the dashboard.');
+      const form = el('user-edit-form');
+      // Populate only on opening, keeping refreshes separate from unfinished edits.
+      form.reset();
+      form.elements.namedItem('user').value = user.id;
+      for (const field of ['username', 'full_name', 'email', 'role']) {
+        form.elements.namedItem(field).value = user[field] || '';
+      }
+      form.elements.namedItem('must_change_password').checked = Boolean(user.must_change_password);
+      el('user-edit-feedback').textContent = '';
+      el('user-editor').showModal();
+    }
+
+    el('clear-new-user').onclick = () => el('user-form').reset();
+    el('cancel-user-edit').onclick = () => el('user-editor').close();
+    for (const [formId, action, feedbackId] of [
+      ['user-form', 'user-create', 'user-feedback'],
+      ['user-edit-form', 'user-edit', 'user-edit-feedback'],
+    ]) {
+      el(formId).onsubmit = async event => {
+        event.preventDefault();
+        const form = event.target;
+        const body = Object.fromEntries(new FormData(form));
+        body.must_change_password = form.elements.namedItem('must_change_password').checked;
+        const buttons = form.querySelectorAll('button');
+        buttons.forEach(button => { button.disabled = true; });
+        try {
+          await request(action, body);
+          if (action === 'user-edit') el('user-editor').close();
+          form.reset();
+          if (Number(body.user) === currentUser.id) { location.assign('/login'); return; }
+          el('user-feedback').textContent = action === 'user-edit' ? 'User updated successfully.' : 'User added successfully.';
+          await loadAdmin();
+        } catch (error) { el(feedbackId).textContent = error.message; }
+        finally { buttons.forEach(button => { button.disabled = false; }); }
+      };
+    }
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
       try {
-        if (data.editUser) {
-          const user = users.find(row => row.id === Number(data.editUser));
-          const form = el('user-form');
-          form.elements.namedItem('user').value = user.id;
-          form.elements.namedItem('username').value = user.username;
-          form.elements.namedItem('role').value = user.role;
-          form.elements.namedItem('email').value = user.email || '';
-          form.elements.namedItem('full_name').value = user.full_name || '';
-          form.elements.namedItem('must_change_password').checked = Boolean(user.must_change_password);
-          form.elements.namedItem('password').value = '';
-          form.elements.namedItem('username').focus();
-        }
+        if (data.editUser) openUserEditor(data.editUser);
         if (data.deleteUser && confirm('Remove this user and revoke their sessions?')) {
           await request('user-delete', {user: data.deleteUser});
           el('user-feedback').textContent = 'User removed.';
