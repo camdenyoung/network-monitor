@@ -283,6 +283,107 @@ class MonitorTests(unittest.TestCase):
             })
         self.assertEqual(len(server.snapshot()['devices']), 1)
 
+    def edited_service_body(self, **overrides):
+        body = {
+            'service': self.service['id'], 'name': 'Edited RSSI', 'kind': 'snmp',
+            'target': '.1.2.4', 'community': '', 'unit': '1', 'scale': '0.1',
+            'units': 'dBm', 'direction': 'below', 'warning': '-60', 'critical': '-70',
+            'persistence': '3',
+        }
+        body.update(overrides)
+        return body
+
+    def test_service_edit_preserves_identity_secret_and_history(self):
+        self.poll(-55)
+        with server.connect() as db:
+            db.execute('UPDATE services SET community=? WHERE id=?',
+                       ('private-secret', self.service['id']))
+        server.mutate('service-edit', self.edited_service_body())
+        with server.connect() as db:
+            edited = db.execute('SELECT * FROM services WHERE id=?', (self.service['id'],)).fetchone()
+            self.assertEqual(edited['name'], 'Edited RSSI')
+            self.assertEqual(edited['assignment'], self.service['assignment'])
+            self.assertEqual(edited['community'], 'private-secret')
+            self.assertEqual(edited['scale'], 0.1)
+            self.assertEqual(edited['persistence'], 3)
+            self.assertEqual(edited['revision'], 2)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 1)
+        self.assertEqual(server.snapshot()['latest'], [])
+        self.assertNotIn('community', server.snapshot()['services'][1])
+
+    def test_service_edit_rejects_invalid_values_atomically(self):
+        for change in ({'target': 'not-an-oid'}, {'scale': 'nan'},
+                       {'persistence': '0'}, {'unit': '248'},
+                       {'warning': '-80', 'critical': '-60'}):
+            with self.assertRaises(ValueError):
+                server.mutate('service-edit', self.edited_service_body(**change))
+        with server.connect() as db:
+            row = db.execute('SELECT * FROM services WHERE id=?', (self.service['id'],)).fetchone()
+            self.assertEqual(row['name'], 'RSSI')
+            self.assertEqual(row['revision'], 1)
+
+    def test_service_edit_can_replace_credentials_and_change_protocol(self):
+        server.mutate('service-edit', self.edited_service_body(
+            community='replacement', kind='modbus', target='100', unit='7',
+        ))
+        with server.connect() as db:
+            row = db.execute('SELECT * FROM services WHERE id=?', (self.service['id'],)).fetchone()
+            self.assertEqual((row['kind'], row['target'], row['unit']), ('modbus', '100', 7))
+            self.assertEqual(row['community'], 'replacement')
+
+    def test_managed_or_removed_services_cannot_be_edited(self):
+        with self.assertRaises(ValueError):
+            server.mutate('service-edit', self.edited_service_body(service=self.host_service()['id']))
+        server.mutate('remove-service', {'id': self.service['id']})
+        with self.assertRaises(ValueError):
+            server.mutate('service-edit', self.edited_service_body())
+
+    def test_service_edit_discards_old_poll_and_restarts_persistence(self):
+        self.poll(-80)
+        server.mutate('service-edit', self.edited_service_body(persistence='2'))
+        self.poll(-80)  # An in-flight read for revision 1 must be discarded.
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 1)
+            self.service = dict(db.execute("""
+                SELECT s.*, d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+                WHERE s.id=?
+            """, (self.service['id'],)).fetchone())
+        self.poll(-80)
+        self.assertEqual(server.snapshot()['incident_lists']['active'], [])
+        self.poll(-80)
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+
+    def test_acknowledged_incident_moves_lists_and_remains_acknowledged_after_recovery(self):
+        self.poll(-80)
+        self.poll(-80)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('ack', {'id': incident['id']})
+        lists = server.snapshot()['incident_lists']
+        self.assertEqual(lists['active'], [])
+        self.assertEqual(len(lists['acknowledged']), 1)
+        self.assertIsNone(lists['acknowledged'][0]['closed'])
+        timestamp = lists['acknowledged'][0]['acknowledged']
+        server.mutate('ack', {'id': incident['id']})
+        self.assertEqual(server.snapshot()['incident_lists']['acknowledged'][0]['acknowledged'], timestamp)
+        self.poll(-50)
+        self.poll(-50)
+        lists = server.snapshot()['incident_lists']
+        self.assertEqual(lists['resolved'], [])
+        self.assertIsNotNone(lists['acknowledged'][0]['closed'])
+
+    def test_unacknowledged_recovery_moves_to_resolved_list(self):
+        self.poll(-80)
+        self.poll(-80)
+        self.poll(-50)
+        self.poll(-50)
+        lists = server.snapshot()['incident_lists']
+        self.assertEqual(lists['active'], [])
+        self.assertEqual(lists['acknowledged'], [])
+        self.assertEqual(len(lists['resolved']), 1)
+        server.mutate('activate', {'project': 1})
+        self.assertEqual(server.snapshot()['incident_lists']['resolved'], [])
+
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):
             server.poll_one(self.service, 1)

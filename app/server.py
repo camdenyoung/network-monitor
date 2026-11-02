@@ -61,14 +61,14 @@ def initialize():
                 community TEXT DEFAULT 'public', unit INTEGER DEFAULT 1,
                 scale REAL DEFAULT 1, units TEXT DEFAULT '', direction TEXT DEFAULT 'below',
                 warning REAL, critical REAL, persistence INTEGER DEFAULT 2,
-                enabled INTEGER NOT NULL DEFAULT 1);
+                enabled INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS runs (
                 id INTEGER PRIMARY KEY, project INTEGER REFERENCES projects(id), started REAL);
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS samples (
                 id INTEGER PRIMARY KEY, run INTEGER, service INTEGER,
-                timestamp REAL, value REAL, status TEXT, error TEXT);
+                timestamp REAL, value REAL, status TEXT, error TEXT, revision INTEGER NOT NULL DEFAULT 1);
             CREATE INDEX IF NOT EXISTS sample_lookup ON samples(service, timestamp);
             CREATE TABLE IF NOT EXISTS incidents (
                 id INTEGER PRIMARY KEY, run INTEGER, service INTEGER,
@@ -125,6 +125,11 @@ def migrate_service_lifecycle(db):
     columns = {row[1] for row in db.execute('PRAGMA table_info(services)')}
     if 'enabled' not in columns:
         db.execute('ALTER TABLE services ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1')
+    if 'revision' not in columns:
+        db.execute('ALTER TABLE services ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
+    sample_columns = {row[1] for row in db.execute('PRAGMA table_info(samples)')}
+    if 'revision' not in sample_columns:
+        db.execute('ALTER TABLE samples ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
     # Remember IDs before deletion, so delayed polling cannot attach to a new item.
     for table in ('devices', 'assignments', 'services'):
         maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
@@ -278,19 +283,20 @@ def poll_one(service, run):
         if setting(db, 'active_run') != str(run):
             return
         current = db.execute("""
-            SELECT d.address FROM services s
+            SELECT d.address, s.revision FROM services s
             JOIN assignments a ON a.id=s.assignment
             JOIN devices d ON d.id=a.device
             JOIN runs r ON r.project=a.project
             WHERE s.id=? AND r.id=? AND a.monitoring=1 AND s.enabled=1
         """, (service['id'], run)).fetchone()
         # Ignore reads made against an old address while an inventory edit was saved.
-        if current is None or current['address'] != service['address']:
+        if (current is None or current['address'] != service['address']
+                or current['revision'] != service['revision']):
             return
-        db.execute('INSERT INTO samples(run,service,timestamp,value,status,error) VALUES(?,?,?,?,?,?)',
-                   (run, service['id'], time.time(), value, status, error))
-        recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT ?',
-                            (service['id'], run, service['persistence'])).fetchall()
+        db.execute('INSERT INTO samples(run,service,timestamp,value,status,error,revision) VALUES(?,?,?,?,?,?,?)',
+                   (run, service['id'], time.time(), value, status, error, service['revision']))
+        recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? ORDER BY id DESC LIMIT ?',
+                            (service['id'], run, service['revision'], service['persistence'])).fetchall()
         confirmed = len(recent) == service['persistence'] and all(row[0] == status for row in recent)
         if not confirmed:
             return
@@ -333,16 +339,63 @@ def snapshot():
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled
+            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision
             FROM services''')]
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
         result['latest'] = [dict(row) for row in db.execute('''
-            SELECT s.* FROM samples s JOIN (SELECT service,MAX(id) id FROM samples
-            WHERE run=? GROUP BY service) latest ON s.id=latest.id''',
+            SELECT s.* FROM samples s JOIN (
+            SELECT samples.service, MAX(samples.id) id FROM samples
+            JOIN services ON services.id=samples.service
+            WHERE run=? AND samples.revision=services.revision GROUP BY samples.service) latest ON s.id=latest.id''',
             (int(result['settings']['active_run']),))]
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
+        # Split by acknowledgement independently of recovery: acknowledged incidents
+        # remain in that list after recovery, with their recovery time visible.
+        run = int(result['settings']['active_run'])
+        predicates = {
+            'active': 'closed IS NULL AND acknowledged IS NULL',
+            'acknowledged': 'acknowledged IS NOT NULL',
+            'resolved': 'closed IS NOT NULL AND acknowledged IS NULL',
+        }
+        result['incident_lists'] = {}
+        for category, predicate in predicates.items():
+            limit = '' if category == 'active' else ' LIMIT 200'
+            result['incident_lists'][category] = [dict(row) for row in db.execute(
+                f'SELECT * FROM incidents WHERE run=? AND {predicate} ORDER BY id DESC{limit}',
+                (run,))]
         return result
+
+
+def service_details(body, existing=None):
+    """Shared validation for service creation/editing; blank edited secrets stay put."""
+    name = body['name'].strip()
+    kind = body['kind']
+    target = body['target'].strip()
+    if not name or len(name) > 100 or kind not in ('tcp', 'snmp', 'modbus'):
+        raise ValueError('Invalid service name or protocol')
+    if kind == 'snmp' and not all(part.isdigit() for part in target.lstrip('.').split('.')):
+        raise ValueError('Use a numeric SNMP OID')
+    if kind in ('tcp', 'modbus') and not (0 if kind == 'modbus' else 1) <= int(target) <= 65535:
+        raise ValueError('Invalid port/register')
+    warning = float(body['warning']) if body.get('warning') not in (None, '') else None
+    critical = float(body['critical']) if body.get('critical') not in (None, '') else None
+    scale = float(body.get('scale', 1))
+    if not all(math.isfinite(n) for n in (warning, critical, scale) if n is not None):
+        raise ValueError('Values must be finite')
+    direction = body['direction']
+    if direction not in ('above', 'below'):
+        raise ValueError('Invalid threshold direction')
+    if warning is not None and critical is not None:
+        if (direction == 'below' and critical > warning) or (direction == 'above' and critical < warning):
+            raise ValueError('Critical threshold must be more severe than warning')
+    unit = int(body.get('unit', 1))
+    persistence = int(body.get('persistence', 2))
+    if not 1 <= unit <= 247 or not 1 <= persistence <= 120:
+        raise ValueError('Invalid unit ID or persistence')
+    community = body.get('community') or (existing['community'] if existing else 'public')
+    return (name, kind, target, community, unit, scale, body.get('units', ''),
+            direction, warning, critical, persistence)
 
 
 def mutate(action, body):
@@ -383,7 +436,7 @@ def mutate(action, body):
         elif action == 'pause':
             db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
         elif action == 'ack':
-            db.execute('UPDATE incidents SET acknowledged=? WHERE id=? AND closed IS NULL',
+            db.execute('UPDATE incidents SET acknowledged=? WHERE id=? AND closed IS NULL AND acknowledged IS NULL',
                        (time.time(), int(body['id'])))
         elif action == 'retention':
             days = int(body['days'])
@@ -391,26 +444,22 @@ def mutate(action, body):
                 raise ValueError('Retention must be 1–3650 days')
             db.execute("UPDATE settings SET value=? WHERE key='retention_days'", (str(days),))
         elif action == 'service':
-            kind = body['kind']
-            target = body['target'].strip()
-            if kind not in ('tcp', 'snmp', 'modbus'):
-                raise ValueError('Invalid protocol')
-            if kind == 'snmp' and not all(part.isdigit() for part in target.lstrip('.').split('.')):
-                raise ValueError('Use a numeric SNMP OID')
-            if kind in ('tcp', 'modbus') and not (0 if kind == 'modbus' else 1) <= int(target) <= 65535:
-                raise ValueError('Invalid port/register')
-            warning = float(body['warning']) if body.get('warning') else None
-            critical = float(body['critical']) if body.get('critical') else None
-            scale = float(body.get('scale', 1))
-            if not all(math.isfinite(n) for n in (warning, critical, scale) if n is not None):
-                raise ValueError('Values must be finite')
-            if body['direction'] not in ('above', 'below'):
-                raise ValueError('Invalid threshold direction')
-            db.execute('''INSERT INTO services
-                (id,assignment,name,kind,target,community,unit,scale,units,direction,warning,critical)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
-                (next_record_id(db, 'services'), int(body['assignment']), body['name'], kind, target, body.get('community', 'public'),
-                 1, scale, body.get('units', ''), body['direction'], warning, critical))
+            details = service_details(body)
+            db.execute("""INSERT INTO services
+                (id,assignment,name,kind,target,community,unit,scale,units,direction,
+                 warning,critical,persistence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (next_record_id(db, 'services'), int(body['assignment']), *details))
+        elif action == 'service-edit':
+            service_id = int(body['service'])
+            existing = db.execute('SELECT * FROM services WHERE id=? AND enabled=1',
+                                  (service_id,)).fetchone()
+            if existing is None or existing['kind'] == 'ping':
+                raise ValueError('Unknown service or managed host check')
+            details = service_details(body, existing)
+            # Retain identity/history but start persistence counting for the new config.
+            db.execute("""UPDATE services SET name=?,kind=?,target=?,community=?,unit=?,
+                scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,
+                revision=revision+1 WHERE id=?""", (*details, service_id))
         elif action == 'remove-service':
             # Keep ownership for history and later full-device deletion.
             db.execute("UPDATE services SET enabled=0 WHERE id=? AND kind!='ping'",

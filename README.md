@@ -55,8 +55,11 @@ support, which must be present in the local Python build.
 5. Read current metrics, recent readings, and incidents in the dashboard.
 
 Numeric thresholds may be above or below a value. Critical is evaluated first;
-two consecutive identical statuses open or recover an incident. Acknowledgement
-records a timestamp without clearing the incident. The three assignment controls
+a configurable number of consecutive identical statuses open or recover an incident
+(default two). Acknowledgement
+records a timestamp without clearing the incident and moves it into the acknowledged
+list. It stays there after recovery. Unacknowledged recoveries appear in the resolved
+list. All three lists are scoped to the active deployment. The three assignment controls
 are independent; notification flags are currently stored only.
 
 ## Implemented
@@ -73,7 +76,10 @@ are independent; notification flags are currently stored only.
   SNMP v2c GET; TCP port reachability; basic Modbus TCP function 03.
 - Inline success confirmations and cleared add forms; failed submissions preserve
   input and background refreshes preserve unfinished selections.
-- Warning/critical thresholds, two-reading persistence, incident recovery and local
+- In-place service editing from host cards or the configuration catalogue, including
+  protocol, OID/register/port, thresholds, scaling, units, Modbus unit ID, persistence,
+  and optional credential replacement. Blank edited credentials stay unchanged.
+- Warning/critical thresholds, configurable persistence, incident recovery and local
   acknowledgement; unknown/stale status after 60 seconds without a reading.
 - Recent metric table (latest 200 readings per service/run), retention in days.
 - Consistent SQLite backup and validated restore with polling paused afterwards.
@@ -106,13 +112,13 @@ CLI recovery command and versioned encrypted archives remain planned.
 - No verified manufacturer profiles: do not invent OIDs or Mean Well registers.
 - SNMP v2c only. Raw counters are not throughput; counter-rate calculation, counter
   rollover handling, SNMPv3 and vendor profiles are required next.
-- Modbus TCP port 502/unit 1 only, unsigned 16-bit holding registers with scale.
-  RTU/gateways, alternate unit IDs, signed/multi-register values, bitfields and
+- Modbus TCP port 502 with configurable unit ID, unsigned 16-bit holding registers with scale.
+  RTU/gateways, signed/multi-register values, bitfields and
   manufacturer fault decoding are pending confirmation of the actual DRS interface.
 - Host cards show ICMP online/offline/unknown independently of additional services.
   Paired-radio views and a combined host/service health rollup remain pending.
   Networks that block ICMP will show hosts as offline despite other services working.
-- Inventory creation/editing/deletion and service removal are present; assignment
+- Inventory creation/editing/deletion and service creation/editing/removal are present; assignment
   editing/removal, reusable profile management, cloning, and project readiness
   checks remain to be added.
 - No graphs or historical run selector yet; data remains in the database.
@@ -139,3 +145,8 @@ Removed services are now disabled rather than detached from their equipment. Thi
 preserves their history and allows subsequent full-device deletion to remove it.
 Older versions could leave history for already-deleted services without ownership;
 those legacy orphan records cannot reliably be attributed to an inventory item.
+
+Editing a service keeps earlier samples for history, discards any in-flight reads
+using the old configuration, and awaits fresh readings before showing current
+values. Alert persistence restarts for the new configuration. Existing incidents
+remain recorded and are reconciled by subsequent confirmed readings.

@@ -12,6 +12,10 @@ The user requested readable, consistently indented code and explanatory comments
   preserve shared projects/runs and all other equipment.
 - IP addresses belong to inventory devices and are shared across all projects.
 - Exactly one active project. Each activation creates a deployment run; retain history.
+- Services can be edited in place; retain identity/history and keep blank edited
+  SNMP credentials unchanged. Built-in host ping stays managed by the application.
+- Active incidents exclude acknowledged ones; show acknowledged and resolved lists.
+  Acknowledgement does not clear the fault and stays recorded after recovery.
 - Selected SNMP metrics and Mean Well DRS Modbus metrics, not exhaustive discovery.
 - Warning/critical thresholds, persistence, recovery, acknowledgement, retention.
 - Independent monitoring, visibility, notification controls.
@@ -56,3 +60,7 @@ enabled services. Device deletion purges both active and disabled services.
 Persistent ID counters in settings prevent ID reuse after deletion; use
 next_record_id for device, assignment and service creation, including built-in ping.
 The editor must retain failed edits and must not be overwritten by dashboard refresh.
+
+Service configuration revisions isolate in-flight reads and persistence counts
+when edited. Migrate revision fields on services/samples at startup and restore.
+Never expose stored communities in state or service edit responses.

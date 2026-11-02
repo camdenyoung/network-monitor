@@ -34,21 +34,29 @@
     <label>Selected project<select id="project"></select></label>
     <button id="activate" class="primary">Activate / start new deployment</button>
     <button id="pause">Pause all monitoring</button>
-    <small>15-second polling · two consecutive readings confirm incidents</small>
+    <small>15-second polling · incident persistence is configurable per service</small>
   </section>
   <div id="dashboard" class="grid"></div>
-  <section><h2>Incidents</h2><div id="incidents"></div></section>
+  <section>
+    <h2>Active incidents</h2>
+    <p id="incident-feedback" class="form-feedback" role="status"></p>
+    <div id="incidents"></div>
+  </section>
+  <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
+  <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
   <details><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
     <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><label>IP address<input name="address" required placeholder="192.168.1.10"></label><button>Add device</button></form><div id="inventory"></div><p id="inventory-feedback" class="form-feedback" role="status"></p></section>
     <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
-    <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03, unit 1, TCP port 502.</p>
+    <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>
       <form data-action="service">
         <label>Assignment<select name="assignment" id="assignment" required></select></label>
         <label>Service name<input name="name" required placeholder="RSSI"></label>
         <label>Protocol<select name="kind"><option value="snmp">SNMP v2c</option><option value="modbus">Modbus TCP</option><option value="tcp">TCP port reachability</option></select></label>
         <label>OID / register / port<input name="target" required></label>
         <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
+        <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
+        <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" value="2" required></label>
         <label>Scale<input name="scale" type="number" step="any" value="1" required></label>
         <label>Units<input name="units" placeholder="dBm"></label>
         <label>Alarm direction<select name="direction"><option value="below">Below</option><option value="above">Above</option></select></label>
@@ -56,6 +64,8 @@
         <label>Critical<input name="critical" type="number" step="any"></label>
         <button>Add service</button>
       </form>
+      <p id="service-feedback" class="form-feedback" role="status"></p>
+      <div id="service-catalogue"></div>
     </section>
     <section><h2>Project assignments</h2><p>Notification flags are saved for future messaging integration; this preview does not send notifications.</p><div id="assignments" class="scroll"></div></section>
   </details>
@@ -78,6 +88,35 @@
       <button type="button" id="cancel-device-edit">Cancel</button>
     </form>
     <p id="device-edit-feedback" role="status"></p>
+  </dialog>
+  <dialog id="service-editor">
+    <h2>Edit monitored service</h2>
+    <p id="service-editor-host"></p>
+    <form id="service-edit-form">
+      <input name="service" type="hidden">
+      <label>Service name<input name="name" required maxlength="100"></label>
+      <label>Protocol<select name="kind">
+        <option value="snmp">SNMP v2c</option>
+        <option value="modbus">Modbus TCP</option>
+        <option value="tcp">TCP port reachability</option>
+      </select></label>
+      <label>OID / register / port<input name="target" required></label>
+      <label>SNMP community (leave blank to keep existing)
+        <input name="community" type="password" autocomplete="new-password">
+      </label>
+      <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" required></label>
+      <label>Scale<input name="scale" type="number" step="any" required></label>
+      <label>Units<input name="units"></label>
+      <label>Alarm direction<select name="direction">
+        <option value="below">Below</option><option value="above">Above</option>
+      </select></label>
+      <label>Warning<input name="warning" type="number" step="any"></label>
+      <label>Critical<input name="critical" type="number" step="any"></label>
+      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
+      <button class="primary">Save changes</button>
+      <button type="button" id="cancel-service-edit">Cancel</button>
+    </form>
+    <p id="service-edit-feedback" role="status"></p>
   </dialog>
   <script>
     // Escape all operator/device content before inserting it into HTML.
@@ -150,16 +189,37 @@
         const metrics = services.map(service => {
           const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
           const status = readingStatus(reading, assignment, run);
-          return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-remove="${service.id}">Remove</button></div>`;
+          return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-edit-service="${service.id}">Edit</button><button data-remove="${service.id}">Remove</button></div>`;
         }).join('');
         return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
       el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')}</td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
-      el('incidents').innerHTML = state.incidents.filter(row => row.run === run?.id).map(row => {
-        const service = state.services.find(service => service.id === row.service);
-        const assignment = state.assignments.find(assignment => assignment.id === service?.assignment);
-        return `<p><span class="${row.status}">${row.status}</span> · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')} · ${date(row.opened)} · ${row.closed ? 'Recovered ' + date(row.closed) : row.acknowledged ? 'Acknowledged ' + date(row.acknowledged) : `<button data-ack="${row.id}">Acknowledge</button>`}</p>`;
-      }).join('') || '<p>No incidents in the current deployment.</p>';
+      const projectServices = state.services.filter(service => service.enabled !== 0 &&
+        service.kind !== 'ping' && assignments.some(row => row.id === service.assignment));
+      el('service-catalogue').innerHTML = projectServices.map(service => {
+        const host = assignments.find(row => row.id === service.assignment);
+        return `<p>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}
+          <button data-edit-service="${service.id}">Edit</button>
+          <button data-remove="${service.id}">Remove</button></p>`;
+      }).join('') || '<p>No additional services in this project.</p>';
+      const lists = state.incident_lists;
+      el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active incidents.</p>';
+      el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged incidents.</p>';
+      el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved incidents.</p>';
+    }
+
+    function renderIncidents(incidents, allowAcknowledgement = false) {
+      return incidents.map(incident => {
+        const service = state.services.find(row => row.id === incident.service);
+        const assignment = state.assignments.find(row => row.id === service?.assignment);
+        const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
+        const acknowledgement = incident.acknowledged
+          ? `Acknowledged ${date(incident.acknowledged)}`
+          : allowAcknowledgement ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
+        return `<p><span class="${escapeHtml(incident.status)}">${escapeHtml(incident.status)}</span>
+          · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
+          · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</p>`;
+      }).join('');
     }
 
     function notify(message, success = false) {
@@ -264,6 +324,48 @@
       }
     };
 
+    function openServiceEditor(id) {
+      const service = state.services.find(row => row.id === Number(id) && row.enabled !== 0);
+      if (!service || service.kind === 'ping') throw new Error('Service is unavailable for editing.');
+      const host = state.assignments.find(row => row.id === service.assignment);
+      const form = el('service-edit-form');
+      form.elements.namedItem('service').value = service.id;
+      for (const field of ['name', 'kind', 'target', 'unit', 'scale', 'units',
+                           'direction', 'warning', 'critical', 'persistence']) {
+        form.elements.namedItem(field).value = service[field] ?? '';
+      }
+      // Never fetch or prefill credentials; a blank value preserves the stored secret.
+      form.elements.namedItem('community').value = '';
+      el('service-editor-host').textContent = 'Host: ' + (host?.alias || 'Unknown');
+      el('service-edit-feedback').textContent = '';
+      el('service-editor').showModal();
+    }
+
+    el('cancel-service-edit').onclick = () => el('service-editor').close();
+    el('service-edit-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const buttons = form.querySelectorAll('button');
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        await request('service-edit', Object.fromEntries(new FormData(form)));
+        el('service-editor').close();
+        form.reset();
+        el('service-feedback').textContent = 'Service updated successfully. Awaiting fresh readings.';
+        el('service-feedback').classList.add('success');
+        notify('Service updated successfully.', true);
+        try {
+          await refresh();
+        } catch (error) {
+          notify('Service saved. Dashboard refresh failed; reload to see changes.');
+        }
+      } catch (error) {
+        el('service-edit-feedback').textContent = error.message;
+      } finally {
+        buttons.forEach(button => { button.disabled = false; });
+      }
+    };
+
     async function removeDevice(id, button) {
       const device = state.devices.find(row => row.id === Number(id));
       if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
@@ -292,10 +394,16 @@
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
       try {
+        if (data.editService) openServiceEditor(data.editService);
         if (data.editDevice) openDeviceEditor(data.editDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
-        if (data.ack) await performAction('ack', {id: data.ack});
+        if (data.ack) {
+          await request('ack', {id: data.ack});
+          el('incident-feedback').textContent = 'Incident moved to the acknowledged list.';
+          el('incident-feedback').classList.add('success');
+          await refresh();
+        }
         if (data.remove && confirm('Remove this service? Historical readings are retained.')) await performAction('remove-service', {id: data.remove});
         if (data.history) {
           const response = await fetch(`/api/history?service=${data.history}&run=${state.settings.active_run}`);
