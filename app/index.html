@@ -314,6 +314,18 @@
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="deployment-confirmation" aria-labelledby="deployment-confirmation-title">
+    <h2 id="deployment-confirmation-title">Start a new deployment?</h2>
+    <p id="deployment-confirmation-project"></p>
+    <p>This starts a new deployment with a fresh monitoring history and issue list.
+      Previous deployment data remains stored, but is no longer shown in the current dashboard.</p>
+    <p>To continue a paused deployment with its existing history, choose Cancel and use Resume all monitoring.</p>
+    <div class="display-controls">
+      <button id="confirm-deployment" class="primary">Continue</button>
+      <button id="cancel-deployment">Cancel</button>
+    </div>
+    <p id="deployment-confirmation-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="history">
     <button id="close-history">Close</button>
     <h2 id="history-title">Service history</h2>
@@ -1284,7 +1296,33 @@
     };
 
     el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
-    el('activate').onclick = () => performAction('activate', {project: selectedProject}).catch(report);
+    let pendingDeploymentProject = null;
+    el('activate').onclick = () => {
+      const project = state.projects.find(row => String(row.id) === selectedProject);
+      if (!project) { report(new Error('Select a project first.')); return; }
+      // Capture the target when opening; background refresh must not change it.
+      pendingDeploymentProject = project.id;
+      el('deployment-confirmation-project').textContent = 'Project: ' + project.name;
+      el('deployment-confirmation-feedback').textContent = '';
+      el('deployment-confirmation').showModal();
+    };
+    el('cancel-deployment').onclick = () => el('deployment-confirmation').close();
+    el('deployment-confirmation').onclose = () => { pendingDeploymentProject = null; };
+    el('confirm-deployment').onclick = async () => {
+      if (pendingDeploymentProject === null || el('confirm-deployment').disabled) return;
+      el('confirm-deployment').disabled = true;
+      el('cancel-deployment').disabled = true;
+      try {
+        await performAction('activate', {project: pendingDeploymentProject});
+        pendingDeploymentProject = null;
+        el('deployment-confirmation').close();
+      } catch (error) {
+        el('deployment-confirmation-feedback').textContent = error.message;
+      } finally {
+        el('confirm-deployment').disabled = false;
+        el('cancel-deployment').disabled = false;
+      }
+    };
     el('monitoring-toggle').onclick = () => {
       const running = Number(state.settings.active_run) !== 0;
       return performAction(running ? 'pause' : 'resume', running ? {} : {project: selectedProject}).catch(report);

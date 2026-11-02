@@ -430,3 +430,8 @@ Pausing all monitoring preserves the current event name and logo on public statu
 Public logo access permits the active run, or paused_run when no run is active;
 other project logos remain private. The status summary explicitly says Monitoring
 paused and does not present live readings or enable acknowledgements while paused.
+
+Activate / start new deployment opens a confirmation dialog with Continue and
+Cancel before sending any activation request. Explain that the new run starts a
+fresh current history/issue list while prior data remains stored. Resume continues
+a paused run. Capture the selected project on opening and retain errors in the dialog.

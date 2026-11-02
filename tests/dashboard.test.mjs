@@ -723,3 +723,37 @@ await acknowledgedReload.refresh();
 assert.equal(publicNodes.get('project').textContent, 'Paused event');
 assert.equal(publicNodes.get('project-logo').hidden, false);
 assert.equal(publicNodes.get('summary').textContent, 'Monitoring paused');
+
+// Starting a deployment must wait for explicit confirmation; cancelling is inert.
+const deploymentRequests = [];
+let rejectDeployment = false;
+namedMain.fetch = async (path, options) => {
+    if (options) {
+        deploymentRequests.push({path,body:JSON.parse(options.body)});
+        return {ok:!rejectDeployment,json:async () => rejectDeployment
+            ? {error:'Cannot start deployment'} : {ok:true}};
+    }
+    return originalNamedFetch(path, options);
+};
+element('activate').onclick();
+assert.equal(element('deployment-confirmation').open, true);
+assert.equal(deploymentRequests.length, 0);
+assert.equal(element('deployment-confirmation-project').textContent, 'Project: Test');
+element('cancel-deployment').onclick();
+element('deployment-confirmation').onclose();
+assert.equal(element('deployment-confirmation').open, false);
+await element('confirm-deployment').onclick();
+assert.equal(deploymentRequests.length, 0);
+element('activate').onclick();
+rejectDeployment = true;
+await element('confirm-deployment').onclick();
+assert.equal(deploymentRequests[0].path, '/api/activate');
+assert.equal(deploymentRequests[0].body.project, 1);
+assert.equal(element('deployment-confirmation').open, true);
+assert.equal(element('deployment-confirmation-feedback').textContent, 'Cannot start deployment');
+assert.equal(element('confirm-deployment').disabled, false);
+rejectDeployment = false;
+await element('confirm-deployment').onclick();
+assert.equal(deploymentRequests.length, 2);
+assert.equal(element('deployment-confirmation').open, false);
+console.log('New deployment requires Continue; Cancel sends no request and failures remain reviewable.');
