@@ -93,22 +93,22 @@
     <label class="project-selector">Selected project<select id="project"></select></label>
     <button data-admin id="activate" class="primary">Activate / start new deployment</button>
     <button data-admin id="pause">Pause all monitoring</button>
-    <small>15-second polling · incident persistence is configurable per service</small>
+    <small>15-second polling · issue persistence is configurable per service</small>
   </section>
   <div class="display-controls" role="group" aria-label="Dashboard section visibility">
-    <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false">Show Acknowledged incidents</button>
-    <button id="toggle-suppressed" aria-controls="suppressed-panel" aria-expanded="false">Show Suppressed service incidents</button>
-    <button id="toggle-resolved" aria-controls="resolved-panel" aria-expanded="false">Show Resolved incidents</button>
+    <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false">Show Acknowledged issues</button>
+    <button id="toggle-suppressed" aria-controls="suppressed-panel" aria-expanded="false">Show Suppressed service issues</button>
+    <button id="toggle-resolved" aria-controls="resolved-panel" aria-expanded="false">Show Resolved issues</button>
     <button id="toggle-live" aria-controls="live-status-panel" aria-expanded="true">Hide live host/service status</button>
   </div>
   <section>
-    <h2>Active incidents</h2>
+    <h2>Active issues</h2>
     <p id="incident-feedback" class="form-feedback" role="status"></p>
     <div id="incidents"></div>
   </section>
-  <section id="acknowledged-panel" hidden><h2>Acknowledged incidents</h2><div id="acknowledged-incidents"></div></section>
-  <section id="suppressed-panel" hidden><h2>Suppressed service incidents</h2><div id="suppressed-incidents"></div></section>
-  <section id="resolved-panel" hidden><h2>Resolved incidents</h2><div id="resolved-incidents"></div></section>
+  <section id="acknowledged-panel" hidden><h2>Acknowledged issues</h2><div id="acknowledged-incidents"></div></section>
+  <section id="suppressed-panel" hidden><h2>Suppressed service issues</h2><div id="suppressed-incidents"></div></section>
+  <section id="resolved-panel" hidden><h2>Resolved issues</h2><div id="resolved-incidents"></div></section>
   <div id="live-status-panel">
     <div class="display-controls" role="group" aria-label="Host display options">
       <button id="view-cards" aria-pressed="true">Cards</button>
@@ -119,7 +119,7 @@
       <button id="clear-service-filter">All services</button>
     </div>
     <p id="host-view-summary"></p>
-    <small>Service filters narrow host readings. Incident lists show all incidents.</small>
+    <small>Service filters narrow host readings. Issue lists show all issues.</small>
     <div id="dashboard" class="grid"></div>
   </div>
   <details data-admin><summary>Inventory and project configuration</summary>
@@ -153,11 +153,11 @@
         </div>
         <div class="project-settings-panel">
           <h3>Status dashboard</h3>
-          <p>Control incident acknowledgement on this project's status page.</p>
+          <p>Control issue acknowledgement on this project's status page.</p>
           <form id="project-status-form">
             <label class="project-check">
               <input name="enabled" type="checkbox">
-              <span>Allow signed-in Admins and Operators to acknowledge incidents</span>
+              <span>Allow signed-in Admins and Operators to acknowledge issues</span>
             </label>
             <div class="project-panel-actions"><button>Save status settings</button></div>
           </form>
@@ -230,7 +230,7 @@
       <div id="service-catalogue"></div>
       <button id="catalogue-more" hidden>Show 20 more</button>
     </section>
-    <section><h2>Project assignments</h2><p>Notification flags control incident messages for each host.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
+    <section><h2>Project assignments</h2><p>Notification flags control issue messages for each host.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
   </details>
   <details data-admin><summary>Reusable service library</summary><section>
     <h2>Predefined services</h2>
@@ -241,7 +241,7 @@
     <div id="service-library"></div>
   </section></details>
   <details data-admin><summary>User management</summary><section>
-    <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge incidents. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
+    <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge issues. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
     <form id="user-form">
       <input name="user" type="hidden">
       <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
@@ -356,7 +356,7 @@
   </dialog>
   <dialog id="service-transfer">
     <h2 id="transfer-title">Copy service to host</h2>
-    <p>Settings and credentials are copied; history and incidents are not.
+    <p>Settings and credentials are copied; history and issues are not.
       Leave the community blank to use the source credential.</p>
     <form id="service-transfer-form">
       <label>Target project<select id="transfer-project" required></select></label>
@@ -442,9 +442,9 @@
 
     // Section visibility is presentation only; polling and incident tracking continue.
     for (const [key, panelId, label, initiallyVisible] of [
-      ['acknowledged', 'acknowledged-panel', 'Acknowledged incidents', false],
-      ['suppressed', 'suppressed-panel', 'Suppressed service incidents', false],
-      ['resolved', 'resolved-panel', 'Resolved incidents', false],
+      ['acknowledged', 'acknowledged-panel', 'Acknowledged issues', false],
+      ['suppressed', 'suppressed-panel', 'Suppressed service issues', false],
+      ['resolved', 'resolved-panel', 'Resolved issues', false],
       ['live', 'live-status-panel', 'live host/service status', true],
     ]) {
       const storageKey = `field-monitor.main.panel.${key}`;
@@ -534,13 +534,13 @@
           return `<tr class="host-row ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}">
             <td><strong>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</strong>
               <p>${escapeHtml(device?.address || 'IP required')}</p>
-              ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}
+              ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}
               <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></td>
             <td><span class="${hostStatus}">${hostLabel}</span><p><small>${hostDetails}</small></p></td>
             ${showServices ? `<td>${metrics || 'No additional services configured.'}</td>` : ''}
           </tr>`;
         }
-        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
+        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
       }).join('');
       el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
       el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
@@ -607,10 +607,10 @@
       if (el('service-transfer').open) updateTransferHosts();
       if (currentUser?.role === 'admin') await loadAdmin();
       const lists = state.incident_lists;
-      el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active incidents.</p>';
-      el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged incidents.</p>';
-      el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service incidents.</p>';
-      el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved incidents.</p>';
+      el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active issues.</p>';
+      el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
+      el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
+      el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
     }
 
     let inventoryLimit = 50;
@@ -1133,7 +1133,7 @@
       const assignments = state.assignments.filter(row => row.device === device.id);
       const warning = `Permanently delete "${device.name}"? This removes the device, ` +
         `its ${assignments.length} project assignment(s), all services, readings, ` +
-        'and incidents. This cannot be undone without restoring a backup.';
+        'and issues. This cannot be undone without restoring a backup.';
       if (!confirm(warning)) return;
       button.disabled = true;
       try {
@@ -1255,7 +1255,7 @@
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
         if (data.ack) {
           await request('ack', {id: data.ack});
-          el('incident-feedback').textContent = 'Incident moved to the acknowledged list.';
+          el('incident-feedback').textContent = 'Issue moved to the acknowledged list.';
           el('incident-feedback').classList.add('success');
           await refresh();
         }

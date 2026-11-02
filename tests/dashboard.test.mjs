@@ -115,7 +115,7 @@ assert.equal(element('history-graph').hidden, true);
 assert.equal(element('readings').hidden, false);
 console.log('Dashboard smoke tests passed: cards, menus, alias/state editors, dependency display, graphs and gaps.');
 
-// The anonymous overview must render active incidents before equipment cards,
+// The anonymous overview must render active issues before equipment cards,
 // while escaping operator-controlled names and providing an empty state.
 const statusPage = await readFile(new URL('../app/status.html', import.meta.url), 'utf8');
 assert.ok(statusPage.indexOf('id="incidents"') < statusPage.indexOf('id="devices"'));
@@ -142,7 +142,7 @@ assert.match(publicNodes.get('incidents').innerHTML, /Offline/);
 assert.doesNotMatch(publicNodes.get('incidents').innerHTML, /<img/);
 publicData.incidents = [];
 await publicContext.refresh();
-assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
+assert.match(publicNodes.get('incidents').innerHTML, /No active issues/);
 console.log('Public incident overview smoke tests passed.');
 
 // Checkbox values must be sent as booleans, including an explicit false when
@@ -176,7 +176,7 @@ vm.runInContext('currentUser.role = "operator"', context);
 fixture.assignments[0].incident_status = 'warning';
 await context.refresh();
 assert.match(element('dashboard').innerHTML, /host-card incident-warning/);
-assert.match(element('dashboard').innerHTML, /Warning incident/);
+assert.match(element('dashboard').innerHTML, /Warning issue/);
 assert.doesNotMatch(element('dashboard').innerHTML, /data-copy-service|data-edit-service/);
 const incident = {id: 1,service: 2,status: 'critical',opened: now,closed: null,acknowledged: null};
 assert.match(context.renderIncidents([incident], true), /data-ack/);
@@ -189,7 +189,7 @@ assert.equal(vm.runInContext("formatStatus('critical')", context), 'Critical');
 publicData.devices[0].incident_status = 'critical';
 await publicContext.refresh();
 assert.match(publicNodes.get('devices').innerHTML, /host-card incident-critical/);
-assert.match(publicNodes.get('devices').innerHTML, /Critical incident/);
+assert.match(publicNodes.get('devices').innerHTML, /Critical issue/);
 publicNodes.get('toggle-hosts').onclick();
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host cards');
@@ -197,7 +197,7 @@ assert.equal(publicNodes.get('toggle-hosts').attributes['aria-expanded'], 'false
 assert.equal(publicStorage.get('field-monitor.status.hide-hosts'), 'true');
 await publicContext.refresh();
 assert.equal(publicNodes.get('devices').hidden, true);
-assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
+assert.match(publicNodes.get('incidents').innerHTML, /No active issues/);
 publicNodes.get('toggle-hosts').onclick();
 assert.equal(publicNodes.get('devices').hidden, false);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Hide host cards');
@@ -373,7 +373,7 @@ reloadedMain.renderHosts();
 assert.match(element('dashboard').innerHTML, /Port status/);
 element('toggle-services').onclick();
 assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
-assert.match(element('dashboard').innerHTML, /Warning incident/);
+assert.match(element('dashboard').innerHTML, /Warning issue/);
 assert.doesNotMatch(element('dashboard').innerHTML, /Port status|Local RSSI|data-service-monitoring/);
 assert.equal(element('toggle-services').textContent, 'Show services');
 assert.equal(mainStorage.get('field-monitor.main.hide-services'), 'true');
@@ -399,7 +399,7 @@ assert.match(element('dashboard').innerHTML, /Port status/);
 
 publicNodes.get('toggle-services').onclick();
 assert.match(publicNodes.get('devices').innerHTML, /SW001 - Stage/);
-assert.match(publicNodes.get('devices').innerHTML, /Critical incident/);
+assert.match(publicNodes.get('devices').innerHTML, /Critical issue/);
 assert.doesNotMatch(publicNodes.get('devices').innerHTML, /Remote RSSI|Temperature/);
 assert.equal(publicStorage.get('field-monitor.status.hide-services'), 'true');
 publicNodes.get('view-list').onclick();
@@ -469,7 +469,7 @@ sortedPublic.fetch = async (path, options) => {
 await publicNodes.get('incidents').onclick({target:{dataset:{statusAck:'42'},disabled:false}});
 assert.equal(statusAcknowledgement.body.id, '42');
 assert.equal(statusAcknowledgement.headers['X-CSRF-Token'], 'status-csrf');
-assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
+assert.match(publicNodes.get('incidents').innerHTML, /No active issues/);
 publicData.can_acknowledge = false;
 publicData.incidents = [{id:42,device:'SW2',alias:'Zulu',service:'Host ping',status:'unreachable',opened:now}];
 await sortedPublic.refresh();
@@ -593,7 +593,7 @@ assert.equal(publicNodes.get('acknowledged-panel').hidden, false);
 publicNodes.get('toggle-acknowledged').onclick();
 assert.equal(publicNodes.get('acknowledged-panel').hidden, true);
 assert.equal(publicNodes.get('toggle-acknowledged').getAttribute('aria-pressed'), 'false');
-console.log('Public acknowledged incidents and persisted visibility passed.');
+console.log('Public acknowledged issues and persisted visibility passed.');
 
 assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /by &lt;operator&gt;/);
 publicData.acknowledged_incidents[0].acknowledged_by_username = null;

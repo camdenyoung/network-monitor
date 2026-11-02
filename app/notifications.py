@@ -120,7 +120,7 @@ def enqueue_for_channel(db, incident_id, event, channel):
     value = (reading['display_value'] or str(reading['value'])) if reading and reading['value'] is not None else 'No reading'
     title = 'RECOVERED' if event == 'recovery' else row['status'].upper()
     text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
-            f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIncident #{incident_id}")
+            f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIssue #{incident_id}")
     db.execute('''INSERT OR IGNORE INTO notification_outbox
         (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
         (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))
@@ -132,7 +132,7 @@ def enqueue_test(db, channel='telegram'):
         raise ValueError('Enable the notification channel first')
     db.execute('''INSERT INTO notification_outbox
         (event,channel,text,config_revision,next_attempt,created) VALUES('test',?,?,?,?,?)''',
-        (channel, 'TEST · Field Monitor\nNotification test\nThis destination is configured for incident alerts.',
+        (channel, 'TEST · Field Monitor\nNotification test\nThis destination is configured for issue alerts.',
          config['revision'], time.time(), time.time()))
 
 
@@ -219,7 +219,7 @@ def deliver_once(connect, lock, host_is_up):
             if not source or source['run'] != run or not source['notifications'] or not source['monitoring'] or not source['enabled'] or not source['service_monitoring']:
                 reason = 'Source removed, inactive, or muted'
             elif row['event'] == 'opened' and source['closed']:
-                reason = 'Incident already resolved'
+                reason = 'Issue already resolved'
             elif source['kind'] != 'ping' and not host_is_up(db, source, run):
                 reason = 'Suppressed by host dependency'
         if reason:

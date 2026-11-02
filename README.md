@@ -27,7 +27,7 @@ read-only for anonymous visitors. Use an HTTPS reverse proxy before sending pass
 across untrusted networks; set `MONITOR_SECURE_COOKIE=true` when using HTTPS.
 
 The `monitor-data` named volume holds the SQLite database, including configuration,
-metrics, incidents, and SNMP communities. Container replacement preserves it.
+metrics, issues, and SNMP communities. Container replacement preserves it.
 `docker compose down` retains it; `docker compose down -v` deletes it.
 
 Without Docker (Python 3.11+):
@@ -63,18 +63,18 @@ also be changed without replacing their password. Blank edited passwords keep
 the existing password. Existing accounts migrate with a blank email while keeping
 their current password and password-change setting. The last Admin cannot be demoted, and self-deletion is blocked.
 
-**Admins** configure equipment, acknowledge incidents, manage users, notifications,
+**Admins** configure equipment, acknowledge issues, manage users, notifications,
 backups and restore. **Operators** can inspect status/history and acknowledge
-incidents but cannot edit projects, equipment, services or any other configuration.
+issues but cannot edit projects, equipment, services or any other configuration.
 **View Only** users can inspect monitoring data and history but
-cannot mutate configuration or acknowledge incidents. All three roles can change their own
+cannot mutate configuration or acknowledge issues. All three roles can change their own
 password. User edits, password resets and deletion revoke that user's sessions.
 Sessions last 12 hours, use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
 
-The public `/status` dashboard shows active incidents above the active project's visible hosts and
-current service values. Incidents for hidden, paused or inactive equipment are
-excluded, as are acknowledged, resolved and dependency-suppressed incidents. It excludes IP addresses, credentials, OIDs, inventory of
+The public `/status` dashboard shows active issues above the active project's visible hosts and
+current service values. Issues for hidden, paused or inactive equipment are
+excluded, as are acknowledged, resolved and dependency-suppressed issues. It excludes IP addresses, credentials, OIDs, inventory of
 other projects, history, user accounts, and configuration. It is available locally
 without login; this does not create the future public-facing relay.
 
@@ -89,12 +89,12 @@ without login; this does not create the future public-facing relay.
    using verified OIDs or register addresses.
 4. Activate the project. Activation creates a new deployment run and switches the
    sole active project. Pausing stops collection without deleting configuration.
-5. Read current metrics, recent readings, and incidents in the dashboard.
+5. Read current metrics, recent readings, and issues in the dashboard.
 
 Numeric thresholds may be above or below a value. Critical is evaluated first;
-a configurable number of consecutive identical statuses open or recover an incident
+a configurable number of consecutive identical statuses open or recover an issue
 (default two). Acknowledgement
-records a timestamp without clearing the incident and moves it into the acknowledged
+records a timestamp without clearing the issue and moves it into the acknowledged
 list. It stays there after recovery. Unacknowledged recoveries appear in the resolved
 list. All three lists are scoped to the active deployment. The three assignment controls
 are independent; notification flags enable or mute outbound messages per host.
@@ -102,7 +102,7 @@ are independent; notification flags enable or mute outbound messages per host.
 ## Implemented
 
 - Permanent inventory with full ID/name, model and IP editing; confirmed permanent
-  deletion removes the device and its assignments, services, readings, incidents,
+  deletion removes the device and its assignments, services, readings, issues,
   and legacy address records across all projects. Shared projects/runs survive.
 - Shared device IP; saved project assignments with
   per-project aliases. Inventory IP edits apply to all projects.
@@ -110,7 +110,7 @@ are independent; notification flags enable or mute outbound messages per host.
 - Independent monitoring and visibility controls.
 - Bounded concurrent polling (24 workers), 15-second cycle delay.
 - Host-first dependency checks: child services are suppressed while the host ping
-  is failed, stale or missing. Existing child incidents stay recorded in a suppressed
+  is failed, stale or missing. Existing child issues stay recorded in a suppressed
   list, without being falsely recovered. Fresh service reads resume after host recovery.
 - Numeric metrics with units/thresholds or numeric state codes with per-value labels
   and healthy/warning/critical severity. Unmapped state codes produce warnings.
@@ -122,13 +122,13 @@ are independent; notification flags enable or mute outbound messages per host.
 - Copy services to hosts in any saved project, with optional name/community overrides.
 - Reusable service library: create definitions directly, save existing services,
   edit/delete entries, and apply them to hosts. Copies are independent, with fresh
-  history and incidents; template edits/deletion do not modify existing services.
+  history and issues; template edits/deletion do not modify existing services.
   Templates retain credentials and are included in database backups. Credentials
   are hidden from the UI; blank overrides reuse the source credential.
 - In-place service editing from host cards or the configuration catalogue, including
   protocol, OID/register/port, thresholds, scaling, units, Modbus unit ID, persistence,
   and optional credential replacement. Blank edited credentials stay unchanged.
-- Warning/critical thresholds, configurable persistence, incident recovery and local
+- Warning/critical thresholds, configurable persistence, issue recovery and local
   acknowledgement; unknown/stale status after 60 seconds without a reading.
 - Recent metric table (latest 200 readings per service/run), retention in days.
 - Consistent SQLite backup and validated restore with polling paused afterwards.
@@ -202,7 +202,7 @@ those legacy orphan records cannot reliably be attributed to an inventory item.
 
 Editing a service keeps earlier samples for history, discards any in-flight reads
 using the old configuration, and awaits fresh readings before showing current
-values. Alert persistence restarts for the new configuration. Existing incidents
+values. Alert persistence restarts for the new configuration. Existing issues
 remain recorded and are reconciled by subsequent confirmed readings.
 
 Service library entries are user-defined. No unverified manufacturer OIDs or
@@ -229,8 +229,8 @@ SNMP enum values are requested numerically using Net-SNMP's
 
 Each host is pinged before its child checks. A failed/missing ping or a ping older
 than 60 seconds blocks child polling and records a suppressed sample instead of a
-service-down event. Confirmed host failures still create host incidents. Existing
-child incidents move to the suppressed list and keep their original history and
+service-down event. Confirmed host failures still create host issues. Existing
+child issues move to the suppressed list and keep their original history and
 acknowledgements. After host recovery, service persistence starts again from fresh
 readings; recovery is recorded only after confirmed healthy readings.
 
@@ -272,15 +272,15 @@ requires a Business API group and appropriate Meta eligibility; it cannot target
 an ordinary app-created WhatsApp group. Use Telegram for that shared-team workflow.
 
 Create an approved template with **three positional body text parameters**:
-`{{1}}` device, `{{2}}` status/project, `{{3}}` service reading and incident details.
+`{{1}}` device, `{{2}}` status/project, `{{3}}` service reading and issue details.
 Enable the provider, save and send a test. Provider approval, sender provisioning,
 API permissions, billing and group eligibility are managed in Meta, outside this app.
 
 ## Delivery behaviour
 
-New confirmed incidents and optional recoveries are queued independently for each
+New confirmed issues and optional recoveries are queued independently for each
 enabled provider. Per-host notification flags and host dependencies are respected.
-Enabling a provider does not replay old incidents. Each event is queued once per
+Enabling a provider does not replay old issues. Each event is queued once per
 provider; reminders and remote acknowledgement are not implemented yet.
 
 Queues survive restarts. Transient failures retry with backoff, up to five attempts;
@@ -295,25 +295,25 @@ provider delivery has been verified without credentials. Tokens are hidden in th
 UI and logs, but remain in admin backups; protect those backups.
 
 Admins can select **Operator** when adding or editing a user. Operators can view
-monitoring/history and acknowledge incidents, but all configuration remains
+monitoring/history and acknowledge issues, but all configuration remains
 Admin-only. **Healthy**, **Warning**, and **Critical** use capitalised labels.
-Host cards use amber/red backgrounds for confirmed Warning/Critical incidents;
+Host cards use amber/red backgrounds for confirmed Warning/Critical issues;
 the highest open severity wins. Acknowledgement does not remove the colour until
 the fault recovers. Suppressed child faults do not add a second fault indication.
 
 The public status overview has a **Hide host cards / Show host cards** button.
-Hide cards for an incident-only view. The choice is stored in that browser and
+Hide cards for an issue-only view. The choice is stored in that browser and
 is preserved during live updates and page reloads.
 
 Both dashboards offer **Cards** and **List** views. **Service filter** matches part
 of a service name, ignoring case: `RSSI` displays readings such as Local RSSI and
 Remote RSSI and hides hosts without a matching enabled service. **All services**
-clears the filter. Incident lists remain complete and host severity colours still
+clears the filter. Issue lists remain complete and host severity colours still
 reflect all confirmed faults. View and filter preferences are saved separately
 for each dashboard in browser storage and survive live updates/page reloads. The
-public show/hide control hides either layout for an incident-only display.
+public show/hide control hides either layout for an issue-only display.
 
-Both dashboards place **Active incidents** above hosts. List rows have rounded
+Both dashboards place **Active issues** above hosts. List rows have rounded
 card-style borders and spacing with the same severity colours as cards. Navigation
 and download links use consistent button styling across the app.
 
@@ -322,11 +322,11 @@ rename the selected project and upload, replace, or remove its event logo. Logos
 accept PNG/JPEG up to 2 MB and 4096 pixels per side. The selected project logo is
 shown on the main dashboard; the active project logo is shown on public status.
 Images are stored inside the database and included in backup/restore. Project
-renaming preserves assignments and history. The main dashboard keeps all incident
+renaming preserves assignments and history. The main dashboard keeps all issue
 sections—active, acknowledged, suppressed and resolved—above the host display.
 
 Admins can **Pause / Resume** a service directly on its host or in the filtered
-service manager. This stops polling and suppresses its incidents/messages while
+service manager. This stops polling and suppresses its issues/messages while
 keeping configuration and history. Resuming waits for fresh readings and restarts
 threshold persistence. Built-in host ping is controlled through host monitoring.
 
@@ -339,24 +339,24 @@ selected. Filter by service name/OID, protocol, and enabled/paused monitoring.
 Results start at 20; **Show 20 more** expands the list intentionally.
 
 Both dashboards have **Hide services / Show services** for a host-only Cards or
-List display. Host details, incident badges/colours, and incident lists remain.
+List display. Host details, issue badges/colours, and issue lists remain.
 This is a display preference, not a monitoring pause. It is saved per dashboard
 in browser storage and restored after refresh.
 
 **Edit selected project → Duplicate selected project** creates a new inactive
 project with a unique name. It copies the logo, current device assignments and
 aliases, services, monitoring/visibility/notification flags and status settings.
-Inventory records remain shared. History, incidents and deployment runs stay with
+Inventory records remain shared. History, issues and deployment runs stay with
 the original project; review the copy before activating it. Removed assignments
 and removed services are excluded.
 
 Public status **Sort hosts** offers hostname A–Z/Z–A, alias, host status in either
-priority order, and incident severity. The selection is saved in browser storage
+priority order, and issue severity. The selection is saved in browser storage
 and applies to both Cards and List views.
 
 Admins can enable **Allow status-page acknowledgement** under **Edit selected
 project**. It defaults off per project. When enabled, signed-in Admins and Operators
-see Acknowledge buttons on active public-status incidents. Anonymous visitors and
+see Acknowledge buttons on active public-status issues. Anonymous visitors and
 View Only users stay read-only. Disabling the setting removes that ability from
 the status page; normal authorised acknowledgement on the main dashboard remains.
 
@@ -373,9 +373,9 @@ Acknowledgements retain the authenticated account ID and username at the time of
 acknowledgement, including after account rename/deletion. Legacy records display
 Unknown user (legacy). The main dashboard has independent Show/Hide controls for
 acknowledged, suppressed, resolved and live host/service sections, saved in browser
-localStorage. Hiding sections does not pause monitoring or hide active incidents.
+localStorage. Hiding sections does not pause monitoring or hide active issues.
 
-The public status dashboard also has a separate acknowledged-incidents section
+The public status dashboard also has a separate acknowledged-issues section
 with a colour-coded Show/Hide button, saved in browser storage. It shows
 acknowledgement/recovery times and the recorded acknowledging username. Legacy
 records display Unknown user (legacy); account IDs and other details stay private.

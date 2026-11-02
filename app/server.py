@@ -512,7 +512,7 @@ def snapshot():
             (int(result['settings']['active_run']),))]
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
-        # Split by acknowledgement independently of recovery: acknowledged incidents
+        # Split by acknowledgement independently of recovery: acknowledged issues
         # remain in that list after recovery, with their recovery time visible.
         run = int(result['settings']['active_run'])
         predicates = {
@@ -680,13 +680,13 @@ def acknowledge_status_incident(db, incident_id, actor):
         WHERE i.id=? AND i.closed IS NULL AND p.status_ack_enabled=1
           AND a.visible=1 AND a.monitoring=1 AND a.removed=0 AND s.enabled=1 AND s.monitoring=1""", (incident_id,)).fetchone()
     if not row:
-        raise ValueError('Status acknowledgement disabled or incident unavailable')
+        raise ValueError('Status acknowledgement disabled or issue unavailable')
     if row['kind'] != 'ping':
         latest = db.execute("""SELECT status FROM samples WHERE service=? AND run=? AND revision=?
             AND timestamp>=? ORDER BY id DESC LIMIT 1""",
             (row['service'], row['run'], row['revision'], row['monitoring_since'])).fetchone()
         if not host_is_up(db, row, row['run']) or not latest or latest[0] in ('blocked','paused','unknown'):
-            raise ValueError('Service incident is suppressed')
+            raise ValueError('Service issue is suppressed')
     record_acknowledgement(db, incident_id, actor)
 
 

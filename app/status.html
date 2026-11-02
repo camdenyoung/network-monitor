@@ -77,29 +77,29 @@
   </header>
   <p id="summary" role="status"></p>
   <div class="display-controls" role="group" aria-label="Host display options">
-    <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false" aria-pressed="false">Show acknowledged incidents</button>
+    <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false" aria-pressed="false">Show acknowledged issues</button>
     <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
     <button id="view-cards" aria-pressed="true">Cards</button>
     <button id="view-list" aria-pressed="false">List</button>
     <label>Sort hosts<select id="host-sort">
       <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
       <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
-      <option value="status-ok">Host status: healthy first</option><option value="severity">Incident severity</option>
+      <option value="status-ok">Host status: healthy first</option><option value="severity">Issue severity</option>
     </select></label>
     <button id="toggle-services" aria-pressed="true">Hide services</button>
     <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
     <datalist id="service-filter-options"></datalist>
     <button id="clear-service-filter">All services</button>
   </div>
-  <small>Service filters narrow host readings. Incident lists show all active incidents.</small>
+  <small>Service filters narrow host readings. Issue lists show all active issues.</small>
   <section aria-labelledby="incidents-title">
-    <h2 id="incidents-title">Active incidents</h2>
-    <p id="status-ack-note" hidden>Sign in as an Admin or Operator to acknowledge incidents from this page.</p>
+    <h2 id="incidents-title">Active issues</h2>
+    <p id="status-ack-note" hidden>Sign in as an Admin or Operator to acknowledge issues from this page.</p>
     <p id="status-ack-feedback" role="status"></p>
     <div id="incidents" aria-live="polite"></div>
   </section>
   <section id="acknowledged-panel" hidden>
-    <h2>Acknowledged incidents</h2>
+    <h2>Acknowledged issues</h2>
     <div id="acknowledged-incidents" aria-live="polite"></div>
   </section>
   <div id="devices" class="grid"></div><p id="updated"></p>
@@ -128,7 +128,7 @@
     function acknowledgedVisibility() {
       document.getElementById('acknowledged-panel').hidden = !showAcknowledged;
       const button = document.getElementById('toggle-acknowledged');
-      button.textContent = `${showAcknowledged ? 'Hide' : 'Show'} acknowledged incidents`;
+      button.textContent = `${showAcknowledged ? 'Hide' : 'Show'} acknowledged issues`;
       button.setAttribute('aria-expanded', String(showAcknowledged));
       button.setAttribute('aria-pressed', String(showAcknowledged));
     }
@@ -205,7 +205,7 @@
       document.getElementById('service-filter-options').innerHTML = names.map(name => `<option value="${escape(name)}"></option>`).join('');
       const rendered = matches.map(device => {
         const severity = device.incident_status ? 'incident-' + escape(device.incident_status) : '';
-        const badge = device.incident_status ? `<span class="incident-badge ${escape(device.incident_status)}">${formatStatus(device.incident_status)} incident</span>` : '';
+        const badge = device.incident_status ? `<span class="incident-badge ${escape(device.incident_status)}">${formatStatus(device.incident_status)} issue</span>` : '';
         const services = device.services.filter(service => !serviceFilter.trim() || serviceMatches(service)).map(service =>
           `<div class="metric"><strong>${escape(service.name)}</strong><p class="${escape(service.status)}">${escape(service.value ?? labels[service.status] ?? formatStatus(service.status))} ${escape(service.units)} · ${escape(formatStatus(service.status))}</p></div>`
         ).join('') || 'No additional services configured.';
@@ -246,7 +246,7 @@
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
             ${data.can_acknowledge ? `<button data-status-ack="${incident.id}">Acknowledge</button>` : ''}
-          </div>`).join('') || '<p>No active incidents.</p>';
+          </div>`).join('') || '<p>No active issues.</p>';
         document.getElementById('acknowledged-incidents').innerHTML = (data.acknowledged_incidents || []).map(incident => `
           <div class="metric">
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
@@ -254,7 +254,7 @@
             <small>· Acknowledged ${escape(new Date(incident.acknowledged * 1000).toLocaleString())}
             by ${escape(incident.acknowledged_by_username || 'Unknown user (legacy)')}
             · ${incident.closed ? 'Recovered ' + escape(new Date(incident.closed * 1000).toLocaleString()) : 'Still open'}</small>
-          </div>`).join('') || '<p>No acknowledged incidents.</p>';
+          </div>`).join('') || '<p>No acknowledged issues.</p>';
         renderHosts();
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
       } catch (error) {
@@ -270,7 +270,7 @@
           headers:{'Content-Type':'application/json','X-CSRF-Token':publicState.csrf}, body:JSON.stringify({id})});
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
-        document.getElementById('status-ack-feedback').textContent = 'Incident acknowledged.';
+        document.getElementById('status-ack-feedback').textContent = 'Issue acknowledged.';
         await refresh();
       } catch (error) { document.getElementById('status-ack-feedback').textContent = error.message; }
       finally { event.target.disabled = false; }
