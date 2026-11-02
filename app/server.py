@@ -84,10 +84,35 @@ def initialize():
         migrate_value_types(db)
         ensure_host_checks(db)
         migrate_project_settings(db)
+        migrate_incident_acknowledgements(db)
         logos.ensure_table(db)
         notifications.ensure_tables(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
+
+
+def migrate_incident_acknowledgements(db):
+    """Keep an immutable actor snapshot; legacy acknowledgements remain unattributed."""
+    columns = {row[1] for row in db.execute('PRAGMA table_info(incidents)')}
+    for name, kind in (('acknowledged_by_user_id', 'INTEGER'),
+                       ('acknowledged_by_username', 'TEXT')):
+        if name not in columns:
+            db.execute(f'ALTER TABLE incidents ADD COLUMN {name} {kind}')
+
+
+def record_acknowledgement(db, incident_id, actor):
+    """Use the authenticated account, never client-provided identity fields.
+
+    No foreign key is used: deleting or renaming an account must not rewrite
+    history. The conditional update preserves the first actor and timestamp.
+    """
+    account = db.execute('SELECT id,username,role FROM users WHERE id=?',
+                         (actor.get('id') if actor else None,)).fetchone()
+    if not account or account['role'] not in ('admin', 'operator'):
+        raise ValueError('An authenticated Admin or Operator is required')
+    db.execute("""UPDATE incidents SET acknowledged=?, acknowledged_by_user_id=?,
+        acknowledged_by_username=? WHERE id=? AND closed IS NULL AND acknowledged IS NULL""",
+        (time.time(), account['id'], account['username'], incident_id))
 
 
 def migrate_project_settings(db):
@@ -645,7 +670,7 @@ def duplicate_project(db, source_id, name):
     ensure_host_checks(db)
 
 
-def acknowledge_status_incident(db, incident_id):
+def acknowledge_status_incident(db, incident_id, actor):
     """Enforce active-project opt-in and the same public incident visibility rules."""
     row = db.execute("""SELECT i.*,s.assignment,s.kind,s.revision,s.monitoring_since,d.address
         FROM incidents i JOIN services s ON s.id=i.service
@@ -662,11 +687,10 @@ def acknowledge_status_incident(db, incident_id):
             (row['service'], row['run'], row['revision'], row['monitoring_since'])).fetchone()
         if not host_is_up(db, row, row['run']) or not latest or latest[0] in ('blocked','paused','unknown'):
             raise ValueError('Service incident is suppressed')
-    db.execute('UPDATE incidents SET acknowledged=COALESCE(acknowledged,?) WHERE id=?',
-               (time.time(), incident_id))
+    record_acknowledgement(db, incident_id, actor)
 
 
-def mutate(action, body):
+def mutate(action, body, actor=None):
     with LOCK, connect() as db:
         if action == 'project':
             name = body['name'].strip()
@@ -683,7 +707,7 @@ def mutate(action, body):
             if cursor.rowcount != 1:
                 raise ValueError('Unknown project')
         elif action == 'status-ack':
-            acknowledge_status_incident(db, int(body['id']))
+            acknowledge_status_incident(db, int(body['id']), actor)
         elif action == 'project-edit':
             name = body['name'].strip()
             if not name or len(name) > 100:
@@ -753,8 +777,7 @@ def mutate(action, body):
         elif action == 'pause':
             db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
         elif action == 'ack':
-            db.execute('UPDATE incidents SET acknowledged=? WHERE id=? AND closed IS NULL AND acknowledged IS NULL',
-                       (time.time(), int(body['id'])))
+            record_acknowledgement(db, int(body['id']), actor)
         elif action == 'retention':
             days = int(body['days'])
             if not 1 <= days <= 3650:
@@ -1100,6 +1123,7 @@ class Handler(BaseHTTPRequestHandler):
                     migrate_value_types(candidate)
                     ensure_host_checks(candidate)
                     migrate_project_settings(candidate)
+                    migrate_incident_acknowledgements(candidate)
                     logos.ensure_table(candidate)
                     notifications.ensure_tables(candidate)
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
@@ -1164,7 +1188,7 @@ class Handler(BaseHTTPRequestHandler):
                     with LOCK, connect() as db:
                         auth.manage_user(db, self.path.removeprefix('/api/'), body, user)
                 else:
-                    mutate(self.path.removeprefix('/api/'), body)
+                    mutate(self.path.removeprefix('/api/'), body, actor=user)
             self.send('{"ok":true}')
         except (ValueError, KeyError, sqlite3.Error, OverflowError, TypeError):
             self.send('{"error":"Request rejected: check values and referenced records"}', status=400)

@@ -320,7 +320,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(incident['alias'], 'Stage switch')
         self.assertEqual(set(incident), {'id', 'device', 'alias', 'service', 'status', 'opened'})
         incident_id = server.snapshot()['incident_lists']['active'][0]['id']
-        server.mutate('ack', {'id': incident_id})
+        server.mutate('ack', {'id': incident_id}, actor={'id': 1})
         self.assertEqual(json.loads(self.request('/api/status')['content'])['incidents'], [])
 
     def test_public_incidents_exclude_hidden_paused_and_inactive_equipment(self):
@@ -645,6 +645,42 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token)['status'], 403)
         self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token, operator['csrf'])['status'], 200)
         self.assertEqual(server.status_overview()['incidents'], [])
+        recorded = server.snapshot()['incident_lists']['acknowledged'][0]
+        self.assertEqual(recorded['acknowledged_by_user_id'], operator['id'])
+        self.assertEqual(recorded['acknowledged_by_username'], 'operator')
+
+    def test_acknowledgement_actor_is_trusted_and_preserved(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        token, operator = self.create_operator()
+        response = self.request('/api/ack', {
+            'id': incident['id'], 'acknowledged_by_username': 'forged',
+            'acknowledged_by_user_id': 1,
+        }, token, operator['csrf'])
+        self.assertEqual(response['status'], 200)
+        recorded = server.snapshot()['incident_lists']['acknowledged'][0]
+        self.assertEqual(recorded['acknowledged_by_user_id'], operator['id'])
+        self.assertEqual(recorded['acknowledged_by_username'], 'operator')
+        self.request('/api/ack', {'id': incident['id']}, self.admin_token, self.admin['csrf'])
+        with server.connect() as db:
+            db.execute('UPDATE users SET username=? WHERE id=?', ('renamed', operator['id']))
+            db.execute('DELETE FROM users WHERE id=?', (operator['id'],))
+        self.assertEqual(server.snapshot()['incident_lists']['acknowledged'][0], recorded)
+
+    def test_legacy_acknowledgement_migration_does_not_invent_actor(self):
+        with server.connect() as db:
+            db.execute('ALTER TABLE incidents DROP COLUMN acknowledged_by_user_id')
+            db.execute('ALTER TABLE incidents DROP COLUMN acknowledged_by_username')
+            db.execute('INSERT INTO incidents(id,acknowledged) VALUES(999,123)')
+            server.migrate_incident_acknowledgements(db)
+            server.migrate_incident_acknowledgements(db)
+            row = db.execute('SELECT * FROM incidents WHERE id=999').fetchone()
+            self.assertEqual(row['acknowledged'], 123)
+            self.assertIsNone(row['acknowledged_by_user_id'])
+            self.assertIsNone(row['acknowledged_by_username'])
 
     def test_status_ack_disabling_and_hidden_hosts_are_enforced_server_side(self):
         host = self.create_host()

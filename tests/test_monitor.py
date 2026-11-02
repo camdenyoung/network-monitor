@@ -45,7 +45,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(server.snapshot()['incidents'], [])
         self.poll(-80)
         incident = server.snapshot()['incidents'][0]
-        server.mutate('ack', {'id': incident['id']})
+        server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
         self.assertIsNotNone(server.snapshot()['incidents'][0]['acknowledged'])
         self.assertIsNone(server.snapshot()['incidents'][0]['closed'])
         self.poll(-50)
@@ -364,13 +364,13 @@ class MonitorTests(unittest.TestCase):
         self.poll(-80)
         self.poll(-80)
         incident = server.snapshot()['incident_lists']['active'][0]
-        server.mutate('ack', {'id': incident['id']})
+        server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
         lists = server.snapshot()['incident_lists']
         self.assertEqual(lists['active'], [])
         self.assertEqual(len(lists['acknowledged']), 1)
         self.assertIsNone(lists['acknowledged'][0]['closed'])
         timestamp = lists['acknowledged'][0]['acknowledged']
-        server.mutate('ack', {'id': incident['id']})
+        server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
         self.assertEqual(server.snapshot()['incident_lists']['acknowledged'][0]['acknowledged'], timestamp)
         self.poll(-50)
         self.poll(-50)
@@ -700,7 +700,7 @@ class MonitorTests(unittest.TestCase):
         self.poll(-80)
         self.poll(-80)
         incident = server.snapshot()['incident_lists']['active'][0]
-        server.mutate('ack', {'id': incident['id']})
+        server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
         self.poll_ping(False)
         lists = server.snapshot()['incident_lists']
         self.assertEqual(lists['active'], [])
@@ -725,7 +725,7 @@ class MonitorTests(unittest.TestCase):
         state = server.snapshot()
         self.assertEqual(state['assignments'][0]['incident_status'], 'critical')
         critical = next(row for row in state['incident_lists']['active'] if row['status'] == 'critical')
-        server.mutate('ack', {'id': critical['id']})
+        server.mutate('ack', {'id': critical['id']}, actor={'id': 1})
         self.assertEqual(server.status_overview()['devices'][0]['incident_status'], 'critical')
         with patch.object(server, 'read_metric', return_value=50):
             server.poll_one(temperature, 1)

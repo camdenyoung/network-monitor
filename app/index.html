@@ -95,25 +95,33 @@
     <button data-admin id="pause">Pause all monitoring</button>
     <small>15-second polling · incident persistence is configurable per service</small>
   </section>
+  <div class="display-controls" role="group" aria-label="Dashboard section visibility">
+    <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false">Show Acknowledged incidents</button>
+    <button id="toggle-suppressed" aria-controls="suppressed-panel" aria-expanded="false">Show Suppressed service incidents</button>
+    <button id="toggle-resolved" aria-controls="resolved-panel" aria-expanded="false">Show Resolved incidents</button>
+    <button id="toggle-live" aria-controls="live-status-panel" aria-expanded="true">Hide live host/service status</button>
+  </div>
   <section>
     <h2>Active incidents</h2>
     <p id="incident-feedback" class="form-feedback" role="status"></p>
     <div id="incidents"></div>
   </section>
-  <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
-  <details><summary>Suppressed service incidents</summary><section id="suppressed-incidents"></section></details>
-  <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
-  <div class="display-controls" role="group" aria-label="Host display options">
-    <button id="view-cards" aria-pressed="true">Cards</button>
-    <button id="view-list" aria-pressed="false">List</button>
-    <button id="toggle-services" aria-pressed="true">Hide services</button>
-    <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
-    <datalist id="service-filter-options"></datalist>
-    <button id="clear-service-filter">All services</button>
+  <section id="acknowledged-panel" hidden><h2>Acknowledged incidents</h2><div id="acknowledged-incidents"></div></section>
+  <section id="suppressed-panel" hidden><h2>Suppressed service incidents</h2><div id="suppressed-incidents"></div></section>
+  <section id="resolved-panel" hidden><h2>Resolved incidents</h2><div id="resolved-incidents"></div></section>
+  <div id="live-status-panel">
+    <div class="display-controls" role="group" aria-label="Host display options">
+      <button id="view-cards" aria-pressed="true">Cards</button>
+      <button id="view-list" aria-pressed="false">List</button>
+      <button id="toggle-services" aria-pressed="true">Hide services</button>
+      <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
+      <datalist id="service-filter-options"></datalist>
+      <button id="clear-service-filter">All services</button>
+    </div>
+    <p id="host-view-summary"></p>
+    <small>Service filters narrow host readings. Incident lists show all incidents.</small>
+    <div id="dashboard" class="grid"></div>
   </div>
-  <p id="host-view-summary"></p>
-  <small>Service filters narrow host readings. Incident lists show all incidents.</small>
-  <div id="dashboard" class="grid"></div>
   <details data-admin><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
     <section class="project-settings">
@@ -432,6 +440,34 @@
       </details></div>`;
     }
 
+    // Section visibility is presentation only; polling and incident tracking continue.
+    for (const [key, panelId, label, initiallyVisible] of [
+      ['acknowledged', 'acknowledged-panel', 'Acknowledged incidents', false],
+      ['suppressed', 'suppressed-panel', 'Suppressed service incidents', false],
+      ['resolved', 'resolved-panel', 'Resolved incidents', false],
+      ['live', 'live-status-panel', 'live host/service status', true],
+    ]) {
+      const storageKey = `field-monitor.main.panel.${key}`;
+      let visible = initiallyVisible;
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored != null) visible = stored === 'true';
+      } catch (error) { /* Keep defaults when browser storage is unavailable. */ }
+      const button = el(`toggle-${key}`);
+      const applyVisibility = () => {
+        el(panelId).hidden = !visible;
+        button.textContent = `${visible ? 'Hide' : 'Show'} ${label}`;
+        button.setAttribute('aria-expanded', String(visible));
+      };
+      button.onclick = () => {
+        visible = !visible;
+        try { localStorage.setItem(storageKey, String(visible)); }
+        catch (error) { /* Retain this preference for the current page session. */ }
+        applyVisibility();
+      };
+      applyVisibility();
+    }
+
     let hostView = 'cards';
     let showServices = true;
     let serviceFilter = '';
@@ -666,7 +702,7 @@
         const assignment = state.assignments.find(row => row.id === service?.assignment);
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
-          ? `Acknowledged ${date(incident.acknowledged)}`
+          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_username || 'Unknown user (legacy)')}`
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);

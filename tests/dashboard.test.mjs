@@ -320,7 +320,7 @@ assert.equal(publicNodes.get('project-logo').getAttribute('src'), publicData.log
 publicData.logo_url = null;
 await reloadedFilteredPublic.refresh();
 assert.equal(publicNodes.get('project-logo').hidden, true);
-for (const marker of ['id="incidents"', '<summary>Acknowledged incidents', '<summary>Suppressed service incidents', '<summary>Resolved incidents']) {
+for (const marker of ['id="incidents"', 'id="acknowledged-panel"', 'id="suppressed-panel"', 'id="resolved-panel"']) {
     assert.ok(html.indexOf(marker) < html.indexOf('id="dashboard"'));
 }
 console.log('Project logos, unsaved name edits, and all incident sections above hosts passed.');
@@ -541,3 +541,36 @@ await sortedPublic.refresh();
 assert.equal(publicNodes.get('status-session-link').textContent, 'Change password');
 assert.equal(publicNodes.get('status-session-link').getAttribute('href'), '/login');
 console.log('Collapsible/searchable inventory, project panel preview and public login indicators passed.');
+
+// Section preferences persist independently and remain applied during polling.
+for (const [key, panel, initialHidden] of [
+    ['acknowledged', 'acknowledged-panel', true],
+    ['suppressed', 'suppressed-panel', true],
+    ['resolved', 'resolved-panel', true],
+    ['live', 'live-status-panel', false],
+]) {
+    assert.equal(element(panel).hidden, initialHidden);
+    element(`toggle-${key}`).onclick();
+    assert.equal(element(panel).hidden, !initialHidden);
+    assert.equal(mainStorage.get(`field-monitor.main.panel.${key}`), String(initialHidden));
+    assert.equal(element(`toggle-${key}`).getAttribute('aria-expanded'), String(initialHidden));
+}
+await hostOnlyMain.refresh();
+assert.equal(element('live-status-panel').hidden, true);
+const sectionReload = vm.createContext({
+    document: context.document, localStorage: context.localStorage,
+    fetch: async path => ({ok:true,json:async () => path === '/api/me'
+        ? {id:2,username:'reader',role:'viewer',csrf:'test',must_change_password:0} : fixture}),
+    setInterval() {},
+});
+new vm.Script(script).runInContext(sectionReload);
+await sectionReload.initializeSession();
+assert.equal(element('live-status-panel').hidden, true);
+for (const key of ['acknowledged', 'suppressed', 'resolved']) {
+    assert.equal(element(`${key}-panel`).hidden, false);
+    assert.match(element(`toggle-${key}`).textContent, /^Hide /);
+}
+assert.ok(html.indexOf('id="toggle-acknowledged"') < html.indexOf('id="incidents"'));
+assert.match(sectionReload.renderIncidents([{acknowledged:123, acknowledged_by_username:'<operator>'}]), /by &lt;operator&gt;/);
+assert.match(sectionReload.renderIncidents([{acknowledged:123}]), /Unknown user \(legacy\)/);
+console.log('Acknowledgement attribution and persisted section visibility passed.');

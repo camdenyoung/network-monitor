@@ -192,3 +192,9 @@ Public status shows Not signed in or the caller's username/role, with Sign in /
 Dashboard navigation. Return only the current caller's identity in /api/status,
 never other accounts, email or password/session hashes. Temporary-password users
 get Change password navigation and remain unable to acknowledge.
+
+Acknowledgements retain the authenticated account ID and username at the time of
+acknowledgement, including after account rename/deletion. Legacy records display
+Unknown user (legacy). The main dashboard has independent Show/Hide controls for
+acknowledged, suppressed, resolved and live host/service sections, saved in browser
+localStorage. Hiding sections does not pause monitoring or hide active incidents.

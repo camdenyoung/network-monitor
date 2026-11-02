@@ -368,3 +368,9 @@ with a Show more button for larger inventories.
 The status dashboard shows whether the current browser is signed in and displays
 that user's name/role. Its navigation changes to Sign in, Dashboard, or Change
 password as appropriate. Anonymous responses contain no account identity.
+
+Acknowledgements retain the authenticated account ID and username at the time of
+acknowledgement, including after account rename/deletion. Legacy records display
+Unknown user (legacy). The main dashboard has independent Show/Hide controls for
+acknowledged, suppressed, resolved and live host/service sections, saved in browser
+localStorage. Hiding sections does not pause monitoring or hide active incidents.
