@@ -458,6 +458,7 @@
         el(panelId).hidden = !visible;
         button.textContent = `${visible ? 'Hide' : 'Show'} ${label}`;
         button.setAttribute('aria-expanded', String(visible));
+        button.setAttribute('aria-pressed', String(visible));
       };
       button.onclick = () => {
         visible = !visible;

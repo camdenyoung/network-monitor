@@ -198,3 +198,6 @@ acknowledgement, including after account rename/deletion. Legacy records display
 Unknown user (legacy). The main dashboard has independent Show/Hide controls for
 acknowledged, suppressed, resolved and live host/service sections, saved in browser
 localStorage. Hiding sections does not pause monitoring or hide active incidents.
+
+Main dashboard section visibility buttons use the shared aria-pressed active
+colour while their section is visible, including after restoring browser preferences.
