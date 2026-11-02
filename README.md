@@ -76,6 +76,12 @@ are independent; notification flags are currently stored only.
   SNMP v2c GET; TCP port reachability; basic Modbus TCP function 03.
 - Inline success confirmations and cleared add forms; failed submissions preserve
   input and background refreshes preserve unfinished selections.
+- Copy services to hosts in any saved project, with optional name/community overrides.
+- Reusable service library: create definitions directly, save existing services,
+  edit/delete entries, and apply them to hosts. Copies are independent, with fresh
+  history and incidents; template edits/deletion do not modify existing services.
+  Templates retain credentials and are included in database backups. Credentials
+  are hidden from the UI; blank overrides reuse the source credential.
 - In-place service editing from host cards or the configuration catalogue, including
   protocol, OID/register/port, thresholds, scaling, units, Modbus unit ID, persistence,
   and optional credential replacement. Blank edited credentials stay unchanged.
@@ -119,7 +125,7 @@ CLI recovery command and versioned encrypted archives remain planned.
   Paired-radio views and a combined host/service health rollup remain pending.
   Networks that block ICMP will show hosts as offline despite other services working.
 - Inventory creation/editing/deletion and service creation/editing/removal are present; assignment
-  editing/removal, reusable profile management, cloning, and project readiness
+  editing/removal, multi-service device profiles, project cloning, and project readiness
   checks remain to be added.
 - No graphs or historical run selector yet; data remains in the database.
 - No hysteresis, dependencies, maintenance windows, configurable polling intervals,
@@ -150,3 +156,7 @@ Editing a service keeps earlier samples for history, discards any in-flight read
 using the old configuration, and awaits fresh readings before showing current
 values. Alert persistence restarts for the new configuration. Existing incidents
 remain recorded and are reconciled by subsequent confirmed readings.
+
+Service library entries are user-defined. No unverified manufacturer OIDs or
+registers are preloaded. Older backups get an empty library on restore. Applying
+a library service requires a device already assigned to the target project.

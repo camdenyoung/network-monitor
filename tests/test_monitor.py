@@ -384,6 +384,114 @@ class MonitorTests(unittest.TestCase):
         server.mutate('activate', {'project': 1})
         self.assertEqual(server.snapshot()['incident_lists']['resolved'], [])
 
+    def add_copy_target(self):
+        server.mutate('device', {'name': 'Target radio', 'address': '127.0.0.2'})
+        server.mutate('assignment', {'project': 1, 'device': 2, 'alias': 'Target link'})
+        return server.snapshot()['assignments'][-1]['id']
+
+    def create_template_from_service(self):
+        server.mutate('template-create', self.edited_service_body(
+            source=self.service['id'], name='Library RSSI', community='',
+        ))
+        return server.snapshot()['service_templates'][0]['id']
+
+    def test_service_copy_has_independent_identity_settings_and_history(self):
+        target = self.add_copy_target()
+        self.poll(-80)
+        self.poll(-80)
+        with server.connect() as db:
+            db.execute('UPDATE services SET community=? WHERE id=?',
+                       ('source-secret', self.service['id']))
+        server.mutate('service-copy', {
+            'service': self.service['id'], 'assignment': target, 'name': 'Copied RSSI',
+        })
+        with server.connect() as db:
+            copied = db.execute("SELECT * FROM services WHERE name='Copied RSSI'").fetchone()
+            self.assertNotEqual(copied['id'], self.service['id'])
+            self.assertEqual(copied['assignment'], target)
+            self.assertEqual(copied['community'], 'source-secret')
+            self.assertEqual(copied['warning'], -65)
+            self.assertEqual(copied['critical'], -75)
+            self.assertEqual(copied['revision'], 1)
+            for table in ('samples', 'incidents'):
+                self.assertEqual(db.execute(f'SELECT COUNT(*) FROM {table} WHERE service=?',
+                                            (copied['id'],)).fetchone()[0], 0)
+        server.mutate('service-edit', self.edited_service_body())
+        copied = next(row for row in server.snapshot()['services'] if row['name'] == 'Copied RSSI')
+        self.assertEqual(copied['target'], '.1.2.3')
+
+    def test_copy_rejects_same_host_unknown_target_and_managed_ping(self):
+        for source, target in ((self.service['id'], 1), (self.service['id'], 999),
+                               (self.host_service()['id'], self.add_copy_target())):
+            with self.assertRaises(ValueError):
+                server.mutate('service-copy', {'service': source, 'assignment': target})
+        self.assertEqual(len(server.snapshot()['services']), 3)
+
+    def test_library_apply_edit_and_delete_do_not_change_materialized_services(self):
+        template = self.create_template_from_service()
+        target = self.add_copy_target()
+        server.mutate('template-apply', {
+            'template': template, 'assignment': target, 'community': 'target-secret',
+        })
+        server.mutate('template-edit', self.edited_service_body(
+            template=template, name='Changed template', target='.1.2.99',
+        ))
+        with server.connect() as db:
+            copied = db.execute("SELECT * FROM services WHERE assignment=? AND kind='snmp'", (target,)).fetchone()
+            self.assertEqual(copied['name'], 'Library RSSI')
+            self.assertEqual(copied['target'], '.1.2.4')
+            self.assertEqual(copied['community'], 'target-secret')
+        server.mutate('template-delete', {'template': template})
+        self.assertEqual(server.snapshot()['service_templates'], [])
+        self.assertTrue(any(row['name'] == 'Library RSSI' for row in server.snapshot()['services']))
+
+    def test_library_survives_source_device_deletion_and_is_redacted(self):
+        with server.connect() as db:
+            db.execute('UPDATE services SET community=? WHERE id=?',
+                       ('source-secret', self.service['id']))
+        template = self.create_template_from_service()
+        self.assertNotIn('community', server.snapshot()['service_templates'][0])
+        server.mutate('delete-device', {'device': 1})
+        self.assertEqual(len(server.snapshot()['service_templates']), 1)
+        with server.connect() as db:
+            row = db.execute('SELECT community FROM service_templates WHERE id=?', (template,)).fetchone()
+            self.assertEqual(row[0], 'source-secret')
+
+    def test_library_can_be_created_without_a_source_and_duplicate_names_are_rejected(self):
+        body = self.edited_service_body(name='Reusable voltage', kind='modbus', target='100')
+        server.mutate('template-create', body)
+        with self.assertRaises(sqlite3.IntegrityError):
+            server.mutate('template-create', body)
+        self.assertEqual(len(server.snapshot()['service_templates']), 1)
+        with self.assertRaises(ValueError):
+            server.mutate('template-apply', {'template': 999, 'assignment': 1})
+
+    def test_templates_are_restored_with_the_database(self):
+        self.create_template_from_service()
+        with server.connect() as source:
+            backup = sqlite3.connect(':memory:')
+            source.backup(backup)
+            payload = backup.serialize()
+            backup.close()
+        server.mutate('template-delete', {'template': 1})
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/restore'
+        handler.headers = {'Content-Length': str(len(payload)),
+                           'Content-Type': 'application/octet-stream'}
+        handler.rfile = io.BytesIO(payload)
+        responses = []
+        handler.send = lambda content, **kwargs: responses.append(content)
+        handler.do_POST()
+        self.assertEqual(responses, ['{"ok":true}'])
+        self.assertEqual(len(server.snapshot()['service_templates']), 1)
+        self.assertEqual(server.snapshot()['settings']['active_run'], '0')
+
+    def test_legacy_database_gets_empty_service_library(self):
+        with server.connect() as db:
+            db.execute('DROP TABLE service_templates')
+        server.initialize()
+        self.assertEqual(server.snapshot()['service_templates'], [])
+
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):
             server.poll_one(self.service, 1)

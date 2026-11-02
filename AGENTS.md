@@ -12,6 +12,10 @@ The user requested readable, consistently indented code and explanatory comments
   preserve shared projects/runs and all other equipment.
 - IP addresses belong to inventory devices and are shared across all projects.
 - Exactly one active project. Each activation creates a deployment run; retain history.
+- Services can be copied between host assignments, including across projects.
+- Reusable service library supports creation, saving from a host, editing, deletion
+  and applying to a host. Copies/templates materialize independent configurations;
+  never copy metric history, incidents, acknowledgements or managed host ping.
 - Services can be edited in place; retain identity/history and keep blank edited
   SNMP credentials unchanged. Built-in host ping stays managed by the application.
 - Active incidents exclude acknowledged ones; show acknowledged and resolved lists.
@@ -64,3 +68,8 @@ The editor must retain failed edits and must not be overwritten by dashboard ref
 Service configuration revisions isolate in-flight reads and persistence counts
 when edited. Migrate revision fields on services/samples at startup and restore.
 Never expose stored communities in state or service edit responses.
+
+service_templates stores independent reusable definitions, including credentials.
+ensure_service_library runs on startup/restore for backward-compatible backups.
+Redact template communities from snapshot, just like normal service credentials.
+Deleting a host or library entry must not affect already-materialized copies.

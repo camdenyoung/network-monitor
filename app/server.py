@@ -78,6 +78,7 @@ def initialize():
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
         migrate_inventory_addresses(db)
         migrate_service_lifecycle(db)
+        ensure_service_library(db)
         ensure_host_checks(db)
 
 
@@ -138,6 +139,20 @@ def migrate_service_lifecycle(db):
         previous = int(setting(db, 'last_id_' + table))
         db.execute('UPDATE settings SET value=? WHERE key=?',
                    (str(max(maximum, previous)), 'last_id_' + table))
+
+
+def ensure_service_library(db):
+    """Library entries are standalone configurations, never linked live to hosts."""
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS service_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, target TEXT NOT NULL,
+            community TEXT NOT NULL DEFAULT 'public', unit INTEGER NOT NULL DEFAULT 1,
+            scale REAL NOT NULL DEFAULT 1, units TEXT NOT NULL DEFAULT '',
+            direction TEXT NOT NULL DEFAULT 'below', warning REAL, critical REAL,
+            persistence INTEGER NOT NULL DEFAULT 2
+        )
+    """)
 
 
 def next_record_id(db, table):
@@ -341,6 +356,10 @@ def snapshot():
         result['services'] = [dict(row) for row in db.execute('''
             SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision
             FROM services''')]
+        result['service_templates'] = [dict(row) for row in db.execute('''
+            SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence
+            FROM service_templates ORDER BY name
+        ''')]
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
         result['latest'] = [dict(row) for row in db.execute('''
             SELECT s.* FROM samples s JOIN (
@@ -398,6 +417,33 @@ def service_details(body, existing=None):
             direction, warning, critical, persistence)
 
 
+def reusable_service(db, service_id):
+    """Only configured, enabled services can be copied or saved as templates."""
+    row = db.execute('SELECT * FROM services WHERE id=? AND enabled=1',
+                     (int(service_id),)).fetchone()
+    if row is None or row['kind'] == 'ping':
+        raise ValueError('Unknown service or managed host check')
+    return row
+
+
+def library_template(db, template_id):
+    row = db.execute('SELECT * FROM service_templates WHERE id=?',
+                     (int(template_id),)).fetchone()
+    if row is None:
+        raise ValueError('Unknown library service')
+    return row
+
+
+def insert_service(db, assignment_id, details):
+    """Materialize a new independent service; never copy history or incident state."""
+    if not db.execute('SELECT id FROM assignments WHERE id=?', (assignment_id,)).fetchone():
+        raise ValueError('Unknown target host')
+    db.execute("""INSERT INTO services
+        (id,assignment,name,kind,target,community,unit,scale,units,direction,
+         warning,critical,persistence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (next_record_id(db, 'services'), assignment_id, *details))
+
+
 def mutate(action, body):
     with LOCK, connect() as db:
         if action == 'project':
@@ -445,10 +491,7 @@ def mutate(action, body):
             db.execute("UPDATE settings SET value=? WHERE key='retention_days'", (str(days),))
         elif action == 'service':
             details = service_details(body)
-            db.execute("""INSERT INTO services
-                (id,assignment,name,kind,target,community,unit,scale,units,direction,
-                 warning,critical,persistence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (next_record_id(db, 'services'), int(body['assignment']), *details))
+            insert_service(db, int(body['assignment']), details)
         elif action == 'service-edit':
             service_id = int(body['service'])
             existing = db.execute('SELECT * FROM services WHERE id=? AND enabled=1',
@@ -460,6 +503,38 @@ def mutate(action, body):
             db.execute("""UPDATE services SET name=?,kind=?,target=?,community=?,unit=?,
                 scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,
                 revision=revision+1 WHERE id=?""", (*details, service_id))
+        elif action == 'service-copy':
+            source = reusable_service(db, body['service'])
+            assignment = int(body['assignment'])
+            if assignment == source['assignment']:
+                raise ValueError('Choose a different target host')
+            configuration = dict(source)
+            configuration['name'] = body.get('name', source['name'])
+            configuration['community'] = body.get('community') or source['community']
+            insert_service(db, assignment, service_details(configuration))
+        elif action == 'template-create':
+            # Saving from a service retains its secret on the server. The browser
+            # only sends non-secret fields and an optional replacement community.
+            source = reusable_service(db, body['source']) if body.get('source') else None
+            details = service_details(body, source)
+            db.execute("""INSERT INTO service_templates
+                (name,kind,target,community,unit,scale,units,direction,warning,critical,persistence)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)""", details)
+        elif action == 'template-edit':
+            source = library_template(db, body['template'])
+            details = service_details(body, source)
+            db.execute("""UPDATE service_templates SET name=?,kind=?,target=?,community=?,
+                unit=?,scale=?,units=?,direction=?,warning=?,critical=?,persistence=?
+                WHERE id=?""", (*details, source['id']))
+        elif action == 'template-delete':
+            source = library_template(db, body['template'])
+            db.execute('DELETE FROM service_templates WHERE id=?', (source['id'],))
+        elif action == 'template-apply':
+            source = library_template(db, body['template'])
+            configuration = dict(source)
+            configuration['name'] = body.get('name', source['name'])
+            configuration['community'] = body.get('community') or source['community']
+            insert_service(db, int(body['assignment']), service_details(configuration))
         elif action == 'remove-service':
             # Keep ownership for history and later full-device deletion.
             db.execute("UPDATE services SET enabled=0 WHERE id=? AND kind!='ping'",
@@ -531,6 +606,7 @@ class Handler(BaseHTTPRequestHandler):
                     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
                     migrate_inventory_addresses(candidate)
                     migrate_service_lifecycle(candidate)
+                    ensure_service_library(candidate)
                     ensure_host_checks(candidate)
                     candidate.commit()
                     with LOCK, connect() as destination:

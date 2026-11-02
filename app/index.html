@@ -69,6 +69,14 @@
     </section>
     <section><h2>Project assignments</h2><p>Notification flags are saved for future messaging integration; this preview does not send notifications.</p><div id="assignments" class="scroll"></div></section>
   </details>
+  <details><summary>Reusable service library</summary><section>
+    <h2>Predefined services</h2>
+    <p>Create a service definition or save one from a host. Applying an entry creates
+      an independent service; later library edits do not change existing hosts.</p>
+    <button id="new-template">Create library service</button>
+    <p id="library-feedback" class="form-feedback" role="status"></p>
+    <div id="service-library"></div>
+  </section></details>
   <details><summary>Backup, restore, and retention</summary><section>
     <p>Backup includes credentials and history. Store it securely; this preview produces an unencrypted SQLite archive. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
     <p><a href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
@@ -90,7 +98,7 @@
     <p id="device-edit-feedback" role="status"></p>
   </dialog>
   <dialog id="service-editor">
-    <h2>Edit monitored service</h2>
+    <h2 id="service-editor-title">Edit monitored service</h2>
     <p id="service-editor-host"></p>
     <form id="service-edit-form">
       <input name="service" type="hidden">
@@ -118,6 +126,22 @@
     </form>
     <p id="service-edit-feedback" role="status"></p>
   </dialog>
+  <dialog id="service-transfer">
+    <h2 id="transfer-title">Copy service to host</h2>
+    <p>Settings and credentials are copied; history and incidents are not.
+      Leave the community blank to use the source credential.</p>
+    <form id="service-transfer-form">
+      <label>Target project<select id="transfer-project" required></select></label>
+      <label>Target host<select name="assignment" id="transfer-host" required></select></label>
+      <label>Service name<input name="name" required maxlength="100"></label>
+      <label>Optional SNMP community override
+        <input name="community" type="password" autocomplete="new-password">
+      </label>
+      <button class="primary">Add to host</button>
+      <button type="button" id="cancel-service-transfer">Cancel</button>
+    </form>
+    <p id="transfer-feedback" role="status"></p>
+  </dialog>
   <script>
     // Escape all operator/device content before inserting it into HTML.
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -125,6 +149,10 @@
     const date = value => value ? new Date(value * 1000).toLocaleString() : '—';
     let state;
     let selectedProject = '';
+    let serviceEditorMode = 'service-edit';
+    let serviceEditorSource = null;
+    let transferMode = null;
+    let transferSource = null;
 
     async function request(path, body) {
       const response = await fetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -189,7 +217,9 @@
         const metrics = services.map(service => {
           const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
           const status = readingStatus(reading, assignment, run);
-          return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-edit-service="${service.id}">Edit</button><button data-remove="${service.id}">Remove</button></div>`;
+          return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-edit-service="${service.id}">Edit</button>
+          <button data-copy-service="${service.id}">Copy to host</button>
+          <button data-save-template="${service.id}">Save to library</button><button data-remove="${service.id}">Remove</button></div>`;
         }).join('');
         return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
@@ -200,8 +230,18 @@
         const host = assignments.find(row => row.id === service.assignment);
         return `<p>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}
           <button data-edit-service="${service.id}">Edit</button>
+          <button data-copy-service="${service.id}">Copy to host</button>
+          <button data-save-template="${service.id}">Save to library</button>
           <button data-remove="${service.id}">Remove</button></p>`;
       }).join('') || '<p>No additional services in this project.</p>';
+      el('service-library').innerHTML = state.service_templates.map(template => `
+        <article><strong>${escapeHtml(template.name)}</strong>
+          <p>${escapeHtml(template.kind)} · ${escapeHtml(template.target)} · ${escapeHtml(template.units)}</p>
+          <button data-apply-template="${template.id}">Add to host</button>
+          <button data-edit-template="${template.id}">Edit</button>
+          <button data-delete-template="${template.id}">Delete</button>
+        </article>`).join('') || '<p>No library services yet.</p>';
+      if (el('service-transfer').open) updateTransferHosts();
       const lists = state.incident_lists;
       el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active incidents.</p>';
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged incidents.</p>';
@@ -324,23 +364,45 @@
       }
     };
 
-    function openServiceEditor(id) {
-      const service = state.services.find(row => row.id === Number(id) && row.enabled !== 0);
-      if (!service || service.kind === 'ping') throw new Error('Service is unavailable for editing.');
-      const host = state.assignments.find(row => row.id === service.assignment);
+    function openConfigurationEditor(configuration, mode, source, title, context) {
+      serviceEditorMode = mode;
+      serviceEditorSource = source;
       const form = el('service-edit-form');
-      form.elements.namedItem('service').value = service.id;
+      form.elements.namedItem('service').value = configuration.id || '';
       for (const field of ['name', 'kind', 'target', 'unit', 'scale', 'units',
                            'direction', 'warning', 'critical', 'persistence']) {
-        form.elements.namedItem(field).value = service[field] ?? '';
+        form.elements.namedItem(field).value = configuration[field] ?? '';
       }
-      // Never fetch or prefill credentials; a blank value preserves the stored secret.
+      // Credentials are never fetched or prefilled. Blank keeps the source secret.
       form.elements.namedItem('community').value = '';
-      el('service-editor-host').textContent = 'Host: ' + (host?.alias || 'Unknown');
+      el('service-editor-title').textContent = title;
+      el('service-editor-host').textContent = context;
       el('service-edit-feedback').textContent = '';
       el('service-editor').showModal();
     }
 
+    function openServiceEditor(id, saveToLibrary = false) {
+      const service = state.services.find(row => row.id === Number(id) && row.enabled !== 0);
+      if (!service || service.kind === 'ping') throw new Error('Service is unavailable for editing.');
+      const host = state.assignments.find(row => row.id === service.assignment);
+      openConfigurationEditor(service, saveToLibrary ? 'template-create' : 'service-edit',
+        saveToLibrary ? service.id : null,
+        saveToLibrary ? 'Save service to library' : 'Edit monitored service',
+        saveToLibrary ? 'Saves an independent definition, including the stored credential.' : 'Host: ' + host.alias);
+    }
+
+    function openTemplateEditor(id = null) {
+      const template = id ? state.service_templates.find(row => row.id === Number(id)) : {
+        name: '', kind: 'snmp', target: '', unit: 1, scale: 1, units: '',
+        direction: 'below', warning: '', critical: '', persistence: 2,
+      };
+      if (!template) throw new Error('Library service no longer exists.');
+      openConfigurationEditor(template, id ? 'template-edit' : 'template-create', null,
+        id ? 'Edit library service' : 'Create library service',
+        'Library changes do not alter existing host services. New entries default to community public.');
+    }
+
+    el('new-template').onclick = () => openTemplateEditor();
     el('cancel-service-edit').onclick = () => el('service-editor').close();
     el('service-edit-form').onsubmit = async event => {
       event.preventDefault();
@@ -348,12 +410,18 @@
       const buttons = form.querySelectorAll('button');
       buttons.forEach(button => { button.disabled = true; });
       try {
-        await request('service-edit', Object.fromEntries(new FormData(form)));
+        const body = Object.fromEntries(new FormData(form));
+        if (serviceEditorMode === 'template-edit') body.template = body.service;
+        if (serviceEditorSource) body.source = serviceEditorSource;
+        await request(serviceEditorMode, body);
         el('service-editor').close();
         form.reset();
-        el('service-feedback').textContent = 'Service updated successfully. Awaiting fresh readings.';
-        el('service-feedback').classList.add('success');
-        notify('Service updated successfully.', true);
+        const library = serviceEditorMode.startsWith('template-');
+        const message = library ? 'Library service saved successfully.' : 'Service updated successfully. Awaiting fresh readings.';
+        const feedback = el(library ? 'library-feedback' : 'service-feedback');
+        feedback.textContent = message;
+        feedback.classList.add('success');
+        notify(message, true);
         try {
           await refresh();
         } catch (error) {
@@ -361,6 +429,62 @@
         }
       } catch (error) {
         el('service-edit-feedback').textContent = error.message;
+      } finally {
+        buttons.forEach(button => { button.disabled = false; });
+      }
+    };
+
+    function updateTransferHosts() {
+      const project = el('transfer-project').value;
+      const sourceAssignment = transferMode === 'service-copy'
+        ? state.services.find(row => row.id === transferSource)?.assignment : null;
+      const hosts = state.assignments.filter(row => String(row.project) === project && row.id !== sourceAssignment);
+      updateOptions('transfer-host', hosts, row => {
+        const device = state.devices.find(device => device.id === row.device);
+        return row.alias + ' · ' + (device?.name || '') + ' · ' + (device?.address || 'IP required');
+      }, 'Select target host…');
+    }
+
+    function openServiceTransfer(mode, id) {
+      transferMode = mode;
+      transferSource = Number(id);
+      const source = (mode === 'service-copy' ? state.services : state.service_templates)
+        .find(row => row.id === transferSource);
+      if (!source) throw new Error('Source service no longer exists.');
+      const form = el('service-transfer-form');
+      form.reset();
+      form.elements.namedItem('name').value = source.name;
+      el('transfer-project').innerHTML = options(state.projects, row => row.name);
+      el('transfer-project').value = selectedProject || String(state.projects[0]?.id || '');
+      updateTransferHosts();
+      el('transfer-title').textContent = mode === 'service-copy' ? 'Copy service to host' : 'Add library service to host';
+      el('transfer-feedback').textContent = '';
+      el('service-transfer').showModal();
+    }
+
+    el('transfer-project').onchange = updateTransferHosts;
+    el('cancel-service-transfer').onclick = () => el('service-transfer').close();
+    el('service-transfer-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const buttons = form.querySelectorAll('button');
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        const body = Object.fromEntries(new FormData(form));
+        body[transferMode === 'service-copy' ? 'service' : 'template'] = transferSource;
+        await request(transferMode, body);
+        el('service-transfer').close();
+        form.reset();
+        el('service-feedback').textContent = 'Service added to target host successfully.';
+        el('service-feedback').classList.add('success');
+        notify('Service added to target host successfully.', true);
+        try {
+          await refresh();
+        } catch (error) {
+          notify('Service added. Dashboard refresh failed; reload to see changes.');
+        }
+      } catch (error) {
+        el('transfer-feedback').textContent = error.message;
       } finally {
         buttons.forEach(button => { button.disabled = false; });
       }
@@ -394,6 +518,16 @@
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
       try {
+        if (data.copyService) openServiceTransfer('service-copy', data.copyService);
+        if (data.saveTemplate) openServiceEditor(data.saveTemplate, true);
+        if (data.applyTemplate) openServiceTransfer('template-apply', data.applyTemplate);
+        if (data.editTemplate) openTemplateEditor(data.editTemplate);
+        if (data.deleteTemplate && confirm('Delete this library entry? Existing host services will be kept.')) {
+          await request('template-delete', {template: data.deleteTemplate});
+          el('library-feedback').textContent = 'Library entry deleted. Existing host services are unchanged.';
+          el('library-feedback').classList.add('success');
+          await refresh();
+        }
         if (data.editService) openServiceEditor(data.editService);
         if (data.editDevice) openDeviceEditor(data.editDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
