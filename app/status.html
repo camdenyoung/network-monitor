@@ -6,8 +6,8 @@
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
-    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
-    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
+    .host-card.incident-warning, .host-row.incident-warning { background: #3d321f; border-color: #dba946; }
+    .host-card.incident-critical, .host-row.incident-critical { background: #3b202b; border-color: #df6578; }
     .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     [hidden] { display: none !important; }
@@ -33,13 +33,29 @@
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
+    .host-list { min-width: 650px; }
+    .host-list td { vertical-align: top; }
+    .host-list .metric { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 0; }
+    .host-list .metric-header { flex: 1; }
+    .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
+    .host-list .menu-buttons { position: static; box-shadow: none; }
+    .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+    .display-controls button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style></head>
 <body>
   <header><div><h1>Network status</h1><p id="project">Loading…</p></div><a href="/">Sign in / dashboard</a></header>
   <p id="summary" role="status"></p>
-  <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
+  <div class="display-controls" role="group" aria-label="Host display options">
+    <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
+    <button id="view-cards" aria-pressed="true">Cards</button>
+    <button id="view-list" aria-pressed="false">List</button>
+    <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
+    <datalist id="service-filter-options"></datalist>
+    <button id="clear-service-filter">All services</button>
+  </div>
+  <small>Service filters narrow host readings. Incident lists show all active incidents.</small>
   <section aria-labelledby="incidents-title">
     <h2 id="incidents-title">Active incidents</h2>
     <div id="incidents" aria-live="polite"></div>
@@ -49,13 +65,20 @@
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const formatStatus = value => String(value ?? '').replace(/^./, char => char.toUpperCase());
     const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed'};
+    let publicState = null;
+    let hostView = 'cards';
+    let serviceFilter = '';
     let showHosts = true;
-    try { showHosts = localStorage.getItem('field-monitor.status.hide-hosts') !== 'true'; }
+    try {
+      showHosts = localStorage.getItem('field-monitor.status.hide-hosts') !== 'true';
+      hostView = localStorage.getItem('field-monitor.status.host-view') === 'list' ? 'list' : 'cards';
+      serviceFilter = (localStorage.getItem('field-monitor.status.service-filter') || '').slice(0, 100);
+    }
     catch (error) { /* Private browsing may disable storage; the toggle still works. */ }
     function hostVisibility() {
       document.getElementById('devices').hidden = !showHosts;
       const button = document.getElementById('toggle-hosts');
-      button.textContent = showHosts ? 'Hide host cards' : 'Show host cards';
+      button.textContent = (showHosts ? 'Hide host ' : 'Show host ') + (hostView === 'list' ? 'list' : 'cards');
       button.setAttribute('aria-expanded', String(showHosts));
     }
     document.getElementById('toggle-hosts').onclick = () => {
@@ -65,21 +88,66 @@
       catch (error) { /* Visibility remains available for this page session. */ }
     };
     hostVisibility();
+    function serviceMatches(service) {
+      return service.name.toLowerCase().includes(serviceFilter.trim().toLowerCase());
+    }
+    function saveHostDisplay() {
+      try {
+        localStorage.setItem('field-monitor.status.host-view', hostView);
+        localStorage.setItem('field-monitor.status.service-filter', serviceFilter);
+      } catch (error) { /* Display preferences work without browser storage. */ }
+      hostVisibility();
+      if (publicState) renderHosts();
+    }
+    document.getElementById('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
+    document.getElementById('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
+    document.getElementById('service-filter').oninput = () => {
+      serviceFilter = document.getElementById('service-filter').value;
+      saveHostDisplay();
+    };
+    document.getElementById('clear-service-filter').onclick = () => { serviceFilter = ''; saveHostDisplay(); };
+
+    function renderHosts() {
+      const matches = publicState.devices.filter(device => !serviceFilter.trim() || device.services.some(serviceMatches));
+      const online = matches.filter(device => device.status === 'healthy').length;
+      document.getElementById('summary').textContent = `Showing ${matches.length} of ${publicState.devices.length} displayed hosts · ${online} online`;
+      document.getElementById('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
+      document.getElementById('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
+      document.getElementById('service-filter').value = serviceFilter;
+      const names = [...new Set(publicState.devices.flatMap(device => device.services.map(service => service.name)))].sort();
+      document.getElementById('service-filter-options').innerHTML = names.map(name => `<option value="${escape(name)}"></option>`).join('');
+      const rendered = matches.map(device => {
+        const severity = device.incident_status ? 'incident-' + escape(device.incident_status) : '';
+        const badge = device.incident_status ? `<span class="incident-badge ${escape(device.incident_status)}">${formatStatus(device.incident_status)} incident</span>` : '';
+        const services = device.services.filter(service => !serviceFilter.trim() || serviceMatches(service)).map(service =>
+          `<div class="metric"><strong>${escape(service.name)}</strong><p class="${escape(service.status)}">${escape(service.value ?? labels[service.status] ?? formatStatus(service.status))} ${escape(service.units)} · ${escape(formatStatus(service.status))}</p></div>`
+        ).join('') || 'No additional services configured.';
+        if (hostView === 'list') {
+          return `<tr class="host-row ${severity}"><td><strong>${escape(device.name)} - ${escape(device.alias)}</strong><p>${badge}</p></td>
+            <td class="${escape(device.status)}">${escape(labels[device.status] || formatStatus(device.status))}</td><td>${services}</td></tr>`;
+        }
+        return `<article class="host-card ${severity}"><h2>${escape(device.name)} - ${escape(device.alias)}</h2>${badge}<p class="${escape(device.status)}">${escape(labels[device.status] || formatStatus(device.status))}</p>${services}</article>`;
+      }).join('');
+      const container = document.getElementById('devices');
+      container.className = hostView === 'cards' ? 'grid' : 'scroll';
+      container.innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>' : hostView === 'cards' ? rendered
+        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th><th>Services</th></tr></thead><tbody>' + rendered + '</tbody></table>';
+    }
+
     async function refresh() {
       try {
         const response = await fetch('/api/status');
         if (!response.ok) throw new Error('Status service unavailable');
         const data = await response.json();
         document.getElementById('project').textContent = data.project || 'Monitoring paused';
-        const online = data.devices.filter(device => device.status === 'healthy').length;
-        document.getElementById('summary').textContent = `${online} of ${data.devices.length} displayed hosts online`;
+        publicState = data;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
           </div>`).join('') || '<p>No active incidents.</p>';
-        document.getElementById('devices').innerHTML = data.devices.map(device => `<article class="host-card ${device.incident_status ? 'incident-' + escape(device.incident_status) : ''}"><h2>${escape(device.name)} - ${escape(device.alias)}</h2>${device.incident_status ? `<span class="incident-badge ${escape(device.incident_status)}">${formatStatus(device.incident_status)} incident</span>` : ''}<p class="${escape(device.status)}">${escape(labels[device.status] || device.status)}</p>${device.services.map(service => `<div class="metric"><strong>${escape(service.name)}</strong><p class="${escape(service.status)}">${escape(service.value ?? labels[service.status] ?? formatStatus(service.status))} ${escape(service.units)} · ${escape(formatStatus(service.status))}</p></div>`).join('')}</article>`).join('') || '<section>No active equipment to display.</section>';
+        renderHosts();
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
       } catch (error) {
         document.getElementById('summary').textContent = error.message + ' — displayed information may be stale.';

@@ -10,6 +10,11 @@ The user requested readable, consistently indented code and explanatory comments
   codes lowercase. Confirmed unresolved incidents tint host cards by highest
   severity on both dashboards; acknowledged faults retain colour until recovery.
   Ignore suppressed child faults, stale checks and paused monitoring for card colour.
+- Both dashboards have Cards/List views and a case-insensitive substring service
+  name filter (e.g. RSSI). Hide hosts without matching enabled services. Persist
+  each dashboard's view/filter separately in localStorage; retain public show/hide.
+  Filters affect host readings only; incident lists and severity rollups stay complete.
+  Preserve role restrictions, history/actions, dependency states and row colours.
 - Monitor card headings use `Device ID - Alias`.
 - Services depend on a fresh healthy host ping. Poll ping first; suppress child
   polling/failure reports for offline, stale or unknown hosts. Preserve existing

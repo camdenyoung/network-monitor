@@ -305,3 +305,11 @@ the fault recovers. Suppressed child faults do not add a second fault indication
 The public status overview has a **Hide host cards / Show host cards** button.
 Hide cards for an incident-only view. The choice is stored in that browser and
 is preserved during live updates and page reloads.
+
+Both dashboards offer **Cards** and **List** views. **Service filter** matches part
+of a service name, ignoring case: `RSSI` displays readings such as Local RSSI and
+Remote RSSI and hides hosts without a matching enabled service. **All services**
+clears the filter. Incident lists remain complete and host severity colours still
+reflect all confirmed faults. View and filter preferences are saved separately
+for each dashboard in browser storage and survive live updates/page reloads. The
+public show/hide control hides either layout for an incident-only display.

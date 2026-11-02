@@ -215,3 +215,87 @@ await reloadedPublicContext.refresh();
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host cards');
 console.log('Host visibility preference survives a simulated full page reload.');
+
+// Both layouts filter matching service names and omit unrelated hosts/readings.
+fixture.latest[0].status = 'healthy';
+fixture.services.push({...stateService, id:3, name:'Local RSSI', value_type:'metric', units:'dBm'});
+fixture.latest.push({service:3,status:'healthy',value:-60,display_value:'-60',timestamp:now});
+fixture.devices.push({id:2,name:'SW002',address:'127.0.0.2',model:'Switch'});
+fixture.assignments.push({id:2,project:1,device:2,alias:'Front',visible:1,monitoring:1});
+fixture.services.push({...stateService,id:4,assignment:2,name:'Temperature',value_type:'metric',units:'°C'});
+const mainStorage = new Map();
+context.localStorage = {getItem:key => mainStorage.get(key), setItem:(key,value) => mainStorage.set(key,value)};
+await context.refresh();
+element('view-list').onclick();
+assert.match(element('dashboard').innerHTML, /<table class="host-list">/);
+assert.match(element('dashboard').innerHTML, /SW002 - Front/);
+element('service-filter').value = 'rSsI';
+element('service-filter').oninput();
+assert.match(element('dashboard').innerHTML, /Local RSSI/);
+assert.doesNotMatch(element('dashboard').innerHTML, /Port status|Temperature|SW002/);
+assert.match(element('dashboard').innerHTML, /host-row incident-warning/);
+assert.equal(mainStorage.get('field-monitor.main.host-view'), 'list');
+assert.equal(mainStorage.get('field-monitor.main.service-filter'), 'rSsI');
+await context.refresh();
+assert.match(element('dashboard').innerHTML, /<table class="host-list">/);
+assert.doesNotMatch(element('dashboard').innerHTML, /SW002/);
+element('service-filter').value = 'No matching service';
+element('service-filter').oninput();
+assert.match(element('dashboard').innerHTML, /No hosts match/);
+element('service-filter').value = 'RSSI';
+element('service-filter').oninput();
+
+const reloadedMain = vm.createContext({
+    document: context.document,
+    localStorage: context.localStorage,
+    fetch: async path => ({ok:true,json:async () => path === '/api/me'
+        ? {id:2,username:'reader',role:'viewer',csrf:'test',must_change_password:0} : fixture}),
+    setInterval() {},
+});
+new vm.Script(script).runInContext(reloadedMain);
+await reloadedMain.initializeSession();
+assert.match(element('dashboard').innerHTML, /<table class="host-list">/);
+assert.match(element('dashboard').innerHTML, /Local RSSI/);
+assert.doesNotMatch(element('dashboard').innerHTML, /SW002/);
+assert.equal(element('service-filter').value, 'RSSI');
+element('clear-service-filter').onclick();
+assert.match(element('dashboard').innerHTML, /SW002 - Front/);
+element('view-cards').onclick();
+assert.match(element('dashboard').innerHTML, /<article class="host-card/);
+
+publicData.devices[0].services = [
+    {name:'Remote RSSI',value:'-62',units:'dBm',status:'healthy'},
+    {name:'Temperature',value:'42',units:'°C',status:'healthy'},
+];
+publicData.devices.push({name:'SW002',alias:'Front',status:'healthy',services:[{name:'Temperature',value:'43',units:'°C',status:'critical'}]});
+publicData.incidents = [{device:'SW002',alias:'Front',service:'Temperature',status:'critical',opened:now}];
+await reloadedPublicContext.refresh();
+publicNodes.get('view-list').onclick();
+publicNodes.get('service-filter').value = 'rssi';
+publicNodes.get('service-filter').oninput();
+assert.match(publicNodes.get('devices').innerHTML, /<table class="host-list">/);
+assert.match(publicNodes.get('devices').innerHTML, /Remote RSSI/);
+assert.doesNotMatch(publicNodes.get('devices').innerHTML, /Temperature|SW002/);
+assert.match(publicNodes.get('incidents').innerHTML, /Temperature/);
+assert.equal(publicStorage.get('field-monitor.status.host-view'), 'list');
+assert.equal(publicStorage.get('field-monitor.status.service-filter'), 'rssi');
+assert.equal(publicNodes.get('devices').hidden, true);
+assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host list');
+const reloadedFilteredPublic = vm.createContext({
+    document: publicContext.document, localStorage: publicContext.localStorage,
+    fetch: async () => ({ok:true,json:async () => publicData}), setInterval() {},
+});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(reloadedFilteredPublic);
+await reloadedFilteredPublic.refresh();
+assert.match(publicNodes.get('devices').innerHTML, /<table class="host-list">/);
+assert.doesNotMatch(publicNodes.get('devices').innerHTML, /Temperature|SW002/);
+assert.equal(publicNodes.get('service-filter').value, 'rssi');
+assert.equal(publicNodes.get('devices').hidden, true);
+publicNodes.get('toggle-hosts').onclick();
+assert.equal(publicNodes.get('devices').hidden, false);
+assert.equal(publicNodes.get('toggle-hosts').textContent, 'Hide host list');
+publicNodes.get('clear-service-filter').onclick();
+assert.match(publicNodes.get('devices').innerHTML, /SW002 - Front/);
+publicNodes.get('view-cards').onclick();
+assert.match(publicNodes.get('devices').innerHTML, /<article class="host-card/);
+console.log('Cards/list layouts, service filters, role restrictions and browser preference reloads passed on both dashboards.');

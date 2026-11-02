@@ -11,8 +11,8 @@
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
-    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
-    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
+    .host-card.incident-warning, .host-row.incident-warning { background: #3d321f; border-color: #dba946; }
+    .host-card.incident-critical, .host-row.incident-critical { background: #3b202b; border-color: #df6578; }
     .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     body:not([data-role="admin"]) [data-admin] { display: none !important; }
@@ -39,6 +39,14 @@
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
+    .host-list { min-width: 650px; }
+    .host-list td { vertical-align: top; }
+    .host-list .metric { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 0; }
+    .host-list .metric-header { flex: 1; }
+    .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
+    .host-list .menu-buttons { position: static; box-shadow: none; }
+    .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+    .display-controls button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style>
@@ -53,6 +61,15 @@
     <button data-admin id="pause">Pause all monitoring</button>
     <small>15-second polling · incident persistence is configurable per service</small>
   </section>
+  <div class="display-controls" role="group" aria-label="Host display options">
+    <button id="view-cards" aria-pressed="true">Cards</button>
+    <button id="view-list" aria-pressed="false">List</button>
+    <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
+    <datalist id="service-filter-options"></datalist>
+    <button id="clear-service-filter">All services</button>
+  </div>
+  <p id="host-view-summary"></p>
+  <small>Service filters narrow host readings. Incident lists show all incidents.</small>
   <div id="dashboard" class="grid"></div>
   <section>
     <h2>Active incidents</h2>
@@ -302,6 +319,88 @@
       </details>`;
     }
 
+    let hostView = 'cards';
+    let serviceFilter = '';
+    try {
+      hostView = localStorage.getItem('field-monitor.main.host-view') === 'list' ? 'list' : 'cards';
+      serviceFilter = (localStorage.getItem('field-monitor.main.service-filter') || '').slice(0, 100);
+    } catch (error) { /* Controls work without browser storage. */ }
+
+    function serviceMatches(service) {
+      return service.name.toLowerCase().includes(serviceFilter.trim().toLowerCase());
+    }
+
+    function saveHostDisplay() {
+      try {
+        localStorage.setItem('field-monitor.main.host-view', hostView);
+        localStorage.setItem('field-monitor.main.service-filter', serviceFilter);
+      } catch (error) { /* Keep the selection for this page session. */ }
+      if (state) renderHosts();
+    }
+    el('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
+    el('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
+    el('service-filter').oninput = () => { serviceFilter = el('service-filter').value; saveHostDisplay(); };
+    el('clear-service-filter').onclick = () => { serviceFilter = ''; saveHostDisplay(); };
+
+    function renderHosts() {
+      const run = state.runs.find(row => row.id === Number(state.settings.active_run));
+      const visible = state.assignments.filter(row => String(row.project) === selectedProject && row.visible);
+      const matches = visible.filter(assignment => !serviceFilter.trim() || state.services.some(service =>
+        service.assignment === assignment.id && service.enabled !== 0 && service.kind !== 'ping' && serviceMatches(service)));
+      const openActions = new Set([...document.querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
+      const rendered = matches.map(assignment => {
+        const device = state.devices.find(row => row.id === assignment.device);
+        const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
+        const hostReading = state.latest.find(row => row.service === hostCheck?.id);
+        const hostStatus = device?.address ? readingStatus(hostReading, assignment, run) : 'unknown';
+        const hostLabel = hostStatus === 'healthy' ? 'Online' : hostStatus === 'unreachable' ? 'Offline' : 'Unknown / paused';
+        const hostDetails = hostReading ? `Last ping: ${date(hostReading.timestamp)}` : 'Awaiting first ping';
+        const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping' && row.enabled !== 0 && serviceMatches(row));
+        const metrics = services.map(service => {
+          const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
+          const blocked = hostStatus !== 'healthy' || reading?.status === 'blocked';
+          const status = blocked ? 'blocked' : readingStatus(reading, assignment, run);
+          const statusLabel = blocked
+            ? (hostStatus === 'unreachable' ? 'Suppressed — host offline' : 'Awaiting host / service check') : formatStatus(status);
+          const value = blocked ? '—' : (reading?.display_value ?? reading?.value ?? '—');
+          const units = service.value_type === 'state' ? '' : service.units;
+          return `<div class="metric">
+            <div class="metric-header">
+              <div><strong>${escapeHtml(service.name)}</strong>
+                <span class="metric-status ${status}">${escapeHtml(statusLabel)}</span>
+              </div>
+              ${serviceActions(service)}
+            </div>
+            <div class="metric-value">${escapeHtml(value)} <small>${escapeHtml(units)}</small></div>
+            <small>${date(reading?.timestamp)}</small>
+          </div>`;
+        }).join('');
+        if (hostView === 'list') {
+          return `<tr class="host-row ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}">
+            <td><strong>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</strong>
+              <p>${escapeHtml(device?.address || 'IP required')}</p>
+              ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}
+              <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></td>
+            <td><span class="${hostStatus}">${hostLabel}</span><p><small>${hostDetails}</small></p></td>
+            <td>${metrics || 'No additional services configured.'}</td>
+          </tr>`;
+        }
+        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
+      }).join('');
+      el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
+      el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
+        : hostView === 'cards' ? rendered
+        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th><th>Services</th></tr></thead><tbody>' + rendered + '</tbody></table>';
+      el('host-view-summary').textContent = `Showing ${matches.length} of ${visible.length} displayed hosts`;
+      el('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
+      el('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
+      el('service-filter').value = serviceFilter;
+      const names = [...new Set(state.services.filter(service => service.kind !== 'ping' && service.enabled !== 0 &&
+        visible.some(assignment => assignment.id === service.assignment)).map(service => service.name))].sort();
+      el('service-filter-options').innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
+      document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
+    }
+
     async function refresh() {
       const response = await fetch('/api/state');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
@@ -330,37 +429,7 @@
           <button data-delete-device="${device.id}">Delete permanently</button>
         </article>`;
       }).join('') || 'No equipment added.';
-      const openActions = new Set([...document.querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
-      el('dashboard').innerHTML = assignments.filter(row => row.visible).map(assignment => {
-        const device = state.devices.find(row => row.id === assignment.device);
-        const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
-        const hostReading = state.latest.find(row => row.service === hostCheck?.id);
-        const hostStatus = device?.address ? readingStatus(hostReading, assignment, run) : 'unknown';
-        const hostLabel = hostStatus === 'healthy' ? 'Online' : hostStatus === 'unreachable' ? 'Offline' : 'Unknown / paused';
-        const hostDetails = hostReading ? `Last ping: ${date(hostReading.timestamp)}` : 'Awaiting first ping';
-        const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping' && row.enabled !== 0);
-        const metrics = services.map(service => {
-          const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
-          const blocked = hostStatus !== 'healthy' || reading?.status === 'blocked';
-          const status = blocked ? 'blocked' : readingStatus(reading, assignment, run);
-          const statusLabel = blocked
-            ? (hostStatus === 'unreachable' ? 'Suppressed — host offline' : 'Awaiting host / service check') : formatStatus(status);
-          const value = blocked ? '—' : (reading?.display_value ?? reading?.value ?? '—');
-          const units = service.value_type === 'state' ? '' : service.units;
-          return `<div class="metric">
-            <div class="metric-header">
-              <div><strong>${escapeHtml(service.name)}</strong>
-                <span class="metric-status ${status}">${escapeHtml(statusLabel)}</span>
-              </div>
-              ${serviceActions(service)}
-            </div>
-            <div class="metric-value">${escapeHtml(value)} <small>${escapeHtml(units)}</small></div>
-            <small>${date(reading?.timestamp)}</small>
-          </div>`;
-        }).join('');
-        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
-      }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
-      document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
+      renderHosts();
       el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
       const projectServices = state.services.filter(service => service.enabled !== 0 &&
         service.kind !== 'ping' && assignments.some(row => row.id === service.assignment));
