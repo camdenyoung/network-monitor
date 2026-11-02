@@ -733,6 +733,31 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(recorded['acknowledged_by_full_name'], 'Alex Example')
         self.assertNotIn('acknowledged_by_user_id', recorded)
 
+    def test_older_username_acknowledgements_use_later_full_name(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
+        with server.connect() as db:
+            db.execute('UPDATE users SET full_name=? WHERE id=1', ('Alex Admin',))
+        for stored_name in ('admin', None):
+            with server.connect() as db:
+                db.execute('UPDATE incidents SET acknowledged_by_full_name=? WHERE id=?',
+                           (stored_name, incident['id']))
+            self.assertEqual(server.snapshot()['incident_lists']['acknowledged'][0]
+                             ['acknowledged_by_full_name'], 'Alex Admin')
+            self.assertEqual(server.status_overview()['acknowledged_incidents'][0]
+                             ['acknowledged_by_full_name'], 'Alex Admin')
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT acknowledged_by_full_name FROM incidents WHERE id=?',
+                                            (incident['id'],)).fetchone()[0], stored_name)
+        with server.connect() as db:
+            db.execute('UPDATE users SET username=? WHERE id=1', ('replacement',))
+        self.assertEqual(server.status_overview()['acknowledged_incidents'][0]
+                         ['acknowledged_by_full_name'], 'admin')
+
     def test_full_name_validation_creation_and_legacy_migration(self):
         for invalid in (123, 'x' * 151):
             response = self.request('/api/user-create', {

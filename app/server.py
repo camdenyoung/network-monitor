@@ -486,6 +486,23 @@ def poll_loop():
             time.sleep(15)
 
 
+def acknowledgement_display_name(incident, accounts):
+    """Resolve older username-only records without changing their stored audit data.
+
+    A real name captured at acknowledgement time stays authoritative. Older
+    records can use the account's full name once it is filled in. Match both ID
+    and recorded username so a replacement account cannot inherit attribution.
+    """
+    recorded = incident.get('acknowledged_by_full_name')
+    username = incident.get('acknowledged_by_username')
+    if recorded and recorded != username:
+        return recorded
+    account = accounts.get(incident.get('acknowledged_by_user_id'))
+    if account and account['username'] == username and account['full_name']:
+        return account['full_name']
+    return recorded or username
+
+
 def snapshot():
     with LOCK, connect() as db:
         result = {table: [dict(row) for row in db.execute('SELECT * FROM ' + table)]
@@ -556,6 +573,11 @@ def snapshot():
                 else:
                     visible.append(incident)
             result['incident_lists'][category] = visible
+        # Enrich response copies only: preserve the durable acknowledgement snapshot.
+        accounts = {row['id']: dict(row) for row in db.execute('SELECT id,username,full_name FROM users')}
+        for incidents in [result['incidents'], *result['incident_lists'].values()]:
+            for incident in incidents:
+                incident['acknowledged_by_full_name'] = acknowledgement_display_name(incident, accounts)
         update_card_incidents(result)
         return result
 

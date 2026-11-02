@@ -231,3 +231,8 @@ of disclosure arrows: Permanent inventory, Project configuration, Reusable servi
 library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
 These panels always start hidden on page load and do not persist visibility.
 Issue-list and live-status visibility preferences remain separate.
+
+Older username-only acknowledgements display the account Full Name after it is
+filled in, matching both recorded account ID and username. This enriches response
+data without rewriting stored audit records. A real full name captured at the time
+of acknowledgement remains authoritative, even after profile changes/deletion.
