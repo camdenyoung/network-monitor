@@ -122,7 +122,16 @@
     <small>Service filters narrow host readings. Issue lists show all issues.</small>
     <div id="dashboard" class="grid"></div>
   </div>
-  <details data-admin id="permanent-inventory"><summary>Permanent inventory</summary>
+  <div data-admin class="display-controls" role="group" aria-label="Configuration sections">
+    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-pressed="false">Show Permanent inventory</button>
+    <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-pressed="false">Show Project configuration</button>
+    <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-pressed="false">Show Reusable service library</button>
+    <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-pressed="false">Show User management</button>
+    <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-pressed="false">Show Telegram notifications</button>
+    <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-pressed="false">Show WhatsApp Business notifications</button>
+    <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-pressed="false">Show Backup, restore, and retention</button>
+  </div>
+  <div data-admin id="permanent-inventory" hidden>
     <section>
       <h2>Permanent inventory</h2>
       <form data-action="device">
@@ -143,8 +152,8 @@
         <button id="inventory-more" hidden>Show 50 more</button>
       </details>
     </section>
-  </details>
-  <details data-admin id="project-configuration"><summary>Project configuration</summary>
+  </div>
+  <div data-admin id="project-configuration" hidden>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
     <section class="project-settings">
       <h2>Edit selected project</h2>
@@ -233,16 +242,16 @@
       <button id="catalogue-more" hidden>Show 20 more</button>
     </section>
     <section><h2>Project assignments</h2><p>Notification flags control issue messages for each host.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
-  </details>
-  <details data-admin><summary>Reusable service library</summary><section>
+  </div>
+  <div data-admin id="service-library-panel" hidden><section>
     <h2>Predefined services</h2>
     <p>Create a service definition or save one from a host. Applying an entry creates
       an independent service; later library edits do not change existing hosts.</p>
     <button id="new-template">Create library service</button>
     <p id="library-feedback" class="form-feedback" role="status"></p>
     <div id="service-library"></div>
-  </section></details>
-  <details data-admin><summary>User management</summary><section>
+  </section></div>
+  <div data-admin id="user-management-panel" hidden><section>
     <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge issues. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
     <form id="user-form">
       <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
@@ -253,8 +262,8 @@
       <label>Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
       <button>Add user</button><button id="clear-new-user" type="button">Clear</button>
     </form><p id="user-feedback" role="status"></p><div id="users"></div>
-  </section></details>
-  <details data-admin><summary>Telegram notifications</summary><section>
+  </section></div>
+  <div data-admin id="telegram-panel" hidden><section>
     <h2>Telegram group</h2>
     <p>Create a bot with BotFather, add it to your group with permission to send messages, and enter the numeric chat ID. No inbound port or public server is required for outbound notifications.</p>
     <form id="telegram-form">
@@ -268,8 +277,8 @@
     <button id="telegram-chats">Discover groups</button><div id="telegram-group-list"></div>
     <button id="telegram-test">Send test message</button><button id="telegram-retry">Retry failed messages</button>
     <p id="telegram-feedback" role="status"></p><div id="telegram-queue"></div>
-  </section></details>
-  <details data-admin><summary>WhatsApp Business notifications</summary><section>
+  </section></div>
+  <div data-admin id="whatsapp-panel" hidden><section>
     <h2>Meta Cloud API</h2>
     <p>Use a WhatsApp Business sender and an approved template with three text body
       parameters: device, status/project, and details. This does not connect to an
@@ -288,13 +297,13 @@
     </form>
     <button id="whatsapp-test">Send test message</button><button id="whatsapp-retry">Retry failed messages</button>
     <p id="whatsapp-feedback" role="status"></p><div id="whatsapp-queue"></div>
-  </section></details>
-  <details data-admin><summary>Backup, restore, and retention</summary><section>
+  </section></div>
+  <div data-admin id="backup-panel" hidden><section>
     <p>Backup includes credentials and history. Store it securely; the archive contains credentials and password hashes. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
     <p><a class="button-link" href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
-  </section></details>
+  </section></div>
   <dialog id="history">
     <button id="close-history">Close</button>
     <h2 id="history-title">Service history</h2>
@@ -455,6 +464,28 @@
           <button data-remove="${service.id}">Remove</button>
         </div>
       </details></div>`;
+    }
+
+    // Configuration panels always start hidden; these choices are not persisted.
+    for (const [panelId, label] of [
+      ['permanent-inventory', 'Permanent inventory'],
+      ['project-configuration', 'Project configuration'],
+      ['service-library-panel', 'Reusable service library'],
+      ['user-management-panel', 'User management'],
+      ['telegram-panel', 'Telegram notifications'],
+      ['whatsapp-panel', 'WhatsApp Business notifications'],
+      ['backup-panel', 'Backup, restore, and retention'],
+    ]) {
+      const button = el(`toggle-${panelId}`);
+      const panel = el(panelId);
+      const apply = visible => {
+        panel.hidden = !visible;
+        button.textContent = `${visible ? 'Hide' : 'Show'} ${label}`;
+        button.setAttribute('aria-expanded', String(visible));
+        button.setAttribute('aria-pressed', String(visible));
+      };
+      apply(false);
+      button.onclick = () => apply(panel.hidden);
     }
 
     // Section visibility is presentation only; polling and incident tracking continue.

@@ -393,3 +393,9 @@ user form is dedicated to adding accounts and is not overwritten by editing.
 Permanent inventory is its own top-level Admin section, separate from Project
 configuration. Keep inventory creation/search/edit/removal there; project assignment
 and service configuration remain under Project configuration.
+
+Main dashboard configuration sections use colour-coded Show/Hide buttons instead
+of disclosure arrows: Permanent inventory, Project configuration, Reusable service
+library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
+These panels always start hidden on page load and do not persist visibility.
+Issue-list and live-status visibility preferences remain separate.

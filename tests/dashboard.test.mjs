@@ -639,6 +639,20 @@ publicData.acknowledged_incidents[0].acknowledged_by_full_name = '<Alex Example>
 await acknowledgedReload.refresh();
 assert.equal(publicNodes.get('status-session').textContent, 'Signed in: Alex Example · Operator');
 assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /by &lt;Alex Example&gt;/);
+const configurationPanels = ['permanent-inventory', 'project-configuration', 'service-library-panel',
+    'user-management-panel', 'telegram-panel', 'whatsapp-panel', 'backup-panel'];
+for (const panel of configurationPanels) {
+    assert.equal(element(panel).hidden, true);
+    element(`toggle-${panel}`).onclick();
+    assert.equal(element(panel).hidden, false);
+    assert.equal(element(`toggle-${panel}`).getAttribute('aria-pressed'), 'true');
+    element(`toggle-${panel}`).onclick();
+    assert.equal(element(panel).hidden, true);
+    assert.equal(element(`toggle-${panel}`).getAttribute('aria-pressed'), 'false');
+    element(`toggle-${panel}`).onclick();
+}
+await sectionReload.refresh();
+assert.equal(element('permanent-inventory').hidden, false);
 const namedMain = vm.createContext({document:context.document,localStorage:context.localStorage,
     fetch:async path => ({ok:true,json:async () => path === '/api/me'
         ? {id:2,username:'reader',full_name:'Sam Example',role:'viewer',csrf:'test',must_change_password:0} : fixture}),setInterval(){}});
@@ -646,3 +660,11 @@ new vm.Script(script).runInContext(namedMain);
 await namedMain.initializeSession();
 assert.equal(element('signed-in').textContent, 'Sam Example · View Only');
 console.log('Full names and Status Dashboard navigation passed.');
+
+for (const panel of configurationPanels) {
+    assert.equal(element(panel).hidden, true, 'Configuration panel must reset on reload');
+    assert.equal(element(`toggle-${panel}`).getAttribute('aria-expanded'), 'false');
+    assert.match(element(`toggle-${panel}`).textContent, /^Show /);
+}
+assert.doesNotMatch(html, /<details data-admin/);
+console.log('Configuration Show/Hide controls default hidden on every reload.');
