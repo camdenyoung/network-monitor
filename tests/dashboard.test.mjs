@@ -15,7 +15,9 @@ function element(id) {
             classList: { toggle() {}, add() {}, remove() {} },
             querySelectorAll() { return []; },
             querySelector() { return { focus() {} }; },
-            setAttribute() {},
+            attributes: {},
+            setAttribute(key, value) { this.attributes[key] = value; },
+            getAttribute(key) { return this.attributes[key]; },
             showModal() { this.open = true; },
             close() { this.open = false; },
             reset() { for (const field of fields.values()) field.value = ''; },
@@ -127,7 +129,7 @@ const publicStorage = new Map();
 const publicContext = vm.createContext({
     localStorage: {getItem: key => publicStorage.get(key), setItem: (key, value) => publicStorage.set(key, value)},
     document: { getElementById(id) {
-        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '', attributes: {}, setAttribute(key, value) { this.attributes[key] = value; } });
+        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '', attributes: {}, setAttribute(key, value) { this.attributes[key] = value; }, getAttribute(key) { return this.attributes[key]; } });
         return publicNodes.get(id);
     } },
     fetch: async () => ({ ok: true, json: async () => publicData }),
@@ -299,3 +301,68 @@ assert.match(publicNodes.get('devices').innerHTML, /SW002 - Front/);
 publicNodes.get('view-cards').onclick();
 assert.match(publicNodes.get('devices').innerHTML, /<article class="host-card/);
 console.log('Cards/list layouts, service filters, role restrictions and browser preference reloads passed on both dashboards.');
+
+// Logo URLs update with project selection/data refresh without replacing edits.
+fixture.projects[0].logo_url = '/api/project-logo?project=1&v=first';
+await reloadedMain.refresh();
+assert.equal(element('project-logo').hidden, false);
+assert.equal(element('project-logo').getAttribute('src'), fixture.projects[0].logo_url);
+element('project-edit-form').elements.namedItem('name').value = 'Unsaved event name';
+await reloadedMain.refresh();
+assert.equal(element('project-edit-form').elements.namedItem('name').value, 'Unsaved event name');
+fixture.projects[0].logo_url = '/api/project-logo?project=1&v=replacement';
+await reloadedMain.refresh();
+assert.equal(element('project-logo').getAttribute('src'), fixture.projects[0].logo_url);
+publicData.logo_url = '/api/public-logo?project=1&v=first';
+await reloadedFilteredPublic.refresh();
+assert.equal(publicNodes.get('project-logo').hidden, false);
+assert.equal(publicNodes.get('project-logo').getAttribute('src'), publicData.logo_url);
+publicData.logo_url = null;
+await reloadedFilteredPublic.refresh();
+assert.equal(publicNodes.get('project-logo').hidden, true);
+for (const marker of ['id="incidents"', '<summary>Acknowledged incidents', '<summary>Suppressed service incidents', '<summary>Resolved incidents']) {
+    assert.ok(html.indexOf(marker) < html.indexOf('id="dashboard"'));
+}
+console.log('Project logos, unsaved name edits, and all incident sections above hosts passed.');
+
+vm.runInContext('currentUser.role="admin"', reloadedMain);
+fixture.services.find(service => service.id === 3).monitoring = 0;
+reloadedMain.renderHosts();
+assert.match(element('dashboard').innerHTML, /data-service-monitoring="3" data-enabled="true">Resume/);
+assert.match(element('dashboard').innerHTML, /metric-status paused">Paused/);
+element('catalogue-host').value = '1';
+reloadedMain.renderServiceCatalogue();
+assert.match(element('service-catalogue').innerHTML, /Port status/);
+assert.doesNotMatch(element('service-catalogue').innerHTML, /Temperature/);
+element('catalogue-search').value = 'rssi';
+element('catalogue-search').oninput();
+assert.match(element('service-catalogue').innerHTML, /Local RSSI/);
+assert.doesNotMatch(element('service-catalogue').innerHTML, /Port status/);
+element('catalogue-monitoring').value = 'paused';
+element('catalogue-monitoring').onchange();
+assert.match(element('service-catalogue').innerHTML, /Resume/);
+element('catalogue-protocol').value = 'tcp';
+element('catalogue-protocol').onchange();
+assert.match(element('service-catalogue').innerHTML, /No services match/);
+for (let index=0; index<25; index++) {
+    fixture.services.push({...stateService,id:100+index,assignment:1,name:'Catalogue item '+index,
+        target:'.1.3.6.'+index,enabled:1,monitoring:1});
+}
+element('catalogue-host').value = '*';
+element('catalogue-monitoring').value = '';
+element('catalogue-protocol').value = '';
+element('catalogue-search').value = 'catalogue';
+element('catalogue-search').oninput();
+assert.equal(element('catalogue-summary').textContent, 'Showing 20 of 25 matching services');
+assert.doesNotMatch(element('service-catalogue').innerHTML, /Catalogue item 20/);
+element('catalogue-more').onclick();
+assert.equal(element('catalogue-summary').textContent, 'Showing 25 of 25 matching services');
+assert.match(element('service-catalogue').innerHTML, /Catalogue item 24/);
+fixture.assignments.find(assignment => assignment.id===2).removed = 1;
+reloadedMain.renderHosts();
+assert.doesNotMatch(element('dashboard').innerHTML, /SW002/);
+element('catalogue-host').value = '';
+reloadedMain.renderServiceCatalogue();
+assert.equal(element('service-catalogue').innerHTML, '');
+assert.match(element('catalogue-summary').textContent, /Choose a host/);
+console.log('Per-service pause controls, archived-host visibility and bounded service-catalogue filters passed.');

@@ -15,6 +15,15 @@ The user requested readable, consistently indented code and explanatory comments
   each dashboard's view/filter separately in localStorage; retain public show/hide.
   Filters affect host readings only; incident lists and severity rollups stay complete.
   Preserve role restrictions, history/actions, dependency states and row colours.
+- Both dashboards place active incidents above hosts; on the main dashboard,
+  acknowledged/suppressed/resolved sections also precede hosts.
+- Admins can rename projects and upload/replace/remove PNG/JPEG event logos.
+  Logo blobs live in project_logos and are included in backups. Limit 2 MB and
+  4096 pixels per side; disallow SVG/active formats. Public logo access is restricted
+  to the active project. Renaming preserves identity, assignments and history.
+- Both dashboards place active incidents above hosts. List rows retain rounded
+  card-like outlines, spacing and severity colours. Navigation/download anchors
+  use the shared button-link appearance on login, main and public pages.
 - Monitor card headings use `Device ID - Alias`.
 - Services depend on a fresh healthy host ping. Poll ping first; suppress child
   polling/failure reports for offline, stale or unknown hosts. Preserve existing
@@ -62,7 +71,7 @@ The user requested readable, consistently indented code and explanatory comments
 - Local dashboard remains usable without internet.
 - A future public relay uses an outbound authenticated connection for dashboard
   synchronization and remote acknowledgement behind NAT/CGNAT.
-- Telegram/WhatsApp notifications; provider preference remains undecided.
+- Telegram is the shared-group notification route; WhatsApp Business is optional.
 - Docker Compose, persistent storage, consistent backup and safe restore.
 
 ## Equipment
@@ -134,3 +143,18 @@ instructions; unit tests mock external providers. Provider endpoints are fixed.
 Store only admin configuration locally; redact all provider tokens from GET APIs.
 Health checks use /api/health, not authenticated /api/state.
 Testing includes tests/test_access_notifications.py and dashboard.test.mjs.
+
+Admin-only Pause/Resume is per-host service monitoring, separate from soft service
+removal. monitoring_since invalidates queued reads and resets persistence without
+changing the configuration revision. Log explicit paused/unknown gaps. Paused
+services do not poll, colour hosts, report active faults, or send notifications.
+Existing incidents stay suppressed, not recovered. Copy/template instances start
+independent and enabled.
+Removing a device from a project sets assignments.removed=1 and disables its host
+monitoring/display. Preserve inventory, other projects, configuration and history.
+Exclude archived assignments from polling, current incident lists, selectors and
+service targets. Reassign restores the original assignment and invalidates stale
+readings. Permanent inventory deletion still purges archived records too.
+The configured-service manager starts with no host selected. Filter by host (or
+All hosts), name/OID, protocol and monitoring state. Render at most 20 initially
+with an explicit Show more; preserve filter choices during background refreshes.

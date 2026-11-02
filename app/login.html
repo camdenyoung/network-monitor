@@ -9,8 +9,8 @@
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
-    input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
-    button { cursor: pointer; } button:hover { background: #29445c; } button.primary { background: #176959; }
+    input, select, textarea, button, .button-link { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
@@ -31,10 +31,12 @@
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
+    .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
+    button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style></head>
 <body style="max-width:620px">
-  <h1>Field Monitor</h1><p><a href="/status">Public status overview</a></p>
+  <h1>Field Monitor</h1><p><a class="button-link" href="/status">Public status overview</a></p>
   <section id="login-section"><h2>Sign in</h2>
     <form id="login-form">
       <label>Username<input name="username" required autocomplete="username"></label>
@@ -50,7 +52,7 @@
       <label>New password<input name="password" type="password" minlength="10" maxlength="256" required autocomplete="new-password"></label>
       <label>Confirm new password<input name="confirm" type="password" required autocomplete="new-password"></label>
       <button>Save password</button>
-    </form><p><a href="/">Back to dashboard</a></p>
+    </form><p><a class="button-link" href="/">Back to dashboard</a></p>
   </section>
   <p id="message" role="status"></p>
   <script>

@@ -172,8 +172,7 @@ CLI recovery command and versioned encrypted archives remain planned.
 - Host cards show ICMP online/offline/unknown independently of additional services.
   Paired-radio views and a combined host/service health rollup remain pending.
   Networks that block ICMP will show hosts as offline and suppress their child services.
-- Inventory creation/editing/deletion and service creation/editing/removal are present; assignment
-  removal, multi-service device profiles, project cloning, and project readiness
+- Inventory creation/editing/deletion and service creation/editing/removal are present; multi-service device profiles, project cloning, and project readiness
   checks remain to be added.
 - History graphs cover the latest 200 readings in the active deployment. A full
   historical run selector and longer-range graph queries remain to be added.
@@ -313,3 +312,28 @@ clears the filter. Incident lists remain complete and host severity colours stil
 reflect all confirmed faults. View and filter preferences are saved separately
 for each dashboard in browser storage and survive live updates/page reloads. The
 public show/hide control hides either layout for an incident-only display.
+
+Both dashboards place **Active incidents** above hosts. List rows have rounded
+card-style borders and spacing with the same severity colours as cards. Navigation
+and download links use consistent button styling across the app.
+
+Under **Inventory and project configuration → Edit selected project**, Admins can
+rename the selected project and upload, replace, or remove its event logo. Logos
+accept PNG/JPEG up to 2 MB and 4096 pixels per side. The selected project logo is
+shown on the main dashboard; the active project logo is shown on public status.
+Images are stored inside the database and included in backup/restore. Project
+renaming preserves assignments and history. The main dashboard keeps all incident
+sections—active, acknowledged, suppressed and resolved—above the host display.
+
+Admins can **Pause / Resume** a service directly on its host or in the filtered
+service manager. This stops polling and suppresses its incidents/messages while
+keeping configuration and history. Resuming waits for fresh readings and restarts
+threshold persistence. Built-in host ping is controlled through host monitoring.
+
+**Project assignments → Remove from project** stops monitoring and hides that
+assignment. Inventory, other projects and historical data remain. Assigning the
+same inventory device back to the project restores its previous configuration.
+
+The configured-service manager shows nothing until a host (or **All hosts**) is
+selected. Filter by service name/OID, protocol, and enabled/paused monitoring.
+Results start at 20; **Show 20 more** expands the list intentionally.

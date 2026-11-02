@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications
+from . import auth, notifications, logos
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -83,6 +83,7 @@ def initialize():
         ensure_service_library(db)
         migrate_value_types(db)
         ensure_host_checks(db)
+        logos.ensure_table(db)
         notifications.ensure_tables(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
@@ -134,6 +135,13 @@ def migrate_service_lifecycle(db):
         db.execute('ALTER TABLE services ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1')
     if 'revision' not in columns:
         db.execute('ALTER TABLE services ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
+    if 'monitoring' not in columns:
+        db.execute('ALTER TABLE services ADD COLUMN monitoring INTEGER NOT NULL DEFAULT 1')
+    if 'monitoring_since' not in columns:
+        db.execute('ALTER TABLE services ADD COLUMN monitoring_since REAL NOT NULL DEFAULT 0')
+    assignment_columns = {row[1] for row in db.execute('PRAGMA table_info(assignments)')}
+    if 'removed' not in assignment_columns:
+        db.execute('ALTER TABLE assignments ADD COLUMN removed INTEGER NOT NULL DEFAULT 0')
     sample_columns = {row[1] for row in db.execute('PRAGMA table_info(samples)')}
     if 'revision' not in sample_columns:
         db.execute('ALTER TABLE samples ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
@@ -210,7 +218,7 @@ def next_record_id(db, table):
 def ensure_host_checks(db):
     """Create built-in ping checks for new, upgraded, and restored assignments."""
     missing = db.execute("""
-        SELECT a.id FROM assignments a WHERE NOT EXISTS (
+        SELECT a.id FROM assignments a WHERE a.removed=0 AND NOT EXISTS (
             SELECT 1 FROM services s WHERE s.assignment=a.id AND s.kind='ping'
         )
     """).fetchall()
@@ -339,7 +347,7 @@ def host_is_up(db, service, run):
         JOIN assignments a ON a.id=ping.assignment
         JOIN devices d ON d.id=a.device
         WHERE ping.assignment=? AND ping.kind='ping' AND samples.run=?
-          AND samples.revision=ping.revision AND d.address=?
+          AND samples.revision=ping.revision AND samples.timestamp>=ping.monitoring_since AND d.address=?
         ORDER BY samples.id DESC LIMIT 1
     """, (service['assignment'], run, service['address'])).fetchone()
     return bool(host and host['status'] == 'healthy' and time.time() - host['timestamp'] <= 60)
@@ -347,6 +355,12 @@ def host_is_up(db, service, run):
 
 def poll_one(service, run):
     with LOCK, connect() as db:
+        current = db.execute('''SELECT s.monitoring,s.monitoring_since FROM services s
+            JOIN assignments a ON a.id=s.assignment
+            WHERE s.id=? AND s.enabled=1 AND a.removed=0 AND a.monitoring=1''', (service['id'],)).fetchone()
+        if (current is None or not current['monitoring']
+                or current['monitoring_since'] != service['monitoring_since']):
+            return
         blocked = service['kind'] != 'ping' and not host_is_up(db, service, run)
     try:
         if blocked:
@@ -363,15 +377,16 @@ def poll_one(service, run):
         if setting(db, 'active_run') != str(run):
             return
         current = db.execute("""
-            SELECT d.address, s.revision FROM services s
+            SELECT d.address, s.revision, s.monitoring_since FROM services s
             JOIN assignments a ON a.id=s.assignment
             JOIN devices d ON d.id=a.device
             JOIN runs r ON r.project=a.project
-            WHERE s.id=? AND r.id=? AND a.monitoring=1 AND s.enabled=1
+            WHERE s.id=? AND r.id=? AND a.monitoring=1 AND a.removed=0 AND s.monitoring=1 AND s.enabled=1
         """, (service['id'], run)).fetchone()
         # Ignore reads made against an old address while an inventory edit was saved.
         if (current is None or current['address'] != service['address']
-                or current['revision'] != service['revision']):
+                or current['revision'] != service['revision']
+                or current['monitoring_since'] != service['monitoring_since']):
             return
         # Recheck after network I/O so a concurrent host failure cannot create
         # a child incident from a reading that completed after the failed ping.
@@ -386,8 +401,8 @@ def poll_one(service, run):
             # Preserve existing incidents without claiming recovery; blocked samples
             # break persistence streaks before services resume after host recovery.
             return
-        recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? ORDER BY id DESC LIMIT ?',
-                            (service['id'], run, service['revision'], service['persistence'])).fetchall()
+        recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? AND timestamp>=? ORDER BY id DESC LIMIT ?',
+                            (service['id'], run, service['revision'], service['monitoring_since'], service['persistence'])).fetchall()
         confirmed = len(recent) == service['persistence'] and all(row[0] == status for row in recent)
         if not confirmed:
             return
@@ -425,7 +440,7 @@ def poll_loop():
                         JOIN assignments a ON a.id=s.assignment
                         JOIN devices d ON d.id=a.device
                         JOIN runs r ON r.project=a.project
-                        WHERE r.id=? AND a.monitoring=1 AND s.enabled=1 AND d.address!='' ''', (run,))]
+                        WHERE r.id=? AND a.monitoring=1 AND a.removed=0 AND s.monitoring=1 AND s.enabled=1 AND d.address!='' ''', (run,))]
                     cutoff = time.time() - int(setting(db, 'retention_days')) * 86400
                     db.execute('DELETE FROM samples WHERE timestamp<?', (cutoff,))
                 hosts = {}
@@ -442,11 +457,14 @@ def snapshot():
     with LOCK, connect() as db:
         result = {table: [dict(row) for row in db.execute('SELECT * FROM ' + table)]
                   for table in ('projects', 'devices', 'assignments', 'runs')}
+        project_images = {row['project']: row['digest'] for row in db.execute('SELECT project,digest FROM project_logos')}
+        for project in result['projects']:
+            project['logo_url'] = logos.logo_url(project['id'], project_images.get(project['id']))
         result['legacy_addresses'] = [dict(row) for row in db.execute(
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map
+            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map,monitoring,monitoring_since
             FROM services''')]
         result['service_templates'] = [dict(row) for row in db.execute('''
             SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence,value_type,state_map
@@ -459,7 +477,7 @@ def snapshot():
             SELECT s.* FROM samples s JOIN (
             SELECT samples.service, MAX(samples.id) id FROM samples
             JOIN services ON services.id=samples.service
-            WHERE run=? AND samples.revision=services.revision GROUP BY samples.service) latest ON s.id=latest.id''',
+            WHERE run=? AND samples.revision=services.revision AND samples.timestamp>=services.monitoring_since GROUP BY samples.service) latest ON s.id=latest.id''',
             (int(result['settings']['active_run']),))]
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
@@ -475,7 +493,9 @@ def snapshot():
         for category, predicate in predicates.items():
             limit = '' if category == 'active' else ' LIMIT 200'
             result['incident_lists'][category] = [dict(row) for row in db.execute(
-                f'SELECT * FROM incidents WHERE run=? AND {predicate} ORDER BY id DESC{limit}',
+                f'''SELECT i.* FROM incidents i JOIN services s ON s.id=i.service
+                JOIN assignments a ON a.id=s.assignment
+                WHERE i.run=? AND a.removed=0 AND s.enabled=1 AND {predicate} ORDER BY i.id DESC{limit}''' ,
                 (run,))]
         result['incident_lists']['suppressed'] = []
         configurations = {row['id']: row for row in db.execute('''
@@ -490,10 +510,11 @@ def snapshot():
                 reading = latest.get(incident['service'])
                 suppressed = (not incident['closed'] and service is not None
                     and service['kind'] != 'ping' and (
-                        not host_is_up(db, service, run)
-                        or reading is None or reading['status'] == 'blocked'))
+                        not service['monitoring'] or not host_is_up(db, service, run)
+                        or reading is None or reading['status'] in ('blocked','paused','unknown')))
                 if suppressed:
                     incident['suppressed'] = True
+                    incident['suppressed_reason'] = 'Service monitoring paused' if not service['monitoring'] else 'Awaiting host / service check'
                     if category == 'acknowledged':
                         # Acknowledgement remains the primary list membership.
                         visible.append(incident)
@@ -566,7 +587,7 @@ def service_details(body, existing=None):
 
 def reusable_service(db, service_id):
     """Only configured, enabled services can be copied or saved as templates."""
-    row = db.execute('SELECT * FROM services WHERE id=? AND enabled=1',
+    row = db.execute('SELECT s.* FROM services s JOIN assignments a ON a.id=s.assignment WHERE s.id=? AND s.enabled=1 AND a.removed=0',
                      (int(service_id),)).fetchone()
     if row is None or row['kind'] == 'ping':
         raise ValueError('Unknown service or managed host check')
@@ -583,7 +604,7 @@ def library_template(db, template_id):
 
 def insert_service(db, assignment_id, details):
     """Materialize a new independent service; never copy history or incident state."""
-    if not db.execute('SELECT id FROM assignments WHERE id=?', (assignment_id,)).fetchone():
+    if not db.execute('SELECT id FROM assignments WHERE id=? AND removed=0', (assignment_id,)).fetchone():
         raise ValueError('Unknown target host')
     db.execute("""INSERT INTO services
         (id,assignment,name,kind,target,community,unit,scale,units,direction,
@@ -594,7 +615,19 @@ def insert_service(db, assignment_id, details):
 def mutate(action, body):
     with LOCK, connect() as db:
         if action == 'project':
-            db.execute('INSERT INTO projects(name) VALUES(?)', (body['name'],))
+            name = body['name'].strip()
+            if not name or len(name) > 100:
+                raise ValueError('Project names must contain 1–100 characters')
+            db.execute('INSERT INTO projects(name) VALUES(?)', (name,))
+        elif action == 'project-edit':
+            name = body['name'].strip()
+            if not name or len(name) > 100:
+                raise ValueError('Project names must contain 1–100 characters')
+            cursor = db.execute('UPDATE projects SET name=? WHERE id=?', (name, int(body['project'])))
+            if cursor.rowcount != 1:
+                raise ValueError('Unknown project')
+        elif action == 'project-logo-remove':
+            db.execute('DELETE FROM project_logos WHERE project=?', (int(body['project']),))
         elif action == 'device':
             details = device_details(body)
             db.execute('INSERT INTO devices(id,name,model,address) VALUES(?,?,?,?)',
@@ -611,15 +644,33 @@ def mutate(action, body):
             db.execute('UPDATE devices SET address=? WHERE id=?',
                        (inventory_address(body['address']), int(body['device'])))
         elif action == 'assignment':
-            db.execute('INSERT INTO assignments(id,project,device,alias) VALUES(?,?,?,?)',
-                       (next_record_id(db, 'assignments'), int(body['project']),
-                        int(body['device']), body['alias']))
+            project, device = int(body['project']), int(body['device'])
+            previous = db.execute('SELECT id FROM assignments WHERE project=? AND device=? AND removed=1',
+                                  (project, device)).fetchone()
+            if previous:
+                # Reassigning restores the former configuration and history.
+                db.execute('UPDATE assignments SET alias=?,removed=0,monitoring=1,visible=1 WHERE id=?',
+                           (body['alias'], previous['id']))
+                db.execute('UPDATE services SET monitoring_since=? WHERE assignment=?',
+                           (time.time(), previous['id']))
+            else:
+                db.execute('INSERT INTO assignments(id,project,device,alias) VALUES(?,?,?,?)',
+                           (next_record_id(db, 'assignments'), project, device, body['alias']))
             ensure_host_checks(db)
+        elif action == 'assignment-remove':
+            cursor = db.execute('UPDATE assignments SET removed=1,monitoring=0,visible=0 WHERE id=? AND removed=0',
+                                (int(body['assignment']),))
+            if cursor.rowcount != 1:
+                raise ValueError('Unknown project assignment')
+            db.execute('''UPDATE notification_outbox SET state='cancelled',error='Host removed from project'
+                WHERE state='pending' AND incident IN (
+                    SELECT i.id FROM incidents i JOIN services s ON s.id=i.service WHERE s.assignment=?)''',
+                (int(body['assignment']),))
         elif action == 'assignment-edit':
             alias = body['alias'].strip()
             if not alias or len(alias) > 100:
                 raise ValueError('Alias must contain 1–100 characters')
-            cursor = db.execute('UPDATE assignments SET alias=? WHERE id=?',
+            cursor = db.execute('UPDATE assignments SET alias=? WHERE id=? AND removed=0',
                                 (alias, int(body['assignment'])))
             if cursor.rowcount != 1:
                 raise ValueError('Unknown project assignment')
@@ -627,7 +678,7 @@ def mutate(action, body):
             field = body['field']
             if field not in ('monitoring', 'visible', 'notifications'):
                 raise ValueError('Invalid control')
-            db.execute(f'UPDATE assignments SET {field}=1-{field} WHERE id=?', (int(body['id']),))
+            db.execute(f'UPDATE assignments SET {field}=1-{field} WHERE id=? AND removed=0', (int(body['id']),))
         elif action == 'activate':
             project = int(body['project'])
             if not db.execute('SELECT id FROM projects WHERE id=?', (project,)).fetchone():
@@ -649,7 +700,7 @@ def mutate(action, body):
             insert_service(db, int(body['assignment']), details)
         elif action == 'service-edit':
             service_id = int(body['service'])
-            existing = db.execute('SELECT * FROM services WHERE id=? AND enabled=1',
+            existing = db.execute('SELECT s.* FROM services s JOIN assignments a ON a.id=s.assignment WHERE s.id=? AND s.enabled=1 AND a.removed=0',
                                   (service_id,)).fetchone()
             if existing is None or existing['kind'] == 'ping':
                 raise ValueError('Unknown service or managed host check')
@@ -690,6 +741,28 @@ def mutate(action, body):
             configuration['name'] = body.get('name', source['name'])
             configuration['community'] = body.get('community') or source['community']
             insert_service(db, int(body['assignment']), service_details(configuration))
+        elif action == 'service-monitoring':
+            service = reusable_service(db, body['service'])
+            enabled = body['monitoring']
+            if type(enabled) is not bool:
+                raise ValueError('Monitoring must be true or false')
+            if bool(service['monitoring']) != enabled:
+                changed = time.time()
+                db.execute('UPDATE services SET monitoring=?,monitoring_since=? WHERE id=?',
+                           (int(enabled), changed, service['id']))
+                if not enabled:
+                    db.execute('''UPDATE notification_outbox SET state='cancelled',error='Service monitoring paused'
+                        WHERE state='pending' AND incident IN (SELECT id FROM incidents WHERE service=?)''',
+                        (service['id'],))
+                run = int(setting(db, 'active_run'))
+                project = db.execute('SELECT project FROM assignments WHERE id=?', (service['assignment'],)).fetchone()[0]
+                active = db.execute('SELECT project FROM runs WHERE id=?', (run,)).fetchone()
+                if active and active[0] == project:
+                    # Explicit gaps preserve history and prevent alerts spanning a pause.
+                    db.execute("""INSERT INTO samples
+                        (run,service,timestamp,value,status,error,revision,display_value)
+                        VALUES(?,?,?,NULL,?,'',?,NULL)""",
+                        (run, service['id'], changed, 'unknown' if enabled else 'paused', service['revision']))
         elif action == 'remove-service':
             # Keep ownership for history and later full-device deletion.
             db.execute("UPDATE services SET enabled=0 WHERE id=? AND kind!='ping'",
@@ -717,7 +790,7 @@ def update_card_incidents(data):
     for incident in candidates:
         service = services.get(incident['service'])
         assignment = assignments.get(service['assignment']) if service else None
-        if (not run or not assignment or not assignment['monitoring'] or not service['enabled']
+        if (not run or not assignment or not assignment['monitoring'] or not service['enabled'] or not service['monitoring'] or assignment['removed']
                 or assignment['project'] != run['project'] or incident['closed'] or incident.get('suppressed')):
             continue
         host = online.get(assignment['id'], 'unknown')
@@ -733,13 +806,13 @@ def status_overview():
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
-        return {'project': None, 'devices': [], 'incidents': [], 'updated': time.time()}
+        return {'project': None, 'logo_url': None, 'devices': [], 'incidents': [], 'updated': time.time()}
     project = next(row for row in data['projects'] if row['id'] == run['project'])
     devices = {row['id']: row for row in data['devices']}
     latest = {row['service']: row for row in data['latest']}
     output = []
     for assignment in data['assignments']:
-        if assignment['project'] != run['project'] or not assignment['visible']:
+        if assignment['project'] != run['project'] or not assignment['visible'] or assignment['removed']:
             continue
         device = devices[assignment['device']]
         services = [row for row in data['services'] if row['assignment'] == assignment['id'] and row['enabled']]
@@ -753,9 +826,9 @@ def status_overview():
                 continue
             sample = latest.get(service['id'])
             usable = host_status == 'healthy' and sample and time.time() - sample['timestamp'] <= 60
-            status = sample['status'] if usable else 'blocked'
+            status = 'paused' if not service['monitoring'] else sample['status'] if usable else 'blocked'
             children.append({'name': service['name'], 'status': status,
-                'value': sample['display_value'] if usable and status != 'blocked' else None,
+                'value': sample['display_value'] if usable and status not in ('blocked','paused') else None,
                 'units': service['units'] if service['value_type'] == 'metric' else ''})
         output.append({'name': device['name'], 'alias': assignment['alias'],
                        'status': host_status, 'services': children,
@@ -774,7 +847,8 @@ def status_overview():
         incidents.append({'device': devices[assignment['device']]['name'],
             'alias': assignment['alias'], 'service': service['name'],
             'status': incident['status'], 'opened': incident['opened']})
-    return {'project': project['name'], 'devices': output,
+    return {'project': project['name'],
+            'logo_url': project['logo_url'].replace('/api/project-logo?', '/api/public-logo?') if project['logo_url'] else None, 'devices': output,
             'incidents': incidents, 'updated': time.time()}
 
 
@@ -815,7 +889,26 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'{"ok":true}')
 
+    def send_logo(self, public=False):
+        from urllib.parse import parse_qs, urlsplit
+        try:
+            project = int(parse_qs(urlsplit(self.path).query)['project'][0])
+            with connect() as db:
+                if public:
+                    active = db.execute("""SELECT r.project FROM runs r JOIN settings s
+                        ON s.key='active_run' AND r.id=CAST(s.value AS INTEGER)""").fetchone()
+                    if not active or active['project'] != project:
+                        return self.send('{"error":"Not found"}', status=404)
+                row = db.execute('SELECT image,mime FROM project_logos WHERE project=?', (project,)).fetchone()
+            if row:
+                return self.send(row['image'], row['mime'])
+        except (KeyError, ValueError):
+            pass
+        self.send('{"error":"Not found"}', status=404)
+
     def do_GET(self):
+        if self.path.startswith('/api/public-logo?'):
+            return self.send_logo(public=True)
         if self.path == '/api/health':
             return self.send('{"ok":true}')
         if self.path == '/login':
@@ -842,6 +935,8 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_user(admin=admin)
         if not user:
             return
+        if self.path.startswith('/api/project-logo?'):
+            return self.send_logo()
         if self.path == '/api/telegram-chats':
             try:
                 with connect() as db:
@@ -884,7 +979,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send('{"error":"Not found"}', status=404)
 
     def do_POST(self):
-        from urllib.parse import urlsplit
+        from urllib.parse import parse_qs, urlsplit
         origin = self.headers.get('Origin')
         if origin and (urlsplit(origin).netloc != self.headers.get('Host', '')
                        or urlsplit(origin).scheme not in ('http', 'https')):
@@ -900,11 +995,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send('{"error":"Invalid request token"}', status=403)
         try:
             size = int(self.headers.get('Content-Length', '0'))
-            limit = 64 * 1024 * 1024 if self.path == '/api/restore' else 65536
+            limit = (64 * 1024 * 1024 if self.path == '/api/restore' else
+                     logos.MAX_BYTES if self.path.startswith('/api/project-logo?') else 65536)
             if not 0 < size <= limit:
                 raise ValueError('Invalid request size')
             payload = self.rfile.read(size)
-            if self.path == '/api/restore':
+            if self.path.startswith('/api/project-logo?'):
+                project = int(parse_qs(urlsplit(self.path).query)['project'][0])
+                with LOCK, connect() as db:
+                    logos.save(db, project, payload)
+            elif self.path == '/api/restore':
                 if self.headers.get('Content-Type') != 'application/octet-stream':
                     raise ValueError('Expected backup file')
                 candidate = sqlite3.connect(':memory:')
@@ -922,6 +1022,7 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_service_library(candidate)
                     migrate_value_types(candidate)
                     ensure_host_checks(candidate)
+                    logos.ensure_table(candidate)
                     notifications.ensure_tables(candidate)
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
                     auth.ensure_accounts(candidate)

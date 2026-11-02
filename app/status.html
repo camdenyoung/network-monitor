@@ -6,14 +6,16 @@
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
-    .host-card.incident-warning, .host-row.incident-warning { background: #3d321f; border-color: #dba946; }
-    .host-card.incident-critical, .host-row.incident-critical { background: #3b202b; border-color: #df6578; }
+    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
+    .host-row.incident-warning { --host-surface: #3d321f; --host-border: #dba946; }
+    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
+    .host-row.incident-critical { --host-surface: #3b202b; --host-border: #df6578; }
     .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
-    input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
-    button { cursor: pointer; } button:hover { background: #29445c; } button.primary { background: #176959; }
+    input, select, textarea, button, .button-link { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
@@ -33,8 +35,12 @@
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
-    .host-list { min-width: 650px; }
-    .host-list td { vertical-align: top; }
+    /* Separate cell borders create one rounded outline around each host row. */
+    .host-list { min-width: 650px; border-collapse: separate; border-spacing: 0 12px; }
+    .host-row { --host-surface: #182433; --host-border: #314257; }
+    .host-list .host-row > td { vertical-align: top; background: var(--host-surface); border: 1px solid var(--host-border); border-left-width: 0; border-right-width: 0; padding: 16px; }
+    .host-list .host-row > td:first-child { border-left-width: 1px; border-radius: 10px 0 0 10px; }
+    .host-list .host-row > td:last-child { border-right-width: 1px; border-radius: 0 10px 10px 0; }
     .host-list .metric { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 0; }
     .host-list .metric-header { flex: 1; }
     .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
@@ -42,10 +48,13 @@
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
+    .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
+    .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
+    button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style></head>
 <body>
-  <header><div><h1>Network status</h1><p id="project">Loading…</p></div><a href="/">Sign in / dashboard</a></header>
+  <header><img id="project-logo" class="project-logo" hidden alt="Project logo"><div><h1>Network status</h1><p id="project">Loading…</p></div><a class="button-link" href="/">Sign in / dashboard</a></header>
   <p id="summary" role="status"></p>
   <div class="display-controls" role="group" aria-label="Host display options">
     <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
@@ -64,7 +73,7 @@
   <script>
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const formatStatus = value => String(value ?? '').replace(/^./, char => char.toUpperCase());
-    const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed'};
+    const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed',paused:'Paused'};
     let publicState = null;
     let hostView = 'cards';
     let serviceFilter = '';
@@ -140,6 +149,10 @@
         if (!response.ok) throw new Error('Status service unavailable');
         const data = await response.json();
         document.getElementById('project').textContent = data.project || 'Monitoring paused';
+        const image = document.getElementById('project-logo');
+        image.hidden = !data.logo_url;
+        if (data.logo_url && image.getAttribute('src') !== data.logo_url) image.setAttribute('src', data.logo_url);
+        image.alt = (data.project || 'Project') + ' logo';
         publicState = data;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">

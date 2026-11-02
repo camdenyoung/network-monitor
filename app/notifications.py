@@ -211,12 +211,12 @@ def deliver_once(connect, lock, host_is_up):
         if not config['enabled'] or row['config_revision'] != config['revision']:
             reason = 'Notifications disabled or configuration changed'
         if row['incident'] is not None:
-            source = db.execute('''SELECT i.*,s.kind,s.assignment,s.enabled,d.address,a.monitoring,a.notifications
+            source = db.execute('''SELECT i.*,s.kind,s.assignment,s.enabled,s.monitoring service_monitoring,d.address,a.monitoring,a.notifications
                 FROM incidents i JOIN services s ON s.id=i.service
                 JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
                 WHERE i.id=?''', (row['incident'],)).fetchone()
             run = int(db.execute("SELECT value FROM settings WHERE key='active_run'").fetchone()[0])
-            if not source or source['run'] != run or not source['notifications'] or not source['monitoring'] or not source['enabled']:
+            if not source or source['run'] != run or not source['notifications'] or not source['monitoring'] or not source['enabled'] or not source['service_monitoring']:
                 reason = 'Source removed, inactive, or muted'
             elif row['event'] == 'opened' and source['closed']:
                 reason = 'Incident already resolved'

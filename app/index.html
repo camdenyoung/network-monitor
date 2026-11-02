@@ -11,16 +11,20 @@
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
-    .host-card.incident-warning, .host-row.incident-warning { background: #3d321f; border-color: #dba946; }
-    .host-card.incident-critical, .host-row.incident-critical { background: #3b202b; border-color: #df6578; }
+    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
+    .host-row.incident-warning { --host-surface: #3d321f; --host-border: #dba946; }
+    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
+    .host-row.incident-critical { --host-surface: #3b202b; --host-border: #df6578; }
     .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     body:not([data-role="admin"]) [data-admin] { display: none !important; }
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
-    input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
-    button { cursor: pointer; } button:hover { background: #29445c; } button.primary { background: #176959; }
+    input, select, textarea, button, .button-link { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
+    .paused { color: #a9bad0; }
+    .service-controls { display: flex; align-items: start; gap: 6px; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
@@ -39,8 +43,12 @@
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
-    .host-list { min-width: 650px; }
-    .host-list td { vertical-align: top; }
+    /* Separate cell borders create one rounded outline around each host row. */
+    .host-list { min-width: 650px; border-collapse: separate; border-spacing: 0 12px; }
+    .host-row { --host-surface: #182433; --host-border: #314257; }
+    .host-list .host-row > td { vertical-align: top; background: var(--host-surface); border: 1px solid var(--host-border); border-left-width: 0; border-right-width: 0; padding: 16px; }
+    .host-list .host-row > td:first-child { border-left-width: 1px; border-radius: 10px 0 0 10px; }
+    .host-list .host-row > td:last-child { border-right-width: 1px; border-radius: 0 10px 10px 0; }
     .host-list .metric { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 0; }
     .host-list .metric-header { flex: 1; }
     .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
@@ -48,14 +56,18 @@
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
+    .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
+    .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
+    button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style>
 </head>
 <body data-role="viewer">
   <header><div><h1>Field Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
-  <nav class="toolbar"><span id="signed-in"></span><a href="/status" target="_blank">Public overview</a><a href="/login">Change password</a><button id="logout">Sign out</button></nav>
+  <nav class="toolbar"><span id="signed-in"></span><a class="button-link" href="/status" target="_blank">Public overview</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
   <p id="message" role="status"></p>
   <section class="toolbar">
+    <img id="project-logo" class="project-logo" hidden alt="Project logo">
     <label>Selected project<select id="project"></select></label>
     <button data-admin id="activate" class="primary">Activate / start new deployment</button>
     <button data-admin id="pause">Pause all monitoring</button>
@@ -70,7 +82,6 @@
   </div>
   <p id="host-view-summary"></p>
   <small>Service filters narrow host readings. Incident lists show all incidents.</small>
-  <div id="dashboard" class="grid"></div>
   <section>
     <h2>Active incidents</h2>
     <p id="incident-feedback" class="form-feedback" role="status"></p>
@@ -79,8 +90,21 @@
   <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
   <details><summary>Suppressed service incidents</summary><section id="suppressed-incidents"></section></details>
   <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
+  <div id="dashboard" class="grid"></div>
   <details data-admin><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
+    <section><h2>Edit selected project</h2>
+      <form id="project-edit-form">
+        <label>Project name<input name="name" required maxlength="100"></label>
+        <button>Save project name</button>
+      </form>
+      <form id="project-logo-form">
+        <label>Project logo (PNG or JPEG, up to 2 MB)<input name="logo" type="file" accept="image/png,image/jpeg" required></label>
+        <button>Upload / replace logo</button>
+        <button id="remove-project-logo" type="button">Remove logo</button>
+      </form>
+      <p id="project-feedback" role="status"></p>
+    </section>
     <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><label>IP address<input name="address" required placeholder="192.168.1.10"></label><button>Add device</button></form><div id="inventory"></div><p id="inventory-feedback" class="form-feedback" role="status"></p></section>
     <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
     <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>
@@ -108,7 +132,16 @@
         <button>Add service</button>
       </form>
       <p id="service-feedback" class="form-feedback" role="status"></p>
+      <h3>Configured services</h3>
+      <div class="display-controls">
+        <label>Host<select id="catalogue-host"><option value="">Choose a host…</option></select></label>
+        <label>Service name / OID<input id="catalogue-search" type="search" maxlength="100" placeholder="e.g. RSSI"></label>
+        <label>Protocol<select id="catalogue-protocol"><option value="">All protocols</option><option value="snmp">SNMP</option><option value="modbus">Modbus</option><option value="tcp">TCP</option></select></label>
+        <label>Monitoring<select id="catalogue-monitoring"><option value="">All states</option><option value="enabled">Enabled</option><option value="paused">Paused</option></select></label>
+      </div>
+      <p id="catalogue-summary"></p>
       <div id="service-catalogue"></div>
+      <button id="catalogue-more" hidden>Show 20 more</button>
     </section>
     <section><h2>Project assignments</h2><p>Notification flags control incident messages for each host.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
   </details>
@@ -169,7 +202,7 @@
   </section></details>
   <details data-admin><summary>Backup, restore, and retention</summary><section>
     <p>Backup includes credentials and history. Store it securely; the archive contains credentials and password hashes. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
-    <p><a href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
+    <p><a class="button-link" href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></details>
@@ -274,6 +307,7 @@
     let telegramLoaded = false;
     let whatsappLoaded = false;
     let selectedProject = '';
+    let editingProject = '';
     let serviceEditorMode = 'service-edit';
     let serviceEditorSource = null;
     let transferMode = null;
@@ -307,7 +341,7 @@
 
     function serviceActions(service) {
       if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History / graph</button>`;
-      return `<details class="action-menu" data-service-actions="${service.id}">
+      return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
         <div class="menu-buttons">
           <button data-history="${service.id}">History / graph</button>
@@ -316,7 +350,7 @@
           <button data-save-template="${service.id}">Save to library</button>
           <button data-remove="${service.id}">Remove</button>
         </div>
-      </details>`;
+      </details></div>`;
     }
 
     let hostView = 'cards';
@@ -344,7 +378,7 @@
 
     function renderHosts() {
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
-      const visible = state.assignments.filter(row => String(row.project) === selectedProject && row.visible);
+      const visible = state.assignments.filter(row => String(row.project) === selectedProject && row.visible && !row.removed);
       const matches = visible.filter(assignment => !serviceFilter.trim() || state.services.some(service =>
         service.assignment === assignment.id && service.enabled !== 0 && service.kind !== 'ping' && serviceMatches(service)));
       const openActions = new Set([...document.querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
@@ -358,11 +392,12 @@
         const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping' && row.enabled !== 0 && serviceMatches(row));
         const metrics = services.map(service => {
           const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
-          const blocked = hostStatus !== 'healthy' || reading?.status === 'blocked';
-          const status = blocked ? 'blocked' : readingStatus(reading, assignment, run);
-          const statusLabel = blocked
+          const paused = service.monitoring === 0;
+          const blocked = !paused && (hostStatus !== 'healthy' || reading?.status === 'blocked');
+          const status = paused ? 'paused' : blocked ? 'blocked' : readingStatus(reading, assignment, run);
+          const statusLabel = paused ? 'Paused' : blocked
             ? (hostStatus === 'unreachable' ? 'Suppressed — host offline' : 'Awaiting host / service check') : formatStatus(status);
-          const value = blocked ? '—' : (reading?.display_value ?? reading?.value ?? '—');
+          const value = paused || blocked ? '—' : (reading?.display_value ?? reading?.value ?? '—');
           const units = service.value_type === 'state' ? '' : service.units;
           return `<div class="metric">
             <div class="metric-header">
@@ -410,10 +445,21 @@
       if (!selectedProject) selectedProject = String(run?.project || state.projects[0]?.id || '');
       el('project').innerHTML = options(state.projects, row => row.name);
       el('project').value = selectedProject;
+      const project = state.projects.find(row => String(row.id) === selectedProject);
+      const image = el('project-logo');
+      image.hidden = !project?.logo_url;
+      if (project?.logo_url && image.getAttribute('src') !== project.logo_url) image.setAttribute('src', project.logo_url);
+      image.alt = project ? project.name + ' logo' : 'Project logo';
+      if (editingProject !== selectedProject) {
+        el('project-edit-form').elements.namedItem('name').value = project?.name || '';
+        el('project-logo-form').reset();
+        editingProject = selectedProject;
+        el('project-feedback').textContent = '';
+      }
       el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id : 'Monitoring paused';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
       updateOptions('device', state.devices, deviceLabel, 'Select device…');
-      const assignments = state.assignments.filter(row => String(row.project) === selectedProject);
+      const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
       updateOptions('assignment', assignments, row => row.alias, 'Select host…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       el('inventory').innerHTML = state.devices.map(device => {
@@ -430,17 +476,8 @@
         </article>`;
       }).join('') || 'No equipment added.';
       renderHosts();
-      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
-      const projectServices = state.services.filter(service => service.enabled !== 0 &&
-        service.kind !== 'ping' && assignments.some(row => row.id === service.assignment));
-      el('service-catalogue').innerHTML = projectServices.map(service => {
-        const host = assignments.find(row => row.id === service.assignment);
-        return `<p>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}
-          <button data-edit-service="${service.id}">Edit</button>
-          <button data-copy-service="${service.id}">Copy to host</button>
-          <button data-save-template="${service.id}">Save to library</button>
-          <button data-remove="${service.id}">Remove</button></p>`;
-      }).join('') || '<p>No additional services in this project.</p>';
+      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`).join('') + '</table>';
+      renderServiceCatalogue();
       el('service-library').innerHTML = state.service_templates.map(template => `
         <article><strong>${escapeHtml(template.name)}</strong>
           <p>${escapeHtml(template.kind)} · ${escapeHtml(template.target)} · ${escapeHtml(template.units)}</p>
@@ -457,6 +494,50 @@
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved incidents.</p>';
     }
 
+    let catalogueLimit = 20;
+    function renderServiceCatalogue() {
+      if (!state) return;
+      const openMenus = new Set([...el('service-catalogue').querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
+      const hostSelect = el('catalogue-host');
+      const previous = hostSelect.value;
+      const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
+      hostSelect.innerHTML = '<option value="">Choose a host…</option><option value="*">All hosts</option>' + options(assignments, row => {
+        const device = state.devices.find(device => device.id === row.device);
+        return (device?.name || '') + ' - ' + row.alias;
+      });
+      hostSelect.value = previous === '*' || assignments.some(row => String(row.id) === previous) ? previous : '';
+      if (!hostSelect.value) {
+        el('service-catalogue').innerHTML = '';
+        el('catalogue-summary').textContent = 'Choose a host, or All hosts to search across this project.';
+        el('catalogue-more').hidden = true;
+        return;
+      }
+      const query = el('catalogue-search').value.trim().toLowerCase();
+      const protocol = el('catalogue-protocol').value;
+      const monitoring = el('catalogue-monitoring').value;
+      const matches = state.services.filter(service => service.enabled !== 0 && service.kind !== 'ping' &&
+        assignments.some(row => row.id === service.assignment) &&
+        (hostSelect.value === '*' || String(service.assignment) === hostSelect.value) &&
+        (!query || service.name.toLowerCase().includes(query) || service.target.toLowerCase().includes(query)) &&
+        (!protocol || service.kind === protocol) &&
+        (!monitoring || (monitoring === 'paused' ? service.monitoring === 0 : service.monitoring !== 0)));
+      el('catalogue-summary').textContent = `Showing ${Math.min(catalogueLimit, matches.length)} of ${matches.length} matching services`;
+      el('service-catalogue').innerHTML = matches.slice(0, catalogueLimit).map(service => {
+        const host = assignments.find(row => row.id === service.assignment);
+        return `<div class="metric"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong>
+          <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small>
+          ${serviceActions(service)}
+        </div>`;
+      }).join('') || '<p>No services match these filters.</p>';
+      el('service-catalogue').querySelectorAll('.action-menu').forEach(menu => { menu.open = openMenus.has(menu.dataset.serviceActions); });
+      el('catalogue-more').hidden = catalogueLimit >= matches.length;
+    }
+    for (const id of ['catalogue-host', 'catalogue-protocol', 'catalogue-monitoring']) {
+      el(id).onchange = () => { catalogueLimit = 20; renderServiceCatalogue(); };
+    }
+    el('catalogue-search').oninput = () => { catalogueLimit = 20; renderServiceCatalogue(); };
+    el('catalogue-more').onclick = () => { catalogueLimit += 20; renderServiceCatalogue(); };
+
     function renderIncidents(incidents, allowAcknowledgement = false, suppressed = false) {
       return incidents.map(incident => {
         const service = state.services.find(row => row.id === incident.service);
@@ -466,7 +547,7 @@
           ? `Acknowledged ${date(incident.acknowledged)}`
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
-        const status = isSuppressed ? 'Suppressed — awaiting host / service check' : formatStatus(incident.status);
+        const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
         return `<p><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
           · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</p>`;
@@ -695,7 +776,7 @@
       const project = el('transfer-project').value;
       const sourceAssignment = transferMode === 'service-copy'
         ? state.services.find(row => row.id === transferSource)?.assignment : null;
-      const hosts = state.assignments.filter(row => String(row.project) === project && row.id !== sourceAssignment);
+      const hosts = state.assignments.filter(row => String(row.project) === project && !row.removed && row.id !== sourceAssignment);
       updateOptions('transfer-host', hosts, row => {
         const device = state.devices.find(device => device.id === row.device);
         return row.alias + ' · ' + (device?.name || '') + ' · ' + (device?.address || 'IP required');
@@ -909,7 +990,51 @@
       }
     }
 
-    el('project').onchange = () => { selectedProject = el('project').value; refresh().catch(report); };
+    el('project-edit-form').onsubmit = async event => {
+      event.preventDefault();
+      const name = event.target.elements.namedItem('name').value;
+      try {
+        await request('project-edit', {project: selectedProject, name});
+        el('project-feedback').textContent = 'Project name updated successfully.';
+        await refresh();
+      } catch (error) { el('project-feedback').textContent = error.message; }
+    };
+    el('project-logo-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button');
+      const project = selectedProject;
+      button.disabled = true;
+      try {
+        if (!project) throw new Error('Select a project first.');
+        const file = new FormData(form).get('logo');
+        if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+          throw new Error('Choose a PNG or JPEG file no larger than 2 MB.');
+        }
+        // Decode before uploading so malformed images fail with immediate feedback.
+        const image = await createImageBitmap(file);
+        const fits = image.width <= 4096 && image.height <= 4096;
+        image.close();
+        if (!fits) throw new Error('Logo dimensions must be at most 4096 pixels per side.');
+        const response = await fetch('/api/project-logo?project=' + project, {
+          method: 'POST', headers: {'Content-Type': file.type, 'X-CSRF-Token': currentUser.csrf}, body: file,
+        });
+        if (!response.ok) throw new Error('Logo upload failed. Check the image and your session.');
+        form.reset();
+        el('project-feedback').textContent = 'Project logo updated successfully.';
+        await refresh();
+      } catch (error) { el('project-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
+    el('remove-project-logo').onclick = async () => {
+      try {
+        await request('project-logo-remove', {project: selectedProject});
+        el('project-feedback').textContent = 'Project logo removed.';
+        await refresh();
+      } catch (error) { el('project-feedback').textContent = error.message; }
+    };
+
+    el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
     el('activate').onclick = () => performAction('activate', {project: selectedProject}).catch(report);
     el('pause').onclick = () => performAction('pause', {}).catch(report);
     document.body.addEventListener('click', async event => {
@@ -917,6 +1042,21 @@
       const menu = event.target.closest('.action-menu');
       if (menu && event.target.tagName === 'BUTTON') menu.open = false;
       try {
+        if (data.serviceMonitoring) {
+          const button = event.target;
+          button.disabled = true;
+          try {
+            await request('service-monitoring', {service: data.serviceMonitoring, monitoring: data.enabled === 'true'});
+            el('service-feedback').textContent = data.enabled === 'true' ? 'Service monitoring resumed.' : 'Service monitoring paused; configuration and history retained.';
+            notify(el('service-feedback').textContent, true);
+            await refresh();
+          } finally { button.disabled = false; }
+        }
+        if (data.removeAssignment && confirm('Remove this device from the project? Inventory, other projects, and history are retained.')) {
+          await request('assignment-remove', {assignment: data.removeAssignment});
+          el('assignment-feedback').textContent = 'Device removed from project. Inventory and history retained.';
+          await refresh();
+        }
         if (data.editAlias) openAliasEditor(data.editAlias);
         if (data.copyService) openServiceTransfer('service-copy', data.copyService);
         if (data.saveTemplate) openServiceEditor(data.saveTemplate, true);

@@ -9,7 +9,7 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from app import auth, notifications, server
+from app import auth, notifications, server, logos
 
 
 class AccessAndNotificationTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         handler.headers['Content-Length'] = str(len(data))
         handler.rfile = io.BytesIO(data)
         response = {}
-        handler.send = lambda content, mime=None, status=200: response.update(status=status, content=content)
+        handler.send = lambda content, mime=None, status=200: response.update(status=status, content=content, mime=mime)
         handler.session_response = lambda token=None: response.update(status=200, token=token)
         if body is None:
             handler.do_GET()
@@ -471,6 +471,107 @@ class AccessAndNotificationTests(unittest.TestCase):
         }, self.admin_token, self.admin['csrf'])
         self.assertEqual(response['status'], 400)
         self.assertEqual(self.request('/api/state', token=self.admin_token)['status'], 200)
+
+    def logo_image(self, colour=255):
+        import struct
+        import zlib
+        def chunk(kind, data):
+            return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+        header = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
+        return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header)
+                + chunk(b'IDAT', zlib.compress(bytes([0, colour, 0, 0]))) + chunk(b'IEND', b''))
+
+    def upload_logo(self, token, csrf, data):
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/project-logo?project=1'
+        handler.headers = {'Cookie': 'monitor_session=' + token,
+            'X-CSRF-Token': csrf, 'Content-Type': 'image/png', 'Content-Length': str(len(data))}
+        handler.rfile = io.BytesIO(data)
+        response = {}
+        handler.send = lambda content, mime=None, status=200: response.update(content=content,mime=mime,status=status)
+        handler.do_POST()
+        return response
+
+    def test_project_logo_upload_replace_remove_and_public_visibility(self):
+        self.create_host()
+        first = self.logo_image()
+        self.assertEqual(self.upload_logo(self.admin_token, self.admin['csrf'], first)['status'], 200)
+        project = server.snapshot()['projects'][0]
+        self.assertTrue(project['logo_url'].startswith('/api/project-logo?'))
+        public_url = server.status_overview()['logo_url']
+        self.assertTrue(public_url.startswith('/api/public-logo?'))
+        response = self.request(public_url)
+        self.assertEqual(response['status'], 200)
+        self.assertEqual(response['mime'], 'image/png')
+        self.assertEqual(response['content'], first)
+        self.assertEqual(self.request(project['logo_url'])['status'], 401)
+        self.assertEqual(self.request(project['logo_url'], token=self.viewer_token)['status'], 200)
+        self.assertEqual(self.upload_logo(self.viewer_token, self.viewer['csrf'], first)['status'], 403)
+        self.assertEqual(self.upload_logo(self.admin_token, '', first)['status'], 403)
+        replacement = self.logo_image(128)
+        self.assertEqual(self.upload_logo(self.admin_token, self.admin['csrf'], replacement)['status'], 200)
+        self.assertNotEqual(server.status_overview()['logo_url'], public_url)
+        server.mutate('pause', {})
+        self.assertEqual(self.request(public_url)['status'], 404)
+        server.mutate('project-logo-remove', {'project': 1})
+        self.assertIsNone(server.snapshot()['projects'][0]['logo_url'])
+
+    def test_invalid_logo_does_not_replace_existing_logo(self):
+        self.create_host()
+        original = self.logo_image()
+        self.upload_logo(self.admin_token, self.admin['csrf'], original)
+        for data in (b'<svg></svg>', b'not an image', original[:30], b'x' * (logos.MAX_BYTES + 1)):
+            response = self.upload_logo(self.admin_token, self.admin['csrf'], data)
+            self.assertEqual(response['status'], 400)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT image FROM project_logos').fetchone()[0], original)
+
+    def test_project_rename_preserves_assignments_history_and_logo(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+        image = self.logo_image()
+        self.upload_logo(self.admin_token, self.admin['csrf'], image)
+        response = self.request('/api/project-edit', {'project': 1, 'name': 'Renamed event'}, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        state = server.snapshot()
+        self.assertEqual(state['projects'][0]['name'], 'Renamed event')
+        self.assertEqual(len(state['assignments']), 1)
+        self.assertEqual(len(state['latest']), 1)
+        self.assertIsNotNone(state['projects'][0]['logo_url'])
+        backup = self.request('/api/backup', token=self.admin_token)
+        restored = sqlite3.connect(':memory:')
+        try:
+            restored.deserialize(backup['content'])
+            self.assertEqual(restored.execute('SELECT image FROM project_logos').fetchone()[0], image)
+        finally:
+            restored.close()
+        self.assertEqual(self.request('/api/project-edit', {'project':1,'name':'Denied'}, self.viewer_token, self.viewer['csrf'])['status'], 403)
+
+    def test_old_database_gains_logo_table_and_invalid_rename_is_atomic(self):
+        self.create_host()
+        server.mutate('project', {'name': 'Other event'})
+        with server.connect() as db:
+            db.execute('DROP TABLE project_logos')
+        server.initialize()
+        self.assertIsNone(server.snapshot()['projects'][0]['logo_url'])
+        for name in ('   ', 'Other event'):
+            response = self.request('/api/project-edit', {'project': 1, 'name': name},
+                                    self.admin_token, self.admin['csrf'])
+            self.assertEqual(response['status'], 400)
+        self.assertEqual(server.snapshot()['projects'][0]['name'], 'Deployment')
+
+    def test_service_pause_and_project_removal_are_admin_only(self):
+        host = self.create_host()
+        server.mutate('service', {'assignment': 1, 'name': 'Port', 'kind': 'snmp',
+            'target': '.1.2.3', 'direction': 'above', 'warning': '', 'critical': ''})
+        service = next(row for row in server.snapshot()['services'] if row['kind'] == 'snmp')
+        token, operator = self.create_operator()
+        for user_token, csrf in ((token, operator['csrf']), (self.viewer_token, self.viewer['csrf'])):
+            self.assertEqual(self.request('/api/service-monitoring', {'service': service['id'], 'monitoring': False}, user_token, csrf)['status'], 403)
+            self.assertEqual(self.request('/api/assignment-remove', {'assignment': 1}, user_token, csrf)['status'], 403)
+        self.assertEqual(self.request('/api/service-monitoring', {'service': service['id'], 'monitoring': False}, self.admin_token, self.admin['csrf'])['status'], 200)
+        self.assertEqual(self.request('/api/assignment-remove', {'assignment': 1}, self.admin_token, self.admin['csrf'])['status'], 200)
 
     def test_provider_payloads_use_group_id_and_three_whatsapp_parameters(self):
         self.configure_channels()

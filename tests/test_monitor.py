@@ -753,6 +753,69 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(server.classify(1, self.service), 'healthy')
         self.assertEqual(server.classify(2, self.service), 'critical')
 
+    def test_service_pause_preserves_configuration_history_and_suppresses_incidents(self):
+        self.poll_ping(True)
+        self.poll(-80)
+        self.poll(-80)
+        server.mutate('service-monitoring', {'service': self.service['id'], 'monitoring': False})
+        state = server.snapshot()
+        paused = next(row for row in state['services'] if row['id'] == self.service['id'])
+        self.assertEqual(paused['monitoring'], 0)
+        self.assertEqual(paused['enabled'], 1)
+        self.assertEqual(paused['target'], '.1.2.3')
+        self.assertEqual(state['incident_lists']['active'], [])
+        self.assertEqual(state['incident_lists']['suppressed'][0]['suppressed_reason'], 'Service monitoring paused')
+        self.assertIsNone(state['assignments'][0]['incident_status'])
+        with patch.object(server, 'read_metric') as read:
+            server.poll_one(self.service, 1)
+            read.assert_not_called()
+        public = server.status_overview()
+        self.assertEqual(public['devices'][0]['services'][0]['status'], 'paused')
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples WHERE service=?', (self.service['id'],)).fetchone()[0], 3)
+
+    def test_service_resume_restarts_persistence_without_changing_configuration_revision(self):
+        self.poll_ping(True)
+        self.poll(-80)
+        server.mutate('service-monitoring', {'service': self.service['id'], 'monitoring': False})
+        server.mutate('service-monitoring', {'service': self.service['id'], 'monitoring': True})
+        old = dict(self.service)
+        self.reload_service()
+        self.assertEqual(self.service['revision'], old['revision'])
+        with patch.object(server, 'read_metric') as read:
+            server.poll_one(old, 1)
+            read.assert_not_called()
+        self.poll(-80)
+        self.assertEqual(server.snapshot()['incident_lists']['active'], [])
+        self.poll(-80)
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+        with self.assertRaises(ValueError):
+            server.mutate('service-monitoring', {'service': self.host_service()['id'], 'monitoring': False})
+
+    def test_remove_from_project_preserves_inventory_other_projects_and_history(self):
+        self.poll(-55)
+        server.mutate('project', {'name': 'Other event'})
+        server.mutate('assignment', {'project': 2, 'device': 1, 'alias': 'Other alias'})
+        server.mutate('assignment-remove', {'assignment': 1})
+        state = server.snapshot()
+        self.assertEqual(len(state['devices']), 1)
+        self.assertEqual(state['assignments'][0]['removed'], 1)
+        self.assertEqual(state['assignments'][1]['removed'], 0)
+        self.assertEqual(state['assignments'][1]['alias'], 'Other alias')
+        self.assertEqual(server.status_overview()['devices'], [])
+        self.assertEqual(state['incident_lists']['active'], [])
+        with patch.object(server, 'read_metric') as read:
+            server.poll_one(self.service, 1)
+            read.assert_not_called()
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 1)
+        server.mutate('assignment', {'project': 1, 'device': 1, 'alias': 'Restored alias'})
+        restored = server.snapshot()
+        self.assertEqual(len(restored['assignments']), 2)
+        self.assertEqual(restored['assignments'][0]['removed'], 0)
+        self.assertEqual(restored['assignments'][0]['alias'], 'Restored alias')
+        self.assertTrue(any(row['id'] == self.service['id'] for row in restored['services']))
+
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):
             server.poll_one(self.service, 1)
