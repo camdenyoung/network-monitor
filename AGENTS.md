@@ -249,3 +249,6 @@ to preserve browser preferences. Complete backup downloads use a server-generate
 network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposition,
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
+
+Current displayed release is v0.1. Show it after the title on both the main and
+status dashboards, including browser page titles.
