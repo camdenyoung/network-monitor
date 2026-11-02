@@ -497,3 +497,47 @@ await statusSettingsForm.onsubmit({preventDefault(){},target:statusSettingsForm}
 assert.equal(projectSubmission.path, '/api/project-status-settings');
 assert.equal(projectSubmission.body.enabled, true);
 console.log('Project duplication/settings, persisted host sorting and authenticated status acknowledgement UI tests passed.');
+
+// Inventory stays collapsed, expands for search, and renders bounded results.
+hostOnlyMain.renderInventory();
+assert.equal(element('inventory').innerHTML, '');
+element('inventory-search').value = 'sW001';
+element('inventory-search').oninput();
+assert.equal(element('inventory-details').open, true);
+assert.match(element('inventory').innerHTML, /SW001/);
+assert.doesNotMatch(element('inventory').innerHTML, /SW002/);
+element('inventory-search').value = '127.0.0.2';
+element('inventory-search').oninput();
+assert.match(element('inventory').innerHTML, /SW002/);
+assert.doesNotMatch(element('inventory').innerHTML, /SW001/);
+for (let index=0; index<60; index++) fixture.devices.push({id:200+index,name:'Bulk-'+index,model:'Industrial',address:'10.44.0.'+index});
+element('inventory-search').value = 'industrial';
+element('inventory-search').oninput();
+assert.equal(element('inventory-results').textContent, 'Showing 50 of 60 matching devices');
+assert.doesNotMatch(element('inventory').innerHTML, /Bulk-50/);
+element('inventory-more').onclick();
+assert.match(element('inventory').innerHTML, /Bulk-59/);
+element('inventory-details').open = false;
+element('inventory-details').ontoggle();
+assert.equal(element('inventory').innerHTML, '');
+element('inventory-details').open = true;
+element('inventory-details').ontoggle();
+assert.match(element('inventory').innerHTML, /Bulk-59/);
+await hostOnlyMain.refresh();
+assert.equal(element('inventory-search').value, 'industrial');
+assert.equal(element('inventory-details').open, true);
+assert.equal(element('project-settings-logo').getAttribute('src'), fixture.projects[0].logo_url);
+
+publicData.viewer = null;
+await sortedPublic.refresh();
+assert.equal(publicNodes.get('status-session').textContent, 'Not signed in');
+assert.equal(publicNodes.get('status-session-link').textContent, 'Sign in');
+publicData.viewer = {username:'operator',role:'operator',must_change_password:false};
+await sortedPublic.refresh();
+assert.equal(publicNodes.get('status-session').textContent, 'Signed in: operator · Operator');
+assert.equal(publicNodes.get('status-session-link').textContent, 'Dashboard');
+publicData.viewer.must_change_password = true;
+await sortedPublic.refresh();
+assert.equal(publicNodes.get('status-session-link').textContent, 'Change password');
+assert.equal(publicNodes.get('status-session-link').getAttribute('href'), '/login');
+console.log('Collapsible/searchable inventory, project panel preview and public login indicators passed.');

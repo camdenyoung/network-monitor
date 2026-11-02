@@ -62,6 +62,19 @@
     .project-logo-slot { flex: 0 0 180px; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
     .project-selector { flex: 1 1 240px; max-width: 360px; min-width: 0; }
     .project-selector select { width: 100%; box-sizing: border-box; }
+    .project-settings > h2 { margin-bottom: 6px; }
+    .project-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .project-settings-panel { display: flex; flex-direction: column; padding: 18px; border: 1px solid #314257; border-radius: 8px; background: #101b29; min-width: 0; }
+    .project-settings-panel h3 { margin: 0; font-size: 16px; }
+    .project-settings-panel > p { margin: 8px 0 16px; line-height: 1.5; }
+    .project-settings-panel form { display: flex; flex-direction: column; align-items: stretch; gap: 14px; flex: 1; }
+    .project-settings-panel input { box-sizing: border-box; width: 100%; min-width: 0; }
+    .project-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
+    .project-settings-panel .project-check { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+    .project-settings-panel .project-check input { width: 18px; height: 18px; flex: 0 0 18px; margin: 3px 0 0; }
+    .project-logo-preview { height: 88px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; border: 1px dashed #435b78; border-radius: 6px; color: #a9bad0; }
+    .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
+    @media (max-width: 760px) { .project-settings-grid { grid-template-columns: 1fr; } }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
@@ -103,28 +116,75 @@
   <div id="dashboard" class="grid"></div>
   <details data-admin><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
-    <section><h2>Edit selected project</h2>
-      <form id="project-edit-form">
-        <label>Project name<input name="name" required maxlength="100"></label>
-        <button>Save project name</button>
-      </form>
-      <form id="project-duplicate-form">
-        <label>Duplicate project as<input name="name" required maxlength="100"></label>
-        <button>Duplicate selected project</button>
-      </form>
-      <small>Copies configuration and logo against the same inventory. History stays with the original project; the duplicate is not activated.</small>
-      <form id="project-status-form">
-        <label>Allow status-page acknowledgement for signed-in Admins and Operators<input name="enabled" type="checkbox"></label>
-        <button>Save status dashboard settings</button>
-      </form>
-      <form id="project-logo-form">
-        <label>Project logo (PNG or JPEG, up to 2 MB)<input name="logo" type="file" accept="image/png,image/jpeg" required></label>
-        <button>Upload / replace logo</button>
-        <button id="remove-project-logo" type="button">Remove logo</button>
-      </form>
-      <p id="project-feedback" role="status"></p>
+    <section class="project-settings">
+      <h2>Edit selected project</h2>
+      <p id="project-settings-context">Choose a project above to edit its settings.</p>
+      <div class="project-settings-grid">
+        <div class="project-settings-panel">
+          <h3>Project name</h3>
+          <p>Rename the event while keeping its hosts and history.</p>
+          <form id="project-edit-form">
+            <label>Name<input name="name" required maxlength="100"></label>
+            <div class="project-panel-actions"><button class="primary">Save name</button></div>
+          </form>
+        </div>
+        <div class="project-settings-panel">
+          <h3>Event logo</h3>
+          <p>PNG or JPEG, up to 2 MB.</p>
+          <div class="project-logo-preview">
+            <img id="project-settings-logo" class="project-logo" hidden alt="Selected project logo">
+            <span id="project-no-logo">No logo uploaded</span>
+          </div>
+          <form id="project-logo-form">
+            <label>Choose image<input name="logo" type="file" accept="image/png,image/jpeg" required></label>
+            <div class="project-panel-actions">
+              <button>Upload / replace</button>
+              <button id="remove-project-logo" type="button">Remove logo</button>
+            </div>
+          </form>
+        </div>
+        <div class="project-settings-panel">
+          <h3>Status dashboard</h3>
+          <p>Control incident acknowledgement on this project's status page.</p>
+          <form id="project-status-form">
+            <label class="project-check">
+              <input name="enabled" type="checkbox">
+              <span>Allow signed-in Admins and Operators to acknowledge incidents</span>
+            </label>
+            <div class="project-panel-actions"><button>Save status settings</button></div>
+          </form>
+        </div>
+        <div class="project-settings-panel">
+          <h3>Duplicate project</h3>
+          <p>Copy configuration and branding into a new inactive project. History stays with the original.</p>
+          <form id="project-duplicate-form">
+            <label>New project name<input name="name" required maxlength="100"></label>
+            <div class="project-panel-actions"><button>Create duplicate</button></div>
+          </form>
+        </div>
+      </div>
+      <p id="project-feedback" class="project-settings-feedback" role="status"></p>
     </section>
-    <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><label>IP address<input name="address" required placeholder="192.168.1.10"></label><button>Add device</button></form><div id="inventory"></div><p id="inventory-feedback" class="form-feedback" role="status"></p></section>
+    <section>
+      <h2>Permanent inventory</h2>
+      <form data-action="device">
+        <label>Device ID<input name="name" required maxlength="100"></label>
+        <label>Model<input name="model" maxlength="100"></label>
+        <label>IP address<input name="address" required placeholder="192.168.1.10"></label>
+        <button>Add device</button>
+      </form>
+      <p id="inventory-feedback" class="form-feedback" role="status"></p>
+      <div class="display-controls">
+        <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
+        <button id="inventory-clear">Clear search</button>
+      </div>
+      <details id="inventory-details">
+        <summary id="inventory-count">Inventory devices</summary>
+        <p id="inventory-results"></p>
+        <div id="inventory"></div>
+        <button id="inventory-more" hidden>Show 50 more</button>
+      </details>
+    </section>
     <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
     <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>
       <form data-action="service">
@@ -475,6 +535,13 @@
       image.hidden = !project?.logo_url;
       if (project?.logo_url && image.getAttribute('src') !== project.logo_url) image.setAttribute('src', project.logo_url);
       image.alt = project ? project.name + ' logo' : 'Project logo';
+      el('project-settings-context').textContent = project ? 'Editing: ' + project.name : 'Choose a project above to edit its settings.';
+      const preview = el('project-settings-logo');
+      preview.hidden = !project?.logo_url;
+      el('project-no-logo').hidden = Boolean(project?.logo_url);
+      if (project?.logo_url && preview.getAttribute('src') !== project.logo_url) preview.setAttribute('src', project.logo_url);
+      preview.alt = image.alt;
+      el('remove-project-logo').disabled = !project?.logo_url;
       if (editingProject !== selectedProject) {
         el('project-edit-form').elements.namedItem('name').value = project?.name || '';
         el('project-logo-form').reset();
@@ -489,19 +556,7 @@
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
       updateOptions('assignment', assignments, row => row.alias, 'Select host…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
-      el('inventory').innerHTML = state.devices.map(device => {
-        const legacy = (state.legacy_addresses || []).filter(row => row.device === device.id);
-        const addresses = [...new Set(legacy.map(row => row.address).filter(Boolean))];
-        const review = !device.address && addresses.length
-          ? ` · Click Edit to select the correct IP. Previous project addresses: ${addresses.map(escapeHtml).join(', ')}`
-          : '';
-        return `<article>
-          <strong>${escapeHtml(device.name)}</strong> · ${escapeHtml(device.model)}
-          <p>${escapeHtml(device.address || 'IP required; monitoring paused')}${review}</p>
-          <button data-edit-device="${device.id}">Edit</button>
-          <button data-delete-device="${device.id}">Delete permanently</button>
-        </article>`;
-      }).join('') || 'No equipment added.';
+      renderInventory();
       renderHosts();
       el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`).join('') + '</table>';
       renderServiceCatalogue();
@@ -520,6 +575,46 @@
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service incidents.</p>';
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved incidents.</p>';
     }
+
+    let inventoryLimit = 50;
+    function renderInventory() {
+      if (!state) return;
+      const query = el('inventory-search').value.trim().toLowerCase();
+      const matches = state.devices.filter(device => [device.name, device.model, device.address]
+        .some(value => (value || '').toLowerCase().includes(query)));
+      el('inventory-count').textContent = `Inventory devices (${state.devices.length})`;
+      el('inventory-results').textContent = `Showing ${Math.min(inventoryLimit, matches.length)} of ${matches.length} matching devices`;
+      el('inventory-more').hidden = inventoryLimit >= matches.length;
+      if (!el('inventory-details').open) {
+        el('inventory').innerHTML = '';
+        return;
+      }
+      el('inventory').innerHTML = matches.slice(0, inventoryLimit).map(device => {
+        const legacy = (state.legacy_addresses || []).filter(row => row.device === device.id);
+        const addresses = [...new Set(legacy.map(row => row.address).filter(Boolean))];
+        const review = !device.address && addresses.length
+          ? ` · Click Edit to select the correct IP. Previous project addresses: ${addresses.map(escapeHtml).join(', ')}`
+          : '';
+        return `<article>
+          <strong>${escapeHtml(device.name)}</strong> · ${escapeHtml(device.model)}
+          <p>${escapeHtml(device.address || 'IP required; monitoring paused')}${review}</p>
+          <button data-edit-device="${device.id}">Edit</button>
+          <button data-delete-device="${device.id}">Delete permanently</button>
+        </article>`;
+      }).join('') || '<p>No equipment matches this search.</p>';
+    }
+    el('inventory-details').ontoggle = renderInventory;
+    el('inventory-search').oninput = () => {
+      inventoryLimit = 50;
+      if (el('inventory-search').value.trim()) el('inventory-details').open = true;
+      renderInventory();
+    };
+    el('inventory-clear').onclick = () => {
+      el('inventory-search').value = '';
+      inventoryLimit = 50;
+      renderInventory();
+    };
+    el('inventory-more').onclick = () => { inventoryLimit += 50; renderInventory(); };
 
     let catalogueLimit = 20;
     function renderServiceCatalogue() {

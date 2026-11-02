@@ -51,7 +51,8 @@
     .status-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }
     .status-header h1 { justify-self: start; margin: 0; }
     .status-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; max-width: min(420px, 35vw); overflow-wrap: anywhere; }
-    .status-header > .button-link { justify-self: end; }
+    .status-account { justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; max-width: 100%; }
+    .user-badge { font-size: 13px; padding: 7px 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
     @media (max-width: 900px) {
       .status-header { grid-template-columns: 1fr auto; }
       .status-brand { grid-column: 1 / -1; grid-row: 2; justify-self: center; max-width: 100%; }
@@ -69,7 +70,10 @@
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
       <p id="project" class="project-name">Loading…</p>
     </div>
-    <a class="button-link" href="/">Sign in / dashboard</a>
+    <div class="status-account">
+      <span id="status-session" class="user-badge" aria-live="polite">Not signed in</span>
+      <a id="status-session-link" class="button-link" href="/login">Sign in</a>
+    </div>
   </header>
   <p id="summary" role="status"></p>
   <div class="display-controls" role="group" aria-label="Host display options">
@@ -206,6 +210,13 @@
         if (data.logo_url && image.getAttribute('src') !== data.logo_url) image.setAttribute('src', data.logo_url);
         image.alt = (data.project || 'Project') + ' logo';
         publicState = data;
+        const viewer = data.viewer;
+        const roles = {admin:'Admin',operator:'Operator',viewer:'View Only'};
+        document.getElementById('status-session').textContent = viewer
+          ? 'Signed in: ' + viewer.username + ' · ' + (roles[viewer.role] || viewer.role) : 'Not signed in';
+        const sessionLink = document.getElementById('status-session-link');
+        sessionLink.textContent = viewer ? (viewer.must_change_password ? 'Change password' : 'Dashboard') : 'Sign in';
+        sessionLink.setAttribute('href', viewer && !viewer.must_change_password ? '/' : '/login');
         document.getElementById('status-ack-note').hidden = !data.acknowledge_enabled || data.can_acknowledge;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">

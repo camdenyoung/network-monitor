@@ -663,6 +663,20 @@ class AccessAndNotificationTests(unittest.TestCase):
         for action in ('project-duplicate','project-status-settings'):
             self.assertEqual(self.request('/api/'+action, {'project':1,'name':'Denied','enabled':True}, token,operator['csrf'])['status'],403)
 
+    def test_status_reports_only_the_callers_login_state(self):
+        anonymous = json.loads(self.request('/api/status')['content'])
+        self.assertIsNone(anonymous['viewer'])
+        self.assertNotIn('csrf', anonymous)
+        admin = json.loads(self.request('/api/status', token=self.admin_token)['content'])
+        self.assertEqual(admin['viewer'], {'username':'admin','role':'admin','must_change_password':False})
+        reader = json.loads(self.request('/api/status', token=self.viewer_token)['content'])
+        self.assertEqual(reader['viewer']['username'], 'reader')
+        self.assertEqual(reader['viewer']['role'], 'viewer')
+        self.assertNotIn('email', reader['viewer'])
+        self.assertNotIn('id', reader['viewer'])
+        self.assertNotIn('password_hash', reader['viewer'])
+        self.assertFalse(reader['can_acknowledge'])
+
     def test_provider_payloads_use_group_id_and_three_whatsapp_parameters(self):
         self.configure_channels()
         captured = []

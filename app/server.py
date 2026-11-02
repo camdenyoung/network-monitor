@@ -987,6 +987,9 @@ class Handler(BaseHTTPRequestHandler):
                 user = auth.session_user(db, self.headers.get('Cookie'))
             can_acknowledge = bool(overview['acknowledge_enabled'] and user
                 and not user['must_change_password'] and user['role'] in ('admin','operator'))
+            # Return only the caller's identity, never the account list.
+            overview['viewer'] = ({'username': user['username'], 'role': user['role'],
+                'must_change_password': bool(user['must_change_password'])} if user else None)
             overview['can_acknowledge'] = can_acknowledge
             if can_acknowledge:
                 overview['csrf'] = user['csrf']

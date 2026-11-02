@@ -359,3 +359,12 @@ project**. It defaults off per project. When enabled, signed-in Admins and Opera
 see Acknowledge buttons on active public-status incidents. Anonymous visitors and
 View Only users stay read-only. Disabling the setting removes that ability from
 the status page; normal authorised acknowledgement on the main dashboard remains.
+
+Project settings are grouped into Name, Event logo, Status dashboard and Duplicate
+project panels. Permanent inventory has a collapsible device list and search by
+device ID/name, model, or IP. Searches expand the list, showing 50 results initially
+with a Show more button for larger inventories.
+
+The status dashboard shows whether the current browser is signed in and displays
+that user's name/role. Its navigation changes to Sign in, Dashboard, or Change
+password as appropriate. Anonymous responses contain no account identity.

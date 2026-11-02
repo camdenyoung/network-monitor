@@ -179,3 +179,16 @@ readings. Permanent inventory deletion still purges archived records too.
 The configured-service manager starts with no host selected. Filter by host (or
 All hosts), name/OID, protocol and monitoring state. Render at most 20 initially
 with an explicit Show more; preserve filter choices during background refreshes.
+
+Edit selected project uses separate responsive panels for name, event logo,
+status-page settings and duplication. Keep stable form IDs, inline checkbox
+alignment, current-logo preview and consistent bottom-aligned actions. Background
+refresh must not replace unfinished form edits.
+Permanent inventory is collapsed by default and searchable by ID/name, model or
+IP. Searching expands it, with 50 initial results and explicit Show more. Preserve
+open/search state during refresh; don't render the whole inventory while collapsed.
+
+Public status shows Not signed in or the caller's username/role, with Sign in /
+Dashboard navigation. Return only the current caller's identity in /api/status,
+never other accounts, email or password/session hashes. Temporary-password users
+get Change password navigation and remain unable to acknowledge.
