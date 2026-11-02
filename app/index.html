@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Field Monitor</title>
+  <style>
+    :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #101823; color: #e8eff8; }
+    body { max-width: 1250px; margin: auto; padding: 28px; }
+    header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
+    section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+    .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    label { display: grid; gap: 5px; font-size: 13px; }
+    input, select, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    button { cursor: pointer; } button:hover { background: #29445c; } button.primary { background: #176959; }
+    .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
+    .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
+    .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
+    details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
+    table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
+    .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
+    a { color: #7cddd0; } code { color: #b7d6ff; }
+  </style>
+</head>
+<body>
+  <header><div><h1>Field Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <p id="message" role="status"></p>
+  <section class="toolbar">
+    <label>Selected project<select id="project"></select></label>
+    <button id="activate" class="primary">Activate / start new deployment</button>
+    <button id="pause">Pause all monitoring</button>
+    <small>15-second polling · two consecutive readings confirm incidents</small>
+  </section>
+  <div id="dashboard" class="grid"></div>
+  <section><h2>Incidents</h2><div id="incidents"></div></section>
+  <details><summary>Inventory and project configuration</summary>
+    <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
+    <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><button>Add device</button></form><div id="inventory"></div></section>
+    <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device"></select></label><label>Project alias<input name="alias" required maxlength="100"></label><label>Address<input name="address" required placeholder="192.168.1.10"></label><button>Assign device</button></form></section>
+    <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03, unit 1, TCP port 502.</p>
+      <form data-action="service">
+        <label>Assignment<select name="assignment" id="assignment"></select></label>
+        <label>Service name<input name="name" required placeholder="RSSI"></label>
+        <label>Protocol<select name="kind"><option value="snmp">SNMP v2c</option><option value="modbus">Modbus TCP</option><option value="tcp">TCP port reachability</option></select></label>
+        <label>OID / register / port<input name="target" required></label>
+        <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
+        <label>Scale<input name="scale" type="number" step="any" value="1" required></label>
+        <label>Units<input name="units" placeholder="dBm"></label>
+        <label>Alarm direction<select name="direction"><option value="below">Below</option><option value="above">Above</option></select></label>
+        <label>Warning<input name="warning" type="number" step="any"></label>
+        <label>Critical<input name="critical" type="number" step="any"></label>
+        <button>Add service</button>
+      </form>
+    </section>
+    <section><h2>Project assignments</h2><p>Notification flags are saved for future messaging integration; this preview does not send notifications.</p><div id="assignments" class="scroll"></div></section>
+  </details>
+  <details><summary>Backup, restore, and retention</summary><section>
+    <p>Backup includes credentials and history. Store it securely; this preview produces an unencrypted SQLite archive. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
+    <p><a href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
+    <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
+    <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
+  </section></details>
+  <dialog id="history"><button id="close-history">Close</button><h2>Recent readings</h2><div id="readings" class="scroll"></div></dialog>
+  <script>
+    // Escape all operator/device content before inserting it into HTML.
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const el = id => document.getElementById(id);
+    const date = value => value ? new Date(value * 1000).toLocaleString() : '—';
+    let state;
+    let selectedProject = '';
+
+    async function request(path, body) {
+      const response = await fetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      await refresh();
+      el('message').textContent = 'Saved.';
+    }
+
+    function options(rows, label) {
+      return rows.map(row => `<option value="${row.id}">${escapeHtml(label(row))}</option>`).join('');
+    }
+
+    async function refresh() {
+      const response = await fetch('/api/state');
+      if (!response.ok) throw new Error('Cannot read monitor state');
+      state = await response.json();
+      const run = state.runs.find(row => row.id === Number(state.settings.active_run));
+      if (!selectedProject) selectedProject = String(run?.project || state.projects[0]?.id || '');
+      el('project').innerHTML = options(state.projects, row => row.name);
+      el('project').value = selectedProject;
+      el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id : 'Monitoring paused';
+      el('device').innerHTML = options(state.devices, row => row.name + ' · ' + row.model);
+      const assignments = state.assignments.filter(row => String(row.project) === selectedProject);
+      // Preserve service-form selection while refreshing readings in the background.
+      const previousAssignment = el('assignment').value;
+      el('assignment').innerHTML = options(assignments, row => row.alias);
+      if (assignments.some(row => String(row.id) === previousAssignment)) el('assignment').value = previousAssignment;
+      if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
+      el('inventory').textContent = state.devices.map(row => row.name + ' (' + row.model + ')').join(' · ') || 'No equipment added.';
+      el('dashboard').innerHTML = assignments.filter(row => row.visible).map(assignment => {
+        const services = state.services.filter(row => row.assignment === assignment.id);
+        const metrics = services.map(service => {
+          const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
+          const stale = !reading || Date.now() / 1000 - reading.timestamp > 60;
+          const status = !assignment.monitoring || !run || stale ? 'unknown' : reading.status;
+          return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-remove="${service.id}">Remove</button></div>`;
+        }).join('');
+        return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(assignment.address)} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p>${metrics || '<p>No services configured.</p>'}</article>`;
+      }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
+      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(row.address)}</td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
+      el('incidents').innerHTML = state.incidents.filter(row => row.run === run?.id).map(row => {
+        const service = state.services.find(service => service.id === row.service);
+        const assignment = state.assignments.find(assignment => assignment.id === service?.assignment);
+        return `<p><span class="${row.status}">${row.status}</span> · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')} · ${date(row.opened)} · ${row.closed ? 'Recovered ' + date(row.closed) : row.acknowledged ? 'Acknowledged ' + date(row.acknowledged) : `<button data-ack="${row.id}">Acknowledge</button>`}</p>`;
+      }).join('') || '<p>No incidents in the current deployment.</p>';
+    }
+
+    function report(error) { el('message').textContent = error.message; }
+    document.querySelectorAll('form[data-action]').forEach(form => form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const body = Object.fromEntries(new FormData(form));
+      if (form.dataset.action === 'assignment') body.project = selectedProject;
+      try { await request(form.dataset.action, body); } catch (error) { report(error); }
+    }));
+    el('project').onchange = () => { selectedProject = el('project').value; refresh().catch(report); };
+    el('activate').onclick = () => request('activate', {project: selectedProject}).catch(report);
+    el('pause').onclick = () => request('pause', {}).catch(report);
+    document.body.addEventListener('click', async event => {
+      const data = event.target.dataset;
+      try {
+        if (data.toggle) await request('toggle', {id: data.toggle, field: data.field});
+        if (data.ack) await request('ack', {id: data.ack});
+        if (data.remove && confirm('Remove this service? Historical readings are retained.')) await request('remove-service', {id: data.remove});
+        if (data.history) {
+          const response = await fetch(`/api/history?service=${data.history}&run=${state.settings.active_run}`);
+          const rows = await response.json();
+          el('readings').innerHTML = '<table><tr><th>Time</th><th>Value</th><th>Status</th></tr>' + rows.map(row => `<tr><td>${date(row.timestamp)}</td><td>${row.value ?? '—'}</td><td>${escapeHtml(row.status)}</td></tr>`).join('') + '</table>';
+          el('history').showModal();
+        }
+      } catch (error) { report(error); }
+    });
+    el('close-history').onclick = () => el('history').close();
+    el('restore').onsubmit = async event => {
+      event.preventDefault();
+      if (!confirm('Replace all current data with this backup and pause monitoring?')) return;
+      try {
+        const file = new FormData(event.target).get('backup');
+        const response = await fetch('/api/restore', {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file});
+        if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
+        selectedProject = '';
+        await refresh();
+        el('message').textContent = 'Restored successfully. Monitoring is paused.';
+      } catch (error) { report(error); }
+    };
+    refresh().catch(report);
+    setInterval(() => refresh().catch(report), 10000);
+  </script>
+</body>
+</html>

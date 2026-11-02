@@ -1,0 +1,18 @@
+services:
+  monitor:
+    build: .
+    ports:
+      - "${MONITOR_BIND:-127.0.0.1}:8080:8080"
+    volumes:
+      - monitor-data:/data
+    environment:
+      MONITOR_DATA: /data
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/state', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  monitor-data:
