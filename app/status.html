@@ -201,7 +201,9 @@
     function renderHosts() {
       const matches = publicState.devices.filter(device => !serviceFilter.trim() || device.services.some(serviceMatches)).sort(compareHosts);
       const online = matches.filter(device => device.status === 'healthy').length;
-      document.getElementById('summary').textContent = `Showing ${matches.length} of ${publicState.devices.length} displayed hosts · ${online} online`;
+      document.getElementById('summary').textContent = publicState.monitoring_paused
+        ? 'Monitoring paused'
+        : `Showing ${matches.length} of ${publicState.devices.length} displayed hosts · ${online} online`;
       document.getElementById('host-sort').value = hostSort;
       document.getElementById('toggle-services').textContent = showServices ? 'Hide services' : 'Show services';
       document.getElementById('toggle-services').setAttribute('aria-pressed', String(showServices));

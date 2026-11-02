@@ -715,3 +715,11 @@ assert.equal(monitoringRequests[1].body.project, '1');
 assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
 assert.match(html, /@keyframes paused-monitoring/);
 assert.match(html, /prefers-reduced-motion: reduce/);
+
+publicData.monitoring_paused = true;
+publicData.project = 'Paused event';
+publicData.logo_url = '/api/public-logo?project=1&v=paused';
+await acknowledgedReload.refresh();
+assert.equal(publicNodes.get('project').textContent, 'Paused event');
+assert.equal(publicNodes.get('project-logo').hidden, false);
+assert.equal(publicNodes.get('summary').textContent, 'Monitoring paused');

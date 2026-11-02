@@ -266,3 +266,8 @@ Pause/Resume all monitoring is one toggle button. Running uses the active green
 background; paused uses a slow flashing amber background (static amber when reduced
 motion is requested). Resuming retains the paused deployment and still requires
 selecting its project. No existing deployment means Resume is disabled.
+
+Pausing all monitoring preserves the current event name and logo on public status.
+Public logo access permits the active run, or paused_run when no run is active;
+other project logos remain private. The status summary explicitly says Monitoring
+paused and does not present live readings or enable acknowledgements while paused.

@@ -941,7 +941,15 @@ def status_overview():
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
-        return {'project': None, 'logo_url': None, 'devices': [], 'incidents': [], 'acknowledged_incidents': [], 'acknowledge_enabled': False, 'updated': time.time()}
+        # Pausing stops public live readings, but retains the event branding.
+        paused = next((row for row in data['runs']
+                       if row['id'] == int(data['settings'].get('paused_run', '0'))), None)
+        project = next((row for row in data['projects'] if paused and row['id'] == paused['project']), None)
+        logo_url = project['logo_url'] if project else None
+        return {'project': project['name'] if project else None,
+                'logo_url': logo_url.replace('/api/project-logo?', '/api/public-logo?') if logo_url else None,
+                'monitoring_paused': True, 'devices': [], 'incidents': [],
+                'acknowledged_incidents': [], 'acknowledge_enabled': False, 'updated': time.time()}
     project = next(row for row in data['projects'] if row['id'] == run['project'])
     devices = {row['id']: row for row in data['devices']}
     latest = {row['service']: row for row in data['latest']}
@@ -994,7 +1002,7 @@ def status_overview():
 
     incidents = public_incidents('active')
     acknowledged = public_incidents('acknowledged')
-    return {'project': project['name'],
+    return {'project': project['name'], 'monitoring_paused': False,
             'logo_url': project['logo_url'].replace('/api/project-logo?', '/api/public-logo?') if project['logo_url'] else None, 'devices': output,
             'incidents': incidents, 'acknowledged_incidents': acknowledged, 'acknowledge_enabled': bool(project['status_ack_enabled']), 'updated': time.time()}
 
@@ -1045,8 +1053,11 @@ class Handler(BaseHTTPRequestHandler):
             project = int(parse_qs(urlsplit(self.path).query)['project'][0])
             with connect() as db:
                 if public:
-                    active = db.execute("""SELECT r.project FROM runs r JOIN settings s
-                        ON s.key='active_run' AND r.id=CAST(s.value AS INTEGER)""").fetchone()
+                    # Only the current event is public, whether running or paused.
+                    run = setting(db, 'active_run')
+                    if run == '0':
+                        run = setting(db, 'paused_run')
+                    active = db.execute('SELECT project FROM runs WHERE id=?', (run,)).fetchone()
                     if not active or active['project'] != project:
                         return self.send('{"error":"Not found"}', status=404)
                 row = db.execute('SELECT image,mime FROM project_logos WHERE project=?', (project,)).fetchone()
