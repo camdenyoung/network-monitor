@@ -574,3 +574,23 @@ assert.ok(html.indexOf('id="toggle-acknowledged"') < html.indexOf('id="incidents
 assert.match(sectionReload.renderIncidents([{acknowledged:123, acknowledged_by_username:'<operator>'}]), /by &lt;operator&gt;/);
 assert.match(sectionReload.renderIncidents([{acknowledged:123}]), /Unknown user \(legacy\)/);
 console.log('Acknowledgement attribution and persisted section visibility passed.');
+
+publicData.acknowledged_incidents = [{device:'SW1',alias:'<event>',service:'RSSI',status:'critical',acknowledged:now,closed:null}];
+await sortedPublic.refresh();
+assert.equal(publicNodes.get('acknowledged-panel').hidden, true);
+publicNodes.get('toggle-acknowledged').onclick();
+assert.equal(publicNodes.get('acknowledged-panel').hidden, false);
+assert.equal(publicNodes.get('toggle-acknowledged').getAttribute('aria-pressed'), 'true');
+assert.equal(publicStorage.get('field-monitor.status.show-acknowledged'), 'true');
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /RSSI/);
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /&lt;event&gt;/);
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /Still open/);
+const acknowledgedReload = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,
+    fetch:async () => ({ok:true,json:async () => publicData}),setInterval(){}});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(acknowledgedReload);
+await acknowledgedReload.refresh();
+assert.equal(publicNodes.get('acknowledged-panel').hidden, false);
+publicNodes.get('toggle-acknowledged').onclick();
+assert.equal(publicNodes.get('acknowledged-panel').hidden, true);
+assert.equal(publicNodes.get('toggle-acknowledged').getAttribute('aria-pressed'), 'false');
+console.log('Public acknowledged incidents and persisted visibility passed.');

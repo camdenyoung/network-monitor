@@ -321,6 +321,13 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(set(incident), {'id', 'device', 'alias', 'service', 'status', 'opened'})
         incident_id = server.snapshot()['incident_lists']['active'][0]['id']
         server.mutate('ack', {'id': incident_id}, actor={'id': 1})
+        acknowledged = server.status_overview()['acknowledged_incidents']
+        self.assertEqual(len(acknowledged), 1)
+        self.assertEqual(set(acknowledged[0]), {
+            'id', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed'})
+        with server.connect() as db:
+            db.execute('UPDATE assignments SET visible=0 WHERE id=1')
+        self.assertEqual(server.status_overview()['acknowledged_incidents'], [])
         self.assertEqual(json.loads(self.request('/api/status')['content'])['incidents'], [])
 
     def test_public_incidents_exclude_hidden_paused_and_inactive_equipment(self):

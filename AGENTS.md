@@ -70,7 +70,7 @@ The user requested readable, consistently indented code and explanatory comments
 - Public /status has a show/hide host cards toggle, persisted per browser. The
   active incident list stays visible when host cards are hidden.
 - Public /status overview shows active incidents above host cards. Reuse dependency-
-  aware active incidents, excluding acknowledged/resolved/suppressed faults and
+  aware active incidents, excluding resolved/suppressed faults and
   hidden, paused or inactive equipment. Allowlist display fields only.
 - Public /status overview needs no login; allowlist active/visible status and values
   without IP addresses, OIDs, credentials, user data or other project inventory.
@@ -201,3 +201,7 @@ localStorage. Hiding sections does not pause monitoring or hide active incidents
 
 Main dashboard section visibility buttons use the shared aria-pressed active
 colour while their section is visible, including after restoring browser preferences.
+
+Public status includes an allowlisted acknowledged-incident list above hosts, with
+a colour-coded Show/Hide toggle persisted separately in localStorage. Apply current
+project/host/service visibility rules and never expose acknowledgement user identities.

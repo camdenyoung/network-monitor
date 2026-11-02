@@ -77,6 +77,7 @@
   </header>
   <p id="summary" role="status"></p>
   <div class="display-controls" role="group" aria-label="Host display options">
+    <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false" aria-pressed="false">Show acknowledged incidents</button>
     <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
     <button id="view-cards" aria-pressed="true">Cards</button>
     <button id="view-list" aria-pressed="false">List</button>
@@ -97,6 +98,10 @@
     <p id="status-ack-feedback" role="status"></p>
     <div id="incidents" aria-live="polite"></div>
   </section>
+  <section id="acknowledged-panel" hidden>
+    <h2>Acknowledged incidents</h2>
+    <div id="acknowledged-incidents" aria-live="polite"></div>
+  </section>
   <div id="devices" class="grid"></div><p id="updated"></p>
   <script>
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -108,7 +113,9 @@
     let showServices = true;
     let serviceFilter = '';
     let showHosts = true;
+    let showAcknowledged = false;
     try {
+      showAcknowledged = localStorage.getItem('field-monitor.status.show-acknowledged') === 'true';
       showHosts = localStorage.getItem('field-monitor.status.hide-hosts') !== 'true';
       const savedSort = localStorage.getItem('field-monitor.status.host-sort');
       if (['hostname','hostname-desc','alias','status','status-ok','severity'].includes(savedSort)) hostSort = savedSort;
@@ -117,6 +124,21 @@
       serviceFilter = (localStorage.getItem('field-monitor.status.service-filter') || '').slice(0, 100);
     }
     catch (error) { /* Private browsing may disable storage; the toggle still works. */ }
+    // Visibility never changes monitoring or acknowledgement permissions.
+    function acknowledgedVisibility() {
+      document.getElementById('acknowledged-panel').hidden = !showAcknowledged;
+      const button = document.getElementById('toggle-acknowledged');
+      button.textContent = `${showAcknowledged ? 'Hide' : 'Show'} acknowledged incidents`;
+      button.setAttribute('aria-expanded', String(showAcknowledged));
+      button.setAttribute('aria-pressed', String(showAcknowledged));
+    }
+    document.getElementById('toggle-acknowledged').onclick = () => {
+      showAcknowledged = !showAcknowledged;
+      try { localStorage.setItem('field-monitor.status.show-acknowledged', String(showAcknowledged)); }
+      catch (error) { /* Keep the choice for this page session. */ }
+      acknowledgedVisibility();
+    };
+    acknowledgedVisibility();
     function hostVisibility() {
       document.getElementById('devices').hidden = !showHosts;
       const button = document.getElementById('toggle-hosts');
@@ -225,6 +247,13 @@
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
             ${data.can_acknowledge ? `<button data-status-ack="${incident.id}">Acknowledge</button>` : ''}
           </div>`).join('') || '<p>No active incidents.</p>';
+        document.getElementById('acknowledged-incidents').innerHTML = (data.acknowledged_incidents || []).map(incident => `
+          <div class="metric">
+            <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
+            · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
+            <small>· Acknowledged ${escape(new Date(incident.acknowledged * 1000).toLocaleString())}
+            · ${incident.closed ? 'Recovered ' + escape(new Date(incident.closed * 1000).toLocaleString()) : 'Still open'}</small>
+          </div>`).join('') || '<p>No acknowledged incidents.</p>';
         renderHosts();
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
       } catch (error) {

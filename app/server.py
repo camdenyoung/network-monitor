@@ -894,7 +894,7 @@ def status_overview():
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
-        return {'project': None, 'logo_url': None, 'devices': [], 'incidents': [], 'acknowledge_enabled': False, 'updated': time.time()}
+        return {'project': None, 'logo_url': None, 'devices': [], 'incidents': [], 'acknowledged_incidents': [], 'acknowledge_enabled': False, 'updated': time.time()}
     project = next(row for row in data['projects'] if row['id'] == run['project'])
     devices = {row['id']: row for row in data['devices']}
     latest = {row['service']: row for row in data['latest']}
@@ -921,23 +921,32 @@ def status_overview():
         output.append({'name': device['name'], 'alias': assignment['alias'],
                        'status': host_status, 'services': children,
                        'incident_status': assignment['incident_status']})
-    # Reuse dependency-aware active incidents, then allowlist only displayed hosts.
-    # Acknowledged/resolved/suppressed incidents and hidden equipment stay private.
+    # Both public lists use the same visibility rules and omit private actor data.
     assignments = {row['id']: row for row in data['assignments']
-                   if row['project'] == run['project'] and row['visible'] and row['monitoring']}
-    services = {row['id']: row for row in data['services'] if row['enabled']}
-    incidents = []
-    for incident in data['incident_lists']['active']:
-        service = services.get(incident['service'])
-        assignment = assignments.get(service['assignment']) if service else None
-        if assignment is None:
-            continue
-        incidents.append({'id': incident['id'], 'device': devices[assignment['device']]['name'],
-            'alias': assignment['alias'], 'service': service['name'],
-            'status': incident['status'], 'opened': incident['opened']})
+                   if row['project'] == run['project'] and row['visible']
+                   and row['monitoring'] and not row['removed']}
+    services = {row['id']: row for row in data['services'] if row['enabled'] and row['monitoring']}
+
+    def public_incidents(category):
+        output = []
+        for incident in data['incident_lists'][category]:
+            service = services.get(incident['service'])
+            assignment = assignments.get(service['assignment']) if service else None
+            if assignment is None or incident.get('suppressed'):
+                continue
+            item = {'id': incident['id'], 'device': devices[assignment['device']]['name'],
+                'alias': assignment['alias'], 'service': service['name'],
+                'status': incident['status'], 'opened': incident['opened']}
+            if category == 'acknowledged':
+                item.update(acknowledged=incident['acknowledged'], closed=incident['closed'])
+            output.append(item)
+        return output
+
+    incidents = public_incidents('active')
+    acknowledged = public_incidents('acknowledged')
     return {'project': project['name'],
             'logo_url': project['logo_url'].replace('/api/project-logo?', '/api/public-logo?') if project['logo_url'] else None, 'devices': output,
-            'incidents': incidents, 'acknowledge_enabled': bool(project['status_ack_enabled']), 'updated': time.time()}
+            'incidents': incidents, 'acknowledged_incidents': acknowledged, 'acknowledge_enabled': bool(project['status_ack_enabled']), 'updated': time.time()}
 
 
 class Handler(BaseHTTPRequestHandler):
