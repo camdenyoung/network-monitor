@@ -48,6 +48,8 @@ def ensure_accounts(db, bootstrap_path=None, initial_password=None):
     # Legacy accounts retain access and their password policy on upgrade/restore.
     if 'email' not in {row[1] for row in db.execute('PRAGMA table_info(users)')}:
         db.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    if 'full_name' not in {row[1] for row in db.execute('PRAGMA table_info(users)')}:
+        db.execute("ALTER TABLE users ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")
     if bootstrap_path is not None and not db.execute('SELECT 1 FROM users LIMIT 1').fetchone():
         password = initial_password or secrets.token_urlsafe(18)
         encoded = password_hash(password)
@@ -62,7 +64,7 @@ def ensure_accounts(db, bootstrap_path=None, initial_password=None):
 
 
 def public_user(user):
-    return {key: user[key] for key in ('id', 'username', 'role', 'must_change_password', 'email')}
+    return {key: user[key] for key in ('id', 'username', 'role', 'must_change_password', 'email', 'full_name')}
 
 
 def session_user(db, cookie_header):
@@ -119,9 +121,10 @@ def manage_user(db, action, body, actor):
     if action == 'user-create':
         username, role = user_details(body)
         email = email_address(body.get('email', ''))
+        full_name = full_name_value(body.get('full_name', ''))
         required = password_change_required(body, True)
-        db.execute('''INSERT INTO users(username,password_hash,role,email,must_change_password)
-            VALUES(?,?,?,?,?)''', (username, password_hash(body['password']), role, email, required))
+        db.execute('''INSERT INTO users(username,password_hash,role,email,must_change_password,full_name)
+            VALUES(?,?,?,?,?,?)''', (username, password_hash(body['password']), role, email, required, full_name))
         return
     target = db.execute('SELECT * FROM users WHERE id=?', (int(body['user']),)).fetchone()
     if target is None:
@@ -133,6 +136,7 @@ def manage_user(db, action, body, actor):
     else:
         username, role = user_details(body)
         email = email_address(body.get('email', target['email']))
+        full_name = full_name_value(body.get('full_name', target['full_name']))
         # Explicit choice wins. Older clients retain the previous reset behaviour.
         default = True if body.get('password') else bool(target['must_change_password'])
         required = password_change_required(body, default)
@@ -144,11 +148,18 @@ def manage_user(db, action, body, actor):
     if action == 'user-delete':
         db.execute('DELETE FROM users WHERE id=?', (target['id'],))
     else:
-        db.execute('UPDATE users SET username=?,role=?,email=?,must_change_password=? WHERE id=?',
-                   (username, role, email, required, target['id']))
+        db.execute('UPDATE users SET username=?,role=?,email=?,must_change_password=?,full_name=? WHERE id=?',
+                   (username, role, email, required, full_name, target['id']))
         if body.get('password'):
             db.execute('UPDATE users SET password_hash=? WHERE id=?',
                        (password_hash(body['password']), target['id']))
+
+
+def full_name_value(value):
+    """Names are display text, independent of the unique login username."""
+    if not isinstance(value, str) or len(value.strip()) > 150:
+        raise ValueError('Full name must contain at most 150 characters')
+    return value.strip()
 
 
 def email_address(value):

@@ -74,7 +74,7 @@ The user requested readable, consistently indented code and explanatory comments
   hidden, paused or inactive equipment. Allowlist display fields only.
 - Public /status overview needs no login; allowlist active/visible status and values
   without IP addresses, OIDs, credentials, account details or other project inventory;
-  acknowledged issues explicitly expose the recorded username only.
+  acknowledged issues explicitly expose recorded display names and usernames only.
 - Telegram group notifications and optional WhatsApp Business Cloud API templates.
   WhatsApp Business does not connect ordinary app-created groups; Telegram is the
   intended shared group route. Both providers have separate settings and queues.
@@ -189,9 +189,9 @@ Permanent inventory is collapsed by default and searchable by ID/name, model or
 IP. Searching expands it, with 50 initial results and explicit Show more. Preserve
 open/search state during refresh; don't render the whole inventory while collapsed.
 
-Public status shows Not signed in or the caller's username/role, with Sign in /
+Public status shows Not signed in or the caller's display name/role, with Sign in /
 Dashboard navigation. /api/status exposes the caller's identity and recorded
-acknowledging usernames, never account lists, email or password/session hashes. Temporary-password users
+acknowledging display names and usernames, never account lists, email or password/session hashes. Temporary-password users
 get Change password navigation and remain unable to acknowledge.
 
 Acknowledgements retain the authenticated account ID and username at the time of
@@ -205,8 +205,15 @@ colour while their section is visible, including after restoring browser prefere
 
 Public status includes an allowlisted acknowledged-issue list above hosts, with
 a colour-coded Show/Hide toggle persisted separately in localStorage. Apply current
-project/host/service visibility rules. Show the recorded acknowledging username,
+project/host/service visibility rules. Show the recorded acknowledging full name (or username fallback),
 with Unknown user (legacy) for older records; never expose actor IDs or account details.
 
 Use Issue/Issues in all user-facing wording, notifications and help text. Preserve
 legacy incident API keys, DOM identifiers, storage keys and database names for compatibility.
+
+Accounts have an editable Full Name (up to 150 characters) separate from the login
+username. Signed-in labels and acknowledgement attribution prefer the full name,
+falling back to username for existing accounts. Acknowledgements snapshot the full
+name at acknowledgement time; later profile edits do not rewrite history. Both
+startup and restore migrate account/audit fields. Public issue attribution includes
+this display name. The main navigation link is labelled Status Dashboard.

@@ -235,7 +235,7 @@
         const viewer = data.viewer;
         const roles = {admin:'Admin',operator:'Operator',viewer:'View Only'};
         document.getElementById('status-session').textContent = viewer
-          ? 'Signed in: ' + viewer.username + ' · ' + (roles[viewer.role] || viewer.role) : 'Not signed in';
+          ? 'Signed in: ' + (viewer.full_name || viewer.username) + ' · ' + (roles[viewer.role] || viewer.role) : 'Not signed in';
         const sessionLink = document.getElementById('status-session-link');
         sessionLink.textContent = viewer ? (viewer.must_change_password ? 'Change password' : 'Dashboard') : 'Sign in';
         sessionLink.setAttribute('href', viewer && !viewer.must_change_password ? '/' : '/login');
@@ -252,7 +252,7 @@
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Acknowledged ${escape(new Date(incident.acknowledged * 1000).toLocaleString())}
-            by ${escape(incident.acknowledged_by_username || 'Unknown user (legacy)')}
+            by ${escape(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')}
             · ${incident.closed ? 'Recovered ' + escape(new Date(incident.closed * 1000).toLocaleString()) : 'Still open'}</small>
           </div>`).join('') || '<p>No acknowledged issues.</p>';
         renderHosts();

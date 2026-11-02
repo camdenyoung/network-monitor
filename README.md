@@ -367,7 +367,7 @@ with a Show more button for larger inventories.
 
 The status dashboard shows whether the current browser is signed in and displays
 that user's name/role. Its navigation changes to Sign in, Dashboard, or Change
-password as appropriate. Anonymous responses include recorded acknowledging usernames but no account details.
+password as appropriate. Anonymous responses include recorded acknowledging names but no other account details.
 
 Acknowledgements retain the authenticated account ID and username at the time of
 acknowledgement, including after account rename/deletion. Legacy records display
@@ -377,5 +377,12 @@ localStorage. Hiding sections does not pause monitoring or hide active issues.
 
 The public status dashboard also has a separate acknowledged-issues section
 with a colour-coded Show/Hide button, saved in browser storage. It shows
-acknowledgement/recovery times and the recorded acknowledging username. Legacy
+acknowledgement/recovery times and the recorded acknowledging full name (or username fallback). Legacy
 records display Unknown user (legacy); account IDs and other details stay private.
+
+Accounts have an editable Full Name (up to 150 characters) separate from the login
+username. Signed-in labels and acknowledgement attribution prefer the full name,
+falling back to username for existing accounts. Acknowledgements snapshot the full
+name at acknowledgement time; later profile edits do not rewrite history. Both
+startup and restore migrate account/audit fields. Public issue attribution includes
+this display name. The main navigation link is labelled Status Dashboard.

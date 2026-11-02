@@ -95,7 +95,8 @@ def migrate_incident_acknowledgements(db):
     """Keep an immutable actor snapshot; legacy acknowledgements remain unattributed."""
     columns = {row[1] for row in db.execute('PRAGMA table_info(incidents)')}
     for name, kind in (('acknowledged_by_user_id', 'INTEGER'),
-                       ('acknowledged_by_username', 'TEXT')):
+                       ('acknowledged_by_username', 'TEXT'),
+                       ('acknowledged_by_full_name', 'TEXT')):
         if name not in columns:
             db.execute(f'ALTER TABLE incidents ADD COLUMN {name} {kind}')
 
@@ -106,13 +107,14 @@ def record_acknowledgement(db, incident_id, actor):
     No foreign key is used: deleting or renaming an account must not rewrite
     history. The conditional update preserves the first actor and timestamp.
     """
-    account = db.execute('SELECT id,username,role FROM users WHERE id=?',
+    account = db.execute('SELECT id,username,full_name,role FROM users WHERE id=?',
                          (actor.get('id') if actor else None,)).fetchone()
     if not account or account['role'] not in ('admin', 'operator'):
         raise ValueError('An authenticated Admin or Operator is required')
     db.execute("""UPDATE incidents SET acknowledged=?, acknowledged_by_user_id=?,
-        acknowledged_by_username=? WHERE id=? AND closed IS NULL AND acknowledged IS NULL""",
-        (time.time(), account['id'], account['username'], incident_id))
+        acknowledged_by_username=?, acknowledged_by_full_name=? WHERE id=? AND closed IS NULL AND acknowledged IS NULL""",
+        (time.time(), account['id'], account['username'],
+         account['full_name'] or account['username'], incident_id))
 
 
 def migrate_project_settings(db):
@@ -922,7 +924,7 @@ def status_overview():
                        'status': host_status, 'services': children,
                        'incident_status': assignment['incident_status']})
     # Both public lists use the same visibility rules. Only the recorded actor
-    # username is public; account IDs and other account details remain private.
+    # display name and username are public; account IDs and other account details remain private.
     assignments = {row['id']: row for row in data['assignments']
                    if row['project'] == run['project'] and row['visible']
                    and row['monitoring'] and not row['removed']}
@@ -940,7 +942,8 @@ def status_overview():
                 'status': incident['status'], 'opened': incident['opened']}
             if category == 'acknowledged':
                 item.update(acknowledged=incident['acknowledged'], closed=incident['closed'],
-                            acknowledged_by_username=incident['acknowledged_by_username'])
+                            acknowledged_by_username=incident['acknowledged_by_username'],
+                            acknowledged_by_full_name=incident['acknowledged_by_full_name'])
             output.append(item)
         return output
 
@@ -1022,7 +1025,7 @@ class Handler(BaseHTTPRequestHandler):
             can_acknowledge = bool(overview['acknowledge_enabled'] and user
                 and not user['must_change_password'] and user['role'] in ('admin','operator'))
             # Return only the caller's identity, never the account list.
-            overview['viewer'] = ({'username': user['username'], 'role': user['role'],
+            overview['viewer'] = ({'username': user['username'], 'full_name': user['full_name'], 'role': user['role'],
                 'must_change_password': bool(user['must_change_password'])} if user else None)
             overview['can_acknowledge'] = can_acknowledge
             if can_acknowledge:
@@ -1145,9 +1148,9 @@ class Handler(BaseHTTPRequestHandler):
                         with connect() as current:
                             for account in current.execute('SELECT * FROM users'):
                                 candidate.execute('''INSERT INTO users
-                                    (id,username,password_hash,role,must_change_password,email)
-                                    VALUES(?,?,?,?,?,?)''', tuple(account[key] for key in
-                                    ('id','username','password_hash','role','must_change_password','email')))
+                                    (id,username,password_hash,role,must_change_password,email,full_name)
+                                    VALUES(?,?,?,?,?,?,?)''', tuple(account[key] for key in
+                                    ('id','username','password_hash','role','must_change_password','email','full_name')))
                     if not candidate.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone():
                         raise ValueError('Backup has no administrator')
                     candidate.execute('DELETE FROM sessions')

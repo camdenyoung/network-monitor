@@ -599,3 +599,19 @@ assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /by &lt;operat
 publicData.acknowledged_incidents[0].acknowledged_by_username = null;
 await acknowledgedReload.refresh();
 assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /Unknown user \(legacy\)/);
+
+assert.match(html, />Status Dashboard<\/a>/);
+assert.match(html, /name="full_name"/);
+assert.match(sectionReload.renderIncidents([{acknowledged:123, acknowledged_by_username:'login', acknowledged_by_full_name:'<Alex Example>'}]), /by &lt;Alex Example&gt;/);
+publicData.viewer = {username:'operator',full_name:'Alex Example',role:'operator',must_change_password:false};
+publicData.acknowledged_incidents[0].acknowledged_by_full_name = '<Alex Example>';
+await acknowledgedReload.refresh();
+assert.equal(publicNodes.get('status-session').textContent, 'Signed in: Alex Example · Operator');
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /by &lt;Alex Example&gt;/);
+const namedMain = vm.createContext({document:context.document,localStorage:context.localStorage,
+    fetch:async path => ({ok:true,json:async () => path === '/api/me'
+        ? {id:2,username:'reader',full_name:'Sam Example',role:'viewer',csrf:'test',must_change_password:0} : fixture}),setInterval(){}});
+new vm.Script(script).runInContext(namedMain);
+await namedMain.initializeSession();
+assert.equal(element('signed-in').textContent, 'Sam Example · View Only');
+console.log('Full names and Status Dashboard navigation passed.');

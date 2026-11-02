@@ -84,7 +84,7 @@
 </head>
 <body data-role="viewer">
   <header><div><h1>Field Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
-  <nav class="toolbar"><span id="signed-in" class="user-badge"></span><a class="button-link" href="/status" target="_blank">Public overview</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
+  <nav class="toolbar"><span id="signed-in" class="user-badge"></span><a class="button-link" href="/status" target="_blank">Status Dashboard</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
   <p id="message" role="status"></p>
   <section class="toolbar project-toolbar">
     <div class="project-logo-slot">
@@ -245,6 +245,7 @@
     <form id="user-form">
       <input name="user" type="hidden">
       <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
+      <label>Full Name<input name="full_name" maxlength="150" autocomplete="name"></label>
       <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
       <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
       <label>Password (blank when editing keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
@@ -703,7 +704,7 @@
         const assignment = state.assignments.find(row => row.id === service?.assignment);
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
-          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_username || 'Unknown user (legacy)')}`
+          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')}`
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
@@ -1283,7 +1284,7 @@
       const responses = await Promise.all([fetch('/api/users'), fetch('/api/telegram'), fetch('/api/whatsapp')]);
       if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
       users = await responses[0].json();
-      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.username)} · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}
+      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}
         <button data-edit-user="${user.id}">Edit</button>
         ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</p>`).join('');
       const telegram = await responses[1].json();
@@ -1330,6 +1331,7 @@
           form.elements.namedItem('username').value = user.username;
           form.elements.namedItem('role').value = user.role;
           form.elements.namedItem('email').value = user.email || '';
+          form.elements.namedItem('full_name').value = user.full_name || '';
           form.elements.namedItem('must_change_password').checked = Boolean(user.must_change_password);
           form.elements.namedItem('password').value = '';
           form.elements.namedItem('username').focus();
@@ -1414,7 +1416,7 @@
       currentUser = await response.json();
       if (currentUser.must_change_password) return location.assign('/login');
       document.body.dataset.role = currentUser.role;
-      el('signed-in').textContent = currentUser.username + ' · ' + (roleLabels[currentUser.role] || 'Unknown');
+      el('signed-in').textContent = (currentUser.full_name || currentUser.username) + ' · ' + (roleLabels[currentUser.role] || 'Unknown');
       await refresh();
     }
     initializeSession().catch(report);

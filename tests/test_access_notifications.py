@@ -325,7 +325,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(len(acknowledged), 1)
         self.assertEqual(acknowledged[0]['acknowledged_by_username'], 'admin')
         self.assertEqual(set(acknowledged[0]), {
-            'id', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username'})
+            'id', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name'})
         with server.connect() as db:
             db.execute('UPDATE assignments SET visible=0 WHERE id=1')
         self.assertEqual(server.status_overview()['acknowledged_incidents'], [])
@@ -707,12 +707,57 @@ class AccessAndNotificationTests(unittest.TestCase):
         for action in ('project-duplicate','project-status-settings'):
             self.assertEqual(self.request('/api/'+action, {'project':1,'name':'Denied','enabled':True}, token,operator['csrf'])['status'],403)
 
+    def test_full_name_management_and_immutable_acknowledgement(self):
+        token, operator = self.create_operator()
+        with server.connect() as db:
+            auth.manage_user(db, 'user-edit', {
+                'user': operator['id'], 'username': 'operator', 'role': 'operator',
+                'full_name': '  Alex Example  ',
+            }, self.admin)
+            self.assertEqual(auth.public_user(db.execute('SELECT * FROM users WHERE id=?',
+                (operator['id'],)).fetchone())['full_name'], 'Alex Example')
+            token = auth.new_session(db, operator['id'])
+            operator = auth.session_user(db, 'monitor_session=' + token)
+        me = json.loads(self.request('/api/me', token=token)['content'])
+        self.assertEqual(me['full_name'], 'Alex Example')
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        self.assertEqual(self.request('/api/ack', {'id': incident['id'],
+            'acknowledged_by_full_name': 'Forged Name'}, token, operator['csrf'])['status'], 200)
+        with server.connect() as db:
+            db.execute('UPDATE users SET full_name=? WHERE id=?', ('Changed Name', operator['id']))
+        recorded = server.status_overview()['acknowledged_incidents'][0]
+        self.assertEqual(recorded['acknowledged_by_full_name'], 'Alex Example')
+        self.assertNotIn('acknowledged_by_user_id', recorded)
+
+    def test_full_name_validation_creation_and_legacy_migration(self):
+        for invalid in (123, 'x' * 151):
+            response = self.request('/api/user-create', {
+                'username': 'named', 'role': 'viewer', 'password': 'Password-12345',
+                'full_name': invalid,
+            }, self.admin_token, self.admin['csrf'])
+            self.assertEqual(response['status'], 400)
+        response = self.request('/api/user-create', {
+            'username': 'named', 'role': 'viewer', 'password': 'Password-12345',
+            'full_name': 'Sam Example',
+        }, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        users = json.loads(self.request('/api/users', token=self.admin_token)['content'])
+        self.assertEqual(next(row for row in users if row['username'] == 'named')['full_name'], 'Sam Example')
+        with server.connect() as db:
+            db.execute('ALTER TABLE users DROP COLUMN full_name')
+            auth.ensure_accounts(db)
+            self.assertEqual(db.execute('SELECT full_name FROM users WHERE id=1').fetchone()[0], '')
+
     def test_status_reports_only_the_callers_login_state(self):
         anonymous = json.loads(self.request('/api/status')['content'])
         self.assertIsNone(anonymous['viewer'])
         self.assertNotIn('csrf', anonymous)
         admin = json.loads(self.request('/api/status', token=self.admin_token)['content'])
-        self.assertEqual(admin['viewer'], {'username':'admin','role':'admin','must_change_password':False})
+        self.assertEqual(admin['viewer'], {'username':'admin','full_name':'','role':'admin','must_change_password':False})
         reader = json.loads(self.request('/api/status', token=self.viewer_token)['content'])
         self.assertEqual(reader['viewer']['username'], 'reader')
         self.assertEqual(reader['viewer']['role'], 'viewer')
