@@ -250,7 +250,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.1.1. Show it after the title on both the main and
+Current displayed release is v0.1.2. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -284,3 +284,7 @@ and Actions controls so varying names, values and labels do not shift buttons.
 
 Main account navigation keeps the signed-in badge left and groups Status Dashboard,
 Change password and Sign out on the right, wrapping the action group on narrow screens.
+
+Every displayed version change must update the README title and add concise release
+notes describing that release. Keep both dashboard labels and this version context
+in sync; do not add versions to browser tab titles.

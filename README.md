@@ -1,7 +1,28 @@
-# Network Monitor — first implementation
+# Network Monitor v0.1.2
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
+
+## Release notes
+
+### v0.1.2
+
+- Enclosed live hosts and their display controls in a bordered panel, with spacing above cards.
+- Moved Edit alias beside the host heading in Cards and List views.
+- Aligned service Pause/Resume and Actions controls in List view.
+- Grouped Status Dashboard, Change password and Sign out on the right, keeping the user badge on the left.
+- Renamed the status page navigation button to Admin Dashboard.
+
+### v0.1.1
+
+- Added a Continue/Cancel confirmation before starting a new deployment.
+- Explained that a new deployment starts a fresh current view while previous history remains stored, subject to retention.
+- Kept Resume all monitoring separate from starting a new deployment.
+
+### v0.1
+
+- Initial tagged baseline: SNMP/Modbus monitoring, reusable project inventory and services,
+  thresholds, issue acknowledgement, dashboards, user roles, notifications and SQLite backup/restore.
 
 ## Start with Docker Compose
 
