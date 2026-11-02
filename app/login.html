@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Field Monitor · Login</title><style>
+    :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #101823; color: #e8eff8; }
+    body { max-width: 1250px; margin: auto; padding: 28px; }
+    header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
+    section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+    .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    [hidden] { display: none !important; }
+    label { display: grid; gap: 5px; font-size: 13px; }
+    input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    button { cursor: pointer; } button:hover { background: #29445c; } button.primary { background: #176959; }
+    .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
+    .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
+    .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
+    #message.success, .form-feedback.success { color: #64dfad; }
+    .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
+    table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
+    .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+    .metric-status { display: block; margin-top: 4px; font-size: 13px; }
+    .metric-value { font-size: 21px; margin: 8px 0 3px; }
+    details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
+    .action-menu summary { padding: 5px 9px; border: 1px solid #435b78; border-radius: 5px; font-size: 13px; }
+    .action-menu .menu-buttons { position: absolute; right: 0; top: 34px; z-index: 10; display: grid; gap: 4px; min-width: 170px; padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+    .action-menu .menu-buttons button { text-align: left; margin: 0; padding: 8px; }
+    #history { width: 880px; box-sizing: border-box; }
+    #history-graph svg { display: block; width: 100%; height: auto; }
+    .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
+    .view-tabs button[aria-pressed="true"] { background: #176959; }
+    .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
+    a { color: #7cddd0; } code { color: #b7d6ff; }
+  </style></head>
+<body style="max-width:620px">
+  <h1>Field Monitor</h1><p><a href="/status">Public status overview</a></p>
+  <section id="login-section"><h2>Sign in</h2>
+    <form id="login-form">
+      <label>Username<input name="username" required autocomplete="username"></label>
+      <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+      <button>Sign in</button>
+    </form>
+    <p>First login: username <code>admin</code>. Obtain the temporary password from the server administrator.</p>
+  </section>
+  <section id="password-section" hidden><h2>Change your password</h2>
+    <p id="password-reason">Change your temporary password before continuing.</p>
+    <form id="password-form">
+      <label>Current password<input name="current_password" type="password" required autocomplete="current-password"></label>
+      <label>New password<input name="password" type="password" minlength="10" maxlength="256" required autocomplete="new-password"></label>
+      <label>Confirm new password<input name="confirm" type="password" required autocomplete="new-password"></label>
+      <button>Save password</button>
+    </form><p><a href="/">Back to dashboard</a></p>
+  </section>
+  <p id="message" role="status"></p>
+  <script>
+    let user;
+    async function session() {
+      const response = await fetch('/api/me');
+      if (!response.ok) return;
+      user = await response.json();
+      document.getElementById('login-section').hidden = true;
+      document.getElementById('password-section').hidden = false;
+      if (!user.must_change_password) document.getElementById('password-reason').textContent = 'Choose a password with at least 10 characters.';
+    }
+    async function submit(event, path) {
+      event.preventDefault();
+      const form = event.target;
+      const body = Object.fromEntries(new FormData(form));
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        if (body.confirm !== undefined && body.confirm !== body.password) throw new Error('New passwords do not match.');
+        const response = await fetch('/api/' + path, {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token':user?.csrf || ''}, body:JSON.stringify(body)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        form.reset();
+        await session();
+        if (path === 'password' || !user.must_change_password) location.assign('/');
+      } catch (error) { document.getElementById('message').textContent = error.message; }
+      finally { button.disabled = false; }
+    }
+    document.getElementById('login-form').onsubmit = event => submit(event, 'login');
+    document.getElementById('password-form').onsubmit = event => submit(event, 'password');
+    session().catch(error => { document.getElementById('message').textContent = error.message; });
+  </script>
+</body></html>

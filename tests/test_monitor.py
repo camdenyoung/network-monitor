@@ -94,9 +94,11 @@ class MonitorTests(unittest.TestCase):
         handler = object.__new__(server.Handler)
         handler.path = '/api/restore'
         handler.headers = {
+            'X-CSRF-Token': 'test',
             'Content-Length': str(len(payload)),
             'Content-Type': 'application/octet-stream',
         }
+        handler.require_user = lambda **kwargs: {'id': 1, 'role': 'admin', 'csrf': 'test'}
         handler.rfile = io.BytesIO(payload)
         responses = []
         handler.send = lambda content, **kwargs: responses.append((content, kwargs))
@@ -480,8 +482,9 @@ class MonitorTests(unittest.TestCase):
         server.mutate('template-delete', {'template': 1})
         handler = object.__new__(server.Handler)
         handler.path = '/api/restore'
-        handler.headers = {'Content-Length': str(len(payload)),
+        handler.headers = {'X-CSRF-Token': 'test', 'Content-Length': str(len(payload)),
                            'Content-Type': 'application/octet-stream'}
+        handler.require_user = lambda **kwargs: {'id': 1, 'role': 'admin', 'csrf': 'test'}
         handler.rfile = io.BytesIO(payload)
         responses = []
         handler.send = lambda content, **kwargs: responses.append(content)

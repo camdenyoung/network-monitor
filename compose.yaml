@@ -7,13 +7,15 @@ services:
       - monitor-data:/data
     environment:
       MONITOR_DATA: /data
+      MONITOR_ADMIN_PASSWORD: ${MONITOR_ADMIN_PASSWORD:-}
+      MONITOR_SECURE_COOKIE: ${MONITOR_SECURE_COOKIE:-false}
     # Allow the non-root process to use Linux ICMP datagram sockets.
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"
     restart: unless-stopped
     init: true
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/state', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -12,6 +12,7 @@
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    body[data-role="viewer"] [data-admin] { display: none !important; }
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
     input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
@@ -39,13 +40,14 @@
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style>
 </head>
-<body>
+<body data-role="viewer">
   <header><div><h1>Field Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <nav class="toolbar"><span id="signed-in"></span><a href="/status" target="_blank">Public overview</a><a href="/login">Change password</a><button id="logout">Sign out</button></nav>
   <p id="message" role="status"></p>
   <section class="toolbar">
     <label>Selected project<select id="project"></select></label>
-    <button id="activate" class="primary">Activate / start new deployment</button>
-    <button id="pause">Pause all monitoring</button>
+    <button data-admin id="activate" class="primary">Activate / start new deployment</button>
+    <button data-admin id="pause">Pause all monitoring</button>
     <small>15-second polling · incident persistence is configurable per service</small>
   </section>
   <div id="dashboard" class="grid"></div>
@@ -57,7 +59,7 @@
   <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
   <details><summary>Suppressed service incidents</summary><section id="suppressed-incidents"></section></details>
   <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
-  <details><summary>Inventory and project configuration</summary>
+  <details data-admin><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
     <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><label>IP address<input name="address" required placeholder="192.168.1.10"></label><button>Add device</button></form><div id="inventory"></div><p id="inventory-feedback" class="form-feedback" role="status"></p></section>
     <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
@@ -88,9 +90,9 @@
       <p id="service-feedback" class="form-feedback" role="status"></p>
       <div id="service-catalogue"></div>
     </section>
-    <section><h2>Project assignments</h2><p>Notification flags are saved for future messaging integration; this preview does not send notifications.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
+    <section><h2>Project assignments</h2><p>Notification flags control incident messages for each host.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
   </details>
-  <details><summary>Reusable service library</summary><section>
+  <details data-admin><summary>Reusable service library</summary><section>
     <h2>Predefined services</h2>
     <p>Create a service definition or save one from a host. Applying an entry creates
       an independent service; later library edits do not change existing hosts.</p>
@@ -98,8 +100,53 @@
     <p id="library-feedback" class="form-feedback" role="status"></p>
     <div id="service-library"></div>
   </section></details>
-  <details><summary>Backup, restore, and retention</summary><section>
-    <p>Backup includes credentials and history. Store it securely; this preview produces an unencrypted SQLite archive. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
+  <details data-admin><summary>User management</summary><section>
+    <h2>Users</h2><p>Admins can configure the monitor and acknowledge incidents. View Only users can inspect status and history. New/reset passwords must be changed on first login.</p>
+    <form id="user-form">
+      <input name="user" type="hidden">
+      <label>Username<input name="username" maxlength="64" required autocomplete="off"></label>
+      <label>Role<select name="role"><option value="viewer">View Only</option><option value="admin">Admin</option></select></label>
+      <label>Password (blank when editing keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
+      <button>Save user</button><button id="cancel-user-edit" type="button">Clear</button>
+    </form><p id="user-feedback" role="status"></p><div id="users"></div>
+  </section></details>
+  <details data-admin><summary>Telegram notifications</summary><section>
+    <h2>Telegram group</h2>
+    <p>Create a bot with BotFather, add it to your group with permission to send messages, and enter the numeric chat ID. No inbound port or public server is required for outbound notifications.</p>
+    <form id="telegram-form">
+      <label>Enabled<input name="enabled" type="checkbox"></label>
+      <label>Bot token (blank keeps stored token)<input name="bot_token" type="password" autocomplete="new-password"></label>
+      <label>Chat ID<input name="chat_id" placeholder="-100…"></label>
+      <label>Topic ID (optional)<input name="thread_id" type="number" min="1"></label>
+      <label>Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <button>Save settings</button>
+    </form>
+    <button id="telegram-chats">Discover groups</button><div id="telegram-group-list"></div>
+    <button id="telegram-test">Send test message</button><button id="telegram-retry">Retry failed messages</button>
+    <p id="telegram-feedback" role="status"></p><div id="telegram-queue"></div>
+  </section></details>
+  <details data-admin><summary>WhatsApp Business notifications</summary><section>
+    <h2>Meta Cloud API</h2>
+    <p>Use a WhatsApp Business sender and an approved template with three text body
+      parameters: device, status/project, and details. This does not connect to an
+      ordinary WhatsApp app group. Group mode requires an eligible Business API group.</p>
+    <form id="whatsapp-form">
+      <label>Enabled<input name="enabled" type="checkbox"></label>
+      <label>Access token (blank keeps stored token)<input name="bot_token" type="password" autocomplete="new-password"></label>
+      <label>Sender phone number ID<input name="phone_number_id"></label>
+      <label>Graph API version<input name="api_version" placeholder="Version from your Meta app"></label>
+      <label>Recipient type<select name="recipient_type"><option value="individual">Individual phone number</option><option value="group">Eligible Business API group</option></select></label>
+      <label>Recipient phone (country code, no +) / Business group ID<input name="chat_id"></label>
+      <label>Approved template name<input name="template_name"></label>
+      <label>Template language<input name="language" value="en_US"></label>
+      <label>Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <button>Save settings</button>
+    </form>
+    <button id="whatsapp-test">Send test message</button><button id="whatsapp-retry">Retry failed messages</button>
+    <p id="whatsapp-feedback" role="status"></p><div id="whatsapp-queue"></div>
+  </section></details>
+  <details data-admin><summary>Backup, restore, and retention</summary><section>
+    <p>Backup includes credentials and history. Store it securely; the archive contains credentials and password hashes. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
     <p><a href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
@@ -198,6 +245,10 @@
     const el = id => document.getElementById(id);
     const date = value => value ? new Date(value * 1000).toLocaleString() : '—';
     let state;
+    let currentUser = null;
+    let users = [];
+    let telegramLoaded = false;
+    let whatsappLoaded = false;
     let selectedProject = '';
     let serviceEditorMode = 'service-edit';
     let serviceEditorSource = null;
@@ -205,8 +256,9 @@
     let transferSource = null;
 
     async function request(path, body) {
-      const response = await fetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const response = await fetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': currentUser?.csrf || ''}, body: JSON.stringify(body)});
       const result = await response.json();
+      if (response.status === 401) { location.assign('/login'); throw new Error('Please sign in again.'); }
       if (!response.ok) throw new Error(result.error);
       return result;
     }
@@ -230,6 +282,7 @@
     }
 
     function serviceActions(service) {
+      if (currentUser?.role === 'viewer') return `<button data-history="${service.id}">History / graph</button>`;
       return `<details class="action-menu" data-service-actions="${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
         <div class="menu-buttons">
@@ -244,6 +297,7 @@
 
     async function refresh() {
       const response = await fetch('/api/state');
+      if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
       state = await response.json();
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
@@ -297,7 +351,7 @@
             <small>${date(reading?.timestamp)}</small>
           </div>`;
         }).join('');
-        return `<article><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
+        return `<article><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
       document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
       el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
@@ -319,6 +373,7 @@
           <button data-delete-template="${template.id}">Delete</button>
         </article>`).join('') || '<p>No library services yet.</p>';
       if (el('service-transfer').open) updateTransferHosts();
+      if (currentUser?.role === 'admin') await loadAdmin();
       const lists = state.incident_lists;
       el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active incidents.</p>';
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged incidents.</p>';
@@ -333,7 +388,7 @@
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
           ? `Acknowledged ${date(incident.acknowledged)}`
-          : allowAcknowledgement ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
+          : allowAcknowledgement && currentUser?.role !== 'viewer' ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? 'Suppressed — awaiting host / service check' : incident.status;
         return `<p><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
@@ -820,14 +875,149 @@
       if (!confirm('Replace all current data with this backup and pause monitoring?')) return;
       try {
         const file = new FormData(event.target).get('backup');
-        const response = await fetch('/api/restore', {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file});
+        const response = await fetch('/api/restore', {method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser?.csrf || ''}, body: file});
         if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
         selectedProject = '';
         await refresh();
         el('message').textContent = 'Restored successfully. Monitoring is paused.';
       } catch (error) { report(error); }
     };
-    refresh().catch(report);
+    async function loadAdmin() {
+      const responses = await Promise.all([fetch('/api/users'), fetch('/api/telegram'), fetch('/api/whatsapp')]);
+      if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
+      users = await responses[0].json();
+      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.username)} · ${user.role === 'admin' ? 'Admin' : 'View Only'}
+        <button data-edit-user="${user.id}">Edit</button>
+        ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</p>`).join('');
+      const telegram = await responses[1].json();
+      if (!telegramLoaded) {
+        const form = el('telegram-form');
+        for (const field of ['chat_id','thread_id']) form.elements.namedItem(field).value = telegram.configuration[field] || '';
+        for (const field of ['enabled','recoveries']) form.elements.namedItem(field).checked = Boolean(telegram.configuration[field]);
+        telegramLoaded = true;
+      }
+      const whatsapp = await responses[2].json();
+      if (!whatsappLoaded) {
+        const form = el('whatsapp-form');
+        for (const field of ['chat_id','phone_number_id','api_version','template_name','language','recipient_type']) {
+          form.elements.namedItem(field).value = whatsapp.configuration[field] || '';
+        }
+        for (const field of ['enabled','recoveries']) form.elements.namedItem(field).checked = Boolean(whatsapp.configuration[field]);
+        whatsappLoaded = true;
+      }
+      el('whatsapp-queue').innerHTML = whatsapp.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
+      el('telegram-queue').innerHTML = telegram.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
+    }
+
+    el('cancel-user-edit').onclick = () => el('user-form').reset();
+    el('user-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const body = Object.fromEntries(new FormData(form));
+      try {
+        await request(body.user ? 'user-edit' : 'user-create', body);
+        form.reset();
+        if (Number(body.user) === currentUser.id) { location.assign('/login'); return; }
+        el('user-feedback').textContent = 'User saved successfully.';
+        await loadAdmin();
+      } catch (error) { el('user-feedback').textContent = error.message; }
+    };
+    document.body.addEventListener('click', async event => {
+      const data = event.target.dataset;
+      try {
+        if (data.editUser) {
+          const user = users.find(row => row.id === Number(data.editUser));
+          const form = el('user-form');
+          form.elements.namedItem('user').value = user.id;
+          form.elements.namedItem('username').value = user.username;
+          form.elements.namedItem('role').value = user.role;
+          form.elements.namedItem('password').value = '';
+          form.elements.namedItem('username').focus();
+        }
+        if (data.deleteUser && confirm('Remove this user and revoke their sessions?')) {
+          await request('user-delete', {user: data.deleteUser});
+          el('user-feedback').textContent = 'User removed.';
+          await loadAdmin();
+        }
+      } catch (error) { el('user-feedback').textContent = error.message; }
+    });
+    el('telegram-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const body = Object.fromEntries(new FormData(form));
+      body.enabled = form.elements.namedItem('enabled').checked;
+      body.recoveries = form.elements.namedItem('recoveries').checked;
+      try {
+        await request('telegram-save', body);
+        form.elements.namedItem('bot_token').value = '';
+        el('telegram-feedback').textContent = 'Telegram settings saved.';
+      } catch (error) { el('telegram-feedback').textContent = error.message; }
+    };
+    el('telegram-chats').onclick = async () => {
+      try {
+        const response = await fetch('/api/telegram-chats');
+        const groups = await response.json();
+        if (!response.ok) throw new Error(groups.error);
+        el('telegram-group-list').innerHTML = groups.map(group =>
+          `<p>${escapeHtml(group.title)} <button data-telegram-group="${escapeHtml(group.id)}">Select group</button></p>`
+        ).join('') || '<p>No groups found. Add the bot to your group and send it a command, then retry.</p>';
+      } catch (error) { el('telegram-feedback').textContent = error.message; }
+    };
+    el('telegram-group-list').onclick = event => {
+      if (event.target.dataset.telegramGroup) {
+        el('telegram-form').elements.namedItem('chat_id').value = event.target.dataset.telegramGroup;
+        el('telegram-feedback').textContent = 'Group selected. Enable notifications and save settings.';
+      }
+    };
+    el('telegram-test').onclick = async () => {
+      try {
+        await request('telegram-test', {});
+        el('telegram-feedback').textContent = 'Test message queued. Check its delivery status below.';
+        await loadAdmin();
+      } catch (error) { el('telegram-feedback').textContent = error.message; }
+    };
+    el('whatsapp-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const body = Object.fromEntries(new FormData(form));
+      body.enabled = form.elements.namedItem('enabled').checked;
+      body.recoveries = form.elements.namedItem('recoveries').checked;
+      try {
+        await request('whatsapp-save', body);
+        form.elements.namedItem('bot_token').value = '';
+        el('whatsapp-feedback').textContent = 'WhatsApp Business settings saved.';
+      } catch (error) { el('whatsapp-feedback').textContent = error.message; }
+    };
+    el('whatsapp-test').onclick = async () => {
+      try {
+        await request('whatsapp-test', {});
+        el('whatsapp-feedback').textContent = 'Test message queued. Check its status below.';
+        await loadAdmin();
+      } catch (error) { el('whatsapp-feedback').textContent = error.message; }
+    };
+    for (const channel of ['telegram', 'whatsapp']) {
+      el(channel + '-retry').onclick = async () => {
+        try {
+          await request(channel + '-retry', {});
+          el(channel + '-feedback').textContent = 'Failed messages for the current settings requeued.';
+          await loadAdmin();
+        } catch (error) { el(channel + '-feedback').textContent = error.message; }
+      };
+    }
+    el('logout').onclick = async () => {
+      await request('logout', {});
+      location.assign('/login');
+    };
+    async function initializeSession() {
+      const response = await fetch('/api/me');
+      if (!response.ok) return location.assign('/login');
+      currentUser = await response.json();
+      if (currentUser.must_change_password) return location.assign('/login');
+      document.body.dataset.role = currentUser.role;
+      el('signed-in').textContent = currentUser.username + ' · ' + (currentUser.role === 'admin' ? 'Admin' : 'View Only');
+      await refresh();
+    }
+    initializeSession().catch(report);
     setInterval(() => refresh().catch(report), 10000);
   </script>
 </body>

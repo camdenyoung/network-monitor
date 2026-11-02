@@ -54,9 +54,14 @@ const context = vm.createContext({
     document: {
         getElementById: element,
         querySelectorAll() { return []; },
-        body: { addEventListener() {} },
+        body: { dataset: {}, addEventListener() {} },
     },
-    fetch: async () => ({ ok: true, json: async () => fixture }),
+    fetch: async path => ({ ok: true, json: async () => {
+        if (path === '/api/me') return {id:1,username:'admin',role:'admin',csrf:'test',must_change_password:0};
+        if (path === '/api/users') return [];
+        if (path === '/api/telegram' || path === '/api/whatsapp') return {configuration:{},outbox:[]};
+        return fixture;
+    } }),
     setInterval() {},
     confirm() { return true; },
     FormData: class {

@@ -22,8 +22,9 @@ publishes http://localhost:8090; for trusted LAN access use the server's LAN IP
 as `MONITOR_BIND`. The container port and health check remain on 8080.
 Keep machine-specific settings in `.env`, which Git ignores, rather than editing
 `compose.yaml`. If `.env` already exists, edit it without replacing other settings.
-There is no login yet: anyone able to reach the port can read, change, back up,
-and restore the system. Do not expose this version to the internet.
+The main dashboard requires login. The read-only `/status` overview is intentionally
+accessible without credentials. Use an HTTPS reverse proxy before sending passwords
+across untrusted networks; set `MONITOR_SECURE_COOKIE=true` when using HTTPS.
 
 The `monitor-data` named volume holds the SQLite database, including configuration,
 metrics, incidents, and SNMP communities. Container replacement preserves it.
@@ -40,6 +41,34 @@ sockets for the non-root container through `net.ipv4.ping_group_range`.
 Local SNMP polling additionally requires the net-snmp `snmpget` executable. It is
 installed in the container. The database backup uses Python's SQLite serialization
 support, which must be present in the local Python build.
+
+## Login and roles
+
+The initial username is **admin**. On first startup (including upgrades without
+accounts), a random temporary password is written to the persistent volume:
+
+```sh
+docker compose exec monitor cat /data/initial-admin-password.txt
+```
+
+Alternatively, set `MONITOR_ADMIN_PASSWORD` in `.env` before the first startup.
+This variable never resets an existing account. Sign in at `/login` and change the
+temporary password before configuring the system. Passwords require 10–256
+characters. Admins can add, edit, reset or remove users in **User management**.
+New/reset passwords require a change at first login. Blank edited passwords keep
+the existing password. The last Admin cannot be demoted, and self-deletion is blocked.
+
+**Admins** configure equipment, acknowledge incidents, manage users, notifications,
+backups and restore. **View Only** users can inspect monitoring data and history but
+cannot mutate configuration or acknowledge incidents. Both can change their own
+password. User edits, password resets and deletion revoke that user's sessions.
+Sessions last 12 hours, use HttpOnly/SameSite cookies, and mutations require CSRF
+protection. Sign-in attempts are rate-limited by client address and username.
+
+The public `/status` dashboard shows only the active project's visible hosts and
+current service values. It excludes IP addresses, credentials, OIDs, inventory of
+other projects, history, user accounts, and configuration. It is available locally
+without login; this does not create the future public-facing relay.
 
 ## Initial workflow
 
@@ -60,7 +89,7 @@ a configurable number of consecutive identical statuses open or recover an incid
 records a timestamp without clearing the incident and moves it into the acknowledged
 list. It stays there after recovery. Unacknowledged recoveries appear in the resolved
 list. All three lists are scoped to the active deployment. The three assignment controls
-are independent; notification flags are currently stored only.
+are independent; notification flags enable or mute outbound messages per host.
 
 ## Implemented
 
@@ -103,7 +132,10 @@ Use the UI's download link to produce a consistent full database snapshot while
 monitoring continues. The file includes credentials in plaintext: protect it as a
 secret. Copy backups off the monitoring server. Restore accepts this application's
 SQLite backup, checks database integrity/table presence, replaces the database,
-and sets monitoring to paused. Download a backup before replacing current state.
+and sets monitoring to paused. Users and notification settings are included; active
+sessions are excluded from downloads and invalidated on restore. Queued messages
+are cancelled on restore to prevent replay. Older backups without accounts retain
+the current account list. Download a backup before replacing current state.
 Older backups with assignment addresses migrate during restore (and existing
 databases migrate on startup). Matching addresses move to inventory automatically.
 Conflicting addresses are preserved in `legacy_assignment_addresses` and shown in
@@ -119,8 +151,10 @@ CLI recovery command and versioned encrypted archives remain planned.
 
 ## Explicit limitations / next milestones
 
-- No relay, remote dashboard, Telegram/WhatsApp delivery, or remote acknowledgement.
-- No users, authentication, TLS, audit actor identity, or credential encryption.
+- No public relay or remote acknowledgement yet. Outbound Telegram and WhatsApp
+  Business notifications are supported directly from the local server.
+- Built-in TLS, audit actor identity and credential encryption remain pending.
+  Account passwords are hashed; network/provider credentials in backups remain plaintext.
 - No verified manufacturer profiles: do not invent OIDs or Mean Well registers.
 - SNMP v2c only. Raw counters are not throughput; counter-rate calculation, counter
   rollover handling, SNMPv3 and vendor profiles are required next.
@@ -206,3 +240,49 @@ older configurations. Graphs are local and do not depend on a CDN or chart servi
 
 Optional dashboard logic tests (Node.js 18+): `node tests/dashboard.test.mjs`.
 These use a minimal DOM stub; a full browser layout check remains separate.
+
+## Telegram notifications
+
+1. Create a bot using [BotFather](https://core.telegram.org/bots/features#botfather).
+2. Add the bot to your Telegram group and allow it to send messages.
+3. In **Telegram notifications**, save the token while notifications are disabled.
+4. Send a command addressed to the bot in the group, then use **Discover groups**
+   and select your group, or enter its numeric chat ID directly.
+5. Optionally enter a topic ID, enable notifications, save and send a test message.
+
+The monitor uses outbound HTTPS to Telegram's
+[sendMessage API](https://core.telegram.org/bots/api#sendmessage). No inbound port
+forwarding is required. Discovery inspects recent bot updates without retaining
+message text. Use a dedicated bot so other consumers do not consume those updates.
+
+## WhatsApp Business notifications
+
+This optional provider uses Meta's [Cloud API](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/template-messages),
+not WhatsApp Web. Configure the sender phone-number ID, access token, Graph API
+version from your Meta app, approved template name and language, and recipient.
+Individual recipients use an international phone number without `+`. Group mode
+requires a Business API group and appropriate Meta eligibility; it cannot target
+an ordinary app-created WhatsApp group. Use Telegram for that shared-team workflow.
+
+Create an approved template with **three positional body text parameters**:
+`{{1}}` device, `{{2}}` status/project, `{{3}}` service reading and incident details.
+Enable the provider, save and send a test. Provider approval, sender provisioning,
+API permissions, billing and group eligibility are managed in Meta, outside this app.
+
+## Delivery behaviour
+
+New confirmed incidents and optional recoveries are queued independently for each
+enabled provider. Per-host notification flags and host dependencies are respected.
+Enabling a provider does not replay old incidents. Each event is queued once per
+provider; reminders and remote acknowledgement are not implemented yet.
+
+Queues survive restarts. Transient failures retry with backoff, up to five attempts;
+permanent errors stop immediately. Admins see pending/sent/failed/cancelled states
+and can retry failed messages for the current configuration. Changing provider
+settings cancels pending messages so they cannot move to a different destination.
+Restoring a backup cancels unsent messages and pauses polling.
+
+“Sent” means accepted by the provider, not a verified read/delivery receipt. A
+network timeout after provider acceptance can cause a duplicate on retry. No real
+provider delivery has been verified without credentials. Tokens are hidden in the
+UI and logs, but remain in admin backups; protect those backups.

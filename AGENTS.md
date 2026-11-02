@@ -19,6 +19,15 @@ The user requested readable, consistently indented code and explanatory comments
 - Device deletion purges all linked assignments, services, history and incidents;
   preserve shared projects/runs and all other equipment.
 - IP addresses belong to inventory devices and are shared across all projects.
+- Local accounts: Admin and View Only roles enforced by the server. Admins manage
+  users, all configuration, acknowledgements and backups. Viewers inspect only.
+- First-run admin password is generated in /data/initial-admin-password.txt or supplied
+  via MONITOR_ADMIN_PASSWORD; require change on first login. Never commit defaults.
+- Public /status overview needs no login; allowlist active/visible status and values
+  without IP addresses, OIDs, credentials, user data or other project inventory.
+- Telegram group notifications and optional WhatsApp Business Cloud API templates.
+  WhatsApp Business does not connect ordinary app-created groups; Telegram is the
+  intended shared group route. Both providers have separate settings and queues.
 - Exactly one active project. Each activation creates a deployment run; retain history.
 - Services can be copied between host assignments, including across projects.
 - Reusable service library supports creation, saving from a host, editing, deletion
@@ -95,3 +104,14 @@ History supports graph/table views over the latest 200 readings. Numeric graphs
 use lines; states use labeled steps. Preserve explicit/long gaps; never connect
 readings from different configuration revisions. No external chart dependencies.
 Optional UI logic checks: `node tests/dashboard.test.mjs` (Node 18+).
+
+Auth is in app/auth.py: scrypt password hashes, opaque hashed session tokens,
+HttpOnly SameSite cookies, CSRF, login throttling, forced temporary-password changes.
+Do not authorize by UI hiding alone. Revoke sessions on user changes; protect the
+last admin. Restore invalidates sessions and retains accounts for legacy backups.
+app/notifications.py implements a durable per-provider outbox with retries, no
+secret logs and no replay on restore. Never perform live test sends without user
+instructions; unit tests mock external providers. Provider endpoints are fixed.
+Store only admin configuration locally; redact all provider tokens from GET APIs.
+Health checks use /api/health, not authenticated /api/state.
+Testing includes tests/test_access_notifications.py and dashboard.test.mjs.

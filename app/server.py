@@ -1,7 +1,7 @@
 """Small local monitor: durable SQLite state, bounded polling, and a local web UI.
 
-This first pass deliberately has no public listener authentication. Keep it on a
-trusted machine until the authenticated relay and user accounts are implemented.
+Local accounts protect configuration; a separate public status view exposes
+only the active project and selected current readings.
 """
 import concurrent.futures
 import json
@@ -16,6 +16,8 @@ import struct
 import subprocess
 import threading
 import time
+import hmac
+from . import auth, notifications
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -81,6 +83,9 @@ def initialize():
         ensure_service_library(db)
         migrate_value_types(db)
         ensure_host_checks(db)
+        notifications.ensure_tables(db)
+        auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
+                             os.environ.get('MONITOR_ADMIN_PASSWORD'))
 
 
 def migrate_inventory_addresses(db):
@@ -239,6 +244,7 @@ def delete_device(db, device_id):
         JOIN assignments a ON a.id=s.assignment WHERE a.device=?
     """, (device_id,))]
     for service_id in service_ids:
+        db.execute('DELETE FROM notification_outbox WHERE incident IN (SELECT id FROM incidents WHERE service=?)', (service_id,))
         db.execute('DELETE FROM samples WHERE service=?', (service_id,))
         db.execute('DELETE FROM incidents WHERE service=?', (service_id,))
         db.execute('DELETE FROM services WHERE id=?', (service_id,))
@@ -389,10 +395,13 @@ def poll_one(service, run):
                               (service['id'], run)).fetchone()
         if incident and (status == 'healthy' or incident['status'] != status):
             db.execute('UPDATE incidents SET closed=? WHERE id=?', (time.time(), incident['id']))
+            if status == 'healthy':
+                notifications.enqueue_incident(db, incident['id'], 'recovery')
             incident = None
         if status != 'healthy' and incident is None:
-            db.execute('INSERT INTO incidents(run,service,opened,status) VALUES(?,?,?,?)',
-                       (run, service['id'], time.time(), status))
+            cursor = db.execute('INSERT INTO incidents(run,service,opened,status) VALUES(?,?,?,?)',
+                                (run, service['id'], time.time(), status))
+            notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
 
 
 def poll_host(services, run):
@@ -685,6 +694,40 @@ def mutate(action, body):
             raise ValueError('Unknown action')
 
 
+def status_overview():
+    """Allowlist public output: no addresses, OIDs, secrets, users or history."""
+    data = snapshot()
+    run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
+    if run is None:
+        return {'project': None, 'devices': [], 'updated': time.time()}
+    project = next(row for row in data['projects'] if row['id'] == run['project'])
+    devices = {row['id']: row for row in data['devices']}
+    latest = {row['service']: row for row in data['latest']}
+    output = []
+    for assignment in data['assignments']:
+        if assignment['project'] != run['project'] or not assignment['visible']:
+            continue
+        device = devices[assignment['device']]
+        services = [row for row in data['services'] if row['assignment'] == assignment['id'] and row['enabled']]
+        ping = next((row for row in services if row['kind'] == 'ping'), None)
+        reading = latest.get(ping['id']) if ping else None
+        host_status = reading['status'] if (assignment['monitoring'] and reading
+            and time.time() - reading['timestamp'] <= 60) else 'unknown'
+        children = []
+        for service in services:
+            if service['kind'] == 'ping':
+                continue
+            sample = latest.get(service['id'])
+            usable = host_status == 'healthy' and sample and time.time() - sample['timestamp'] <= 60
+            status = sample['status'] if usable else 'blocked'
+            children.append({'name': service['name'], 'status': status,
+                'value': sample['display_value'] if usable and status != 'blocked' else None,
+                'units': service['units'] if service['value_type'] == 'metric' else ''})
+        output.append({'name': device['name'], 'alias': assignment['alias'],
+                       'status': host_status, 'services': children})
+    return {'project': project['name'], 'devices': output, 'updated': time.time()}
+
+
 class Handler(BaseHTTPRequestHandler):
     def send(self, content, mime='application/json', status=200):
         if not isinstance(content, bytes):
@@ -697,16 +740,83 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def require_user(self, admin=False, allow_password_change=False):
+        with connect() as db:
+            user = auth.session_user(db, self.headers.get('Cookie'))
+        if user is None:
+            self.send('{"error":"Login required"}', status=401)
+            return None
+        if user['must_change_password'] and not allow_password_change:
+            self.send('{"error":"Change your temporary password first"}', status=403)
+            return None
+        if admin and user['role'] != 'admin':
+            self.send('{"error":"Administrator access required"}', status=403)
+            return None
+        return user
+
+    def session_response(self, token=None):
+        self.send_response(200)
+        cookie = 'monitor_session=' + (token or '') + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + str(auth.SESSION_SECONDS if token else 0)
+        if os.environ.get('MONITOR_SECURE_COOKIE') == 'true':
+            cookie += '; Secure'
+        self.send_header('Set-Cookie', cookie)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
+
     def do_GET(self):
+        if self.path == '/api/health':
+            return self.send('{"ok":true}')
+        if self.path == '/login':
+            return self.send(Path(__file__).with_name('login.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/status':
+            return self.send(Path(__file__).with_name('status.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/api/status':
+            return self.send(json.dumps(status_overview()))
         if self.path == '/':
-            self.send(Path(__file__).with_name('index.html').read_bytes(), 'text/html; charset=utf-8')
+            with connect() as db:
+                user = auth.session_user(db, self.headers.get('Cookie'))
+            if not user or user['must_change_password']:
+                self.send_response(303)
+                self.send_header('Location', '/login')
+                self.end_headers()
+                return
+            return self.send(Path(__file__).with_name('index.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/api/me':
+            user = self.require_user(allow_password_change=True)
+            if user:
+                return self.send(json.dumps({**auth.public_user(user), 'csrf': user['csrf']}))
+            return
+        admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats')
+        user = self.require_user(admin=admin)
+        if not user:
+            return
+        if self.path == '/api/telegram-chats':
+            try:
+                with connect() as db:
+                    self.send(json.dumps(notifications.telegram_chats(db)))
+            except Exception:
+                self.send('{"error":"Could not discover groups. Check the saved token, bot membership, and send it a command in the group."}', status=400)
+        elif self.path in ('/api/telegram', '/api/whatsapp'):
+            channel = self.path.removeprefix('/api/')
+            with connect() as db:
+                self.send(json.dumps({'configuration': notifications.public_configuration(db, channel),
+                    'outbox': [dict(row) for row in db.execute('SELECT id,event,state,attempts,error,created FROM notification_outbox WHERE channel=? ORDER BY id DESC LIMIT 50', (channel,))]}))
+        elif self.path == '/api/users':
+            with connect() as db:
+                users = [auth.public_user(row) for row in db.execute('SELECT * FROM users ORDER BY username')]
+            self.send(json.dumps(users))
         elif self.path == '/api/state':
             self.send(json.dumps(snapshot()))
         elif self.path == '/api/backup':
-            # SQLite's backup API produces a consistent snapshot during live polling.
+            # Exclude live sessions from portable backups.
             with LOCK, connect() as source:
                 destination = sqlite3.connect(':memory:')
                 source.backup(destination)
+                destination.execute('DELETE FROM sessions')
+                destination.execute('DELETE FROM login_attempts')
+                destination.commit()
                 payload = destination.serialize()
                 destination.close()
             self.send(payload, 'application/octet-stream')
@@ -724,13 +834,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send('{"error":"Not found"}', status=404)
 
     def do_POST(self):
-        # JSON/custom content type plus same-origin validation blocks browser form CSRF.
+        from urllib.parse import urlsplit
         origin = self.headers.get('Origin')
-        if origin and origin != 'http://' + self.headers.get('Host', ''):
+        if origin and (urlsplit(origin).netloc != self.headers.get('Host', '')
+                       or urlsplit(origin).scheme not in ('http', 'https')):
             return self.send('{"error":"Origin rejected"}', status=403)
+        user = None
+        if self.path != '/api/login':
+            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password'),
+                                     allow_password_change=self.path in ('/api/logout', '/api/password'))
+            if not user:
+                return
+            if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), user['csrf']):
+                return self.send('{"error":"Invalid request token"}', status=403)
         try:
             size = int(self.headers.get('Content-Length', '0'))
-            if not 0 < size <= 64 * 1024 * 1024:
+            limit = 64 * 1024 * 1024 if self.path == '/api/restore' else 65536
+            if not 0 < size <= limit:
                 raise ValueError('Invalid request size')
             payload = self.rfile.read(size)
             if self.path == '/api/restore':
@@ -751,6 +871,19 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_service_library(candidate)
                     migrate_value_types(candidate)
                     ensure_host_checks(candidate)
+                    notifications.ensure_tables(candidate)
+                    candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
+                    auth.ensure_accounts(candidate)
+                    # Older backups have no accounts: retain current accounts so
+                    # restoring equipment cannot silently reset access to a default.
+                    if not candidate.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+                        with connect() as current:
+                            for account in current.execute('SELECT * FROM users'):
+                                candidate.execute('INSERT INTO users VALUES(?,?,?,?,?)', tuple(account))
+                    if not candidate.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone():
+                        raise ValueError('Backup has no administrator')
+                    candidate.execute('DELETE FROM sessions')
+                    candidate.execute('DELETE FROM login_attempts')
                     candidate.commit()
                     with LOCK, connect() as destination:
                         candidate.backup(destination)
@@ -759,14 +892,54 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 if self.headers.get('Content-Type') != 'application/json':
                     raise ValueError('Expected JSON')
-                mutate(self.path.removeprefix('/api/'), json.loads(payload))
+                body = json.loads(payload)
+                if self.path == '/api/login':
+                    with LOCK, connect() as db:
+                        token, status = auth.login(db, body.get('username', ''), body.get('password', ''), self.client_address[0])
+                    if token:
+                        return self.session_response(token)
+                    return self.send(json.dumps({'error': 'Too many attempts; try again in a minute' if status == 429 else 'Invalid username or password'}), status=status)
+                if self.path == '/api/logout':
+                    with connect() as db:
+                        db.execute('DELETE FROM sessions WHERE csrf=?', (user['csrf'],))
+                    return self.session_response()
+                if self.path == '/api/password':
+                    with LOCK, connect() as db:
+                        account = db.execute('SELECT * FROM users WHERE id=?', (user['id'],)).fetchone()
+                        if not auth.password_matches(body['current_password'], account['password_hash']):
+                            raise ValueError('Current password is incorrect')
+                        if auth.password_matches(body['password'], account['password_hash']):
+                            raise ValueError('Choose a different password')
+                        encoded = auth.password_hash(body['password'])
+                        db.execute('UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?', (encoded, user['id']))
+                        db.execute('DELETE FROM sessions WHERE user_id=?', (user['id'],))
+                        token = auth.new_session(db, user['id'])
+                    return self.session_response(token)
+                if self.path in ('/api/telegram-save', '/api/telegram-test', '/api/whatsapp-save', '/api/whatsapp-test', '/api/telegram-retry', '/api/whatsapp-retry'):
+                    with LOCK, connect() as db:
+                        if self.path == '/api/telegram-save':
+                            notifications.save_configuration(db, body)
+                        elif self.path.endswith('-retry'):
+                            notifications.retry_failed(db, 'whatsapp' if self.path.startswith('/api/whatsapp') else 'telegram')
+                        elif self.path == '/api/whatsapp-save':
+                            notifications.save_whatsapp(db, body)
+                        else:
+                            notifications.enqueue_test(db, 'whatsapp' if self.path == '/api/whatsapp-test' else 'telegram')
+                elif self.path.startswith('/api/user-'):
+                    if self.path not in ('/api/user-create', '/api/user-edit', '/api/user-delete'):
+                        raise ValueError('Unknown action')
+                    with LOCK, connect() as db:
+                        auth.manage_user(db, self.path.removeprefix('/api/'), body, user)
+                else:
+                    mutate(self.path.removeprefix('/api/'), body)
             self.send('{"ok":true}')
-        except (ValueError, KeyError, sqlite3.Error, OverflowError):
+        except (ValueError, KeyError, sqlite3.Error, OverflowError, TypeError):
             self.send('{"error":"Request rejected: check values and referenced records"}', status=400)
 
 
 if __name__ == '__main__':
     initialize()
     threading.Thread(target=poll_loop, daemon=True).start()
+    threading.Thread(target=notifications.worker, args=(connect, LOCK, host_is_up), daemon=True).start()
     print('Local monitor listening on port 8080', flush=True)
     ThreadingHTTPServer((os.environ.get('MONITOR_HOST', '0.0.0.0'), 8080), Handler).serve_forever()
