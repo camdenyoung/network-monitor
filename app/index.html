@@ -18,6 +18,9 @@
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
+    #message.success, .form-feedback.success { color: #64dfad; }
+    .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
+    button:disabled { opacity: 0.5; cursor: wait; }
     details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
     table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
@@ -38,10 +41,10 @@
   <details><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
     <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><button>Add device</button></form><div id="inventory"></div></section>
-    <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device"></select></label><label>Project alias<input name="alias" required maxlength="100"></label><label>Address<input name="address" required placeholder="192.168.1.10"></label><button>Assign device</button></form></section>
+    <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><label>Address<input name="address" required placeholder="192.168.1.10"></label><button>Assign device</button></form></section>
     <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03, unit 1, TCP port 502.</p>
       <form data-action="service">
-        <label>Assignment<select name="assignment" id="assignment"></select></label>
+        <label>Assignment<select name="assignment" id="assignment" required></select></label>
         <label>Service name<input name="name" required placeholder="RSSI"></label>
         <label>Protocol<select name="kind"><option value="snmp">SNMP v2c</option><option value="modbus">Modbus TCP</option><option value="tcp">TCP port reachability</option></select></label>
         <label>OID / register / port<input name="target" required></label>
@@ -75,12 +78,25 @@
       const response = await fetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      await refresh();
-      el('message').textContent = 'Saved.';
+      return result;
     }
 
     function options(rows, label) {
       return rows.map(row => `<option value="${row.id}">${escapeHtml(label(row))}</option>`).join('');
+    }
+
+    function updateOptions(id, rows, label, placeholder) {
+      const select = el(id);
+      const previous = select.value;
+      select.innerHTML = `<option value="">${placeholder}</option>` + options(rows, label);
+      // Keep unfinished form selections intact during background refreshes.
+      select.value = rows.some(row => String(row.id) === previous) ? previous : '';
+    }
+
+    function readingStatus(reading, assignment, run) {
+      if (!assignment.monitoring || run?.project !== assignment.project) return 'unknown';
+      if (!reading || Date.now() / 1000 - reading.timestamp > 60) return 'unknown';
+      return reading.status;
     }
 
     async function refresh() {
@@ -92,23 +108,24 @@
       el('project').innerHTML = options(state.projects, row => row.name);
       el('project').value = selectedProject;
       el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id : 'Monitoring paused';
-      el('device').innerHTML = options(state.devices, row => row.name + ' · ' + row.model);
+      updateOptions('device', state.devices, row => row.name + ' · ' + row.model, 'Select device…');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject);
-      // Preserve service-form selection while refreshing readings in the background.
-      const previousAssignment = el('assignment').value;
-      el('assignment').innerHTML = options(assignments, row => row.alias);
-      if (assignments.some(row => String(row.id) === previousAssignment)) el('assignment').value = previousAssignment;
+      updateOptions('assignment', assignments, row => row.alias, 'Select host…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       el('inventory').textContent = state.devices.map(row => row.name + ' (' + row.model + ')').join(' · ') || 'No equipment added.';
       el('dashboard').innerHTML = assignments.filter(row => row.visible).map(assignment => {
-        const services = state.services.filter(row => row.assignment === assignment.id);
+        const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
+        const hostReading = state.latest.find(row => row.service === hostCheck?.id);
+        const hostStatus = readingStatus(hostReading, assignment, run);
+        const hostLabel = hostStatus === 'healthy' ? 'Online' : hostStatus === 'unreachable' ? 'Offline' : 'Unknown / paused';
+        const hostDetails = hostReading ? `Last ping: ${date(hostReading.timestamp)}` : 'Awaiting first ping';
+        const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping');
         const metrics = services.map(service => {
           const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
-          const stale = !reading || Date.now() / 1000 - reading.timestamp > 60;
-          const status = !assignment.monitoring || !run || stale ? 'unknown' : reading.status;
+          const status = readingStatus(reading, assignment, run);
           return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-remove="${service.id}">Remove</button></div>`;
         }).join('');
-        return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(assignment.address)} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p>${metrics || '<p>No services configured.</p>'}</article>`;
+        return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(assignment.address)} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
       el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(row.address)}</td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
       el('incidents').innerHTML = state.incidents.filter(row => row.run === run?.id).map(row => {
@@ -118,22 +135,72 @@
       }).join('') || '<p>No incidents in the current deployment.</p>';
     }
 
-    function report(error) { el('message').textContent = error.message; }
-    document.querySelectorAll('form[data-action]').forEach(form => form.addEventListener('submit', async event => {
-      event.preventDefault();
-      const body = Object.fromEntries(new FormData(form));
-      if (form.dataset.action === 'assignment') body.project = selectedProject;
-      try { await request(form.dataset.action, body); } catch (error) { report(error); }
-    }));
+    function notify(message, success = false) {
+      el('message').textContent = message;
+      el('message').classList.toggle('success', success);
+    }
+
+    function report(error) { notify(error.message); }
+
+    const successMessages = {
+      project: 'Project added successfully.',
+      device: 'Inventory device added successfully.',
+      assignment: 'Host assigned successfully. Automatic ping monitoring is configured.',
+      service: 'Service added successfully.',
+      retention: 'Retention updated successfully.',
+    };
+
+    document.querySelectorAll('form[data-action]').forEach(form => {
+      // Inline feedback remains visible beside the form, even on a long page.
+      const feedback = document.createElement('output');
+      feedback.className = 'form-feedback';
+      feedback.setAttribute('role', 'status');
+      form.after(feedback);
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const action = form.dataset.action;
+        const body = Object.fromEntries(new FormData(form));
+        if (action === 'assignment') body.project = selectedProject;
+        const button = form.querySelector('button');
+        button.disabled = true;
+        feedback.textContent = '';
+        try {
+          await request(action, body);
+          // Reset only after a confirmed write; failed requests retain entered data.
+          if (action !== 'retention') form.reset();
+          feedback.textContent = successMessages[action];
+          feedback.classList.add('success');
+          notify(successMessages[action], true);
+          form.querySelector('input, select')?.focus();
+          try {
+            await refresh();
+          } catch (error) {
+            notify(successMessages[action] + ' Dashboard refresh failed; reload to see changes.');
+          }
+        } catch (error) {
+          feedback.textContent = error.message;
+          feedback.classList.remove('success');
+          report(error);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+
+    async function performAction(action, body) {
+      await request(action, body);
+      notify('Saved successfully.', true);
+      await refresh();
+    }
     el('project').onchange = () => { selectedProject = el('project').value; refresh().catch(report); };
-    el('activate').onclick = () => request('activate', {project: selectedProject}).catch(report);
-    el('pause').onclick = () => request('pause', {}).catch(report);
+    el('activate').onclick = () => performAction('activate', {project: selectedProject}).catch(report);
+    el('pause').onclick = () => performAction('pause', {}).catch(report);
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
       try {
-        if (data.toggle) await request('toggle', {id: data.toggle, field: data.field});
-        if (data.ack) await request('ack', {id: data.ack});
-        if (data.remove && confirm('Remove this service? Historical readings are retained.')) await request('remove-service', {id: data.remove});
+        if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
+        if (data.ack) await performAction('ack', {id: data.ack});
+        if (data.remove && confirm('Remove this service? Historical readings are retained.')) await performAction('remove-service', {id: data.remove});
         if (data.history) {
           const response = await fetch(`/api/history?service=${data.history}&run=${state.settings.active_run}`);
           const rows = await response.json();

@@ -24,6 +24,8 @@ Without Docker (Python 3.11+):
 MONITOR_DATA=./data MONITOR_HOST=127.0.0.1 python3 -m app.server
 ```
 
+Local host checks require the `ping` executable. Compose enables ICMP datagram
+sockets for the non-root container through `net.ipv4.ping_group_range`.
 Local SNMP polling additionally requires the net-snmp `snmpget` executable. It is
 installed in the container. The database backup uses Python's SQLite serialization
 support, which must be present in the local Python build.
@@ -33,7 +35,8 @@ support, which must be present in the local Python build.
 1. Expand inventory/configuration and create a project.
 2. Add permanent equipment, then assign it to the selected project with its alias
    and address. A device may appear in multiple saved projects.
-3. Add explicit services using verified OIDs or register addresses.
+3. Host ping is configured automatically on assignment. Add any additional services
+   using verified OIDs or register addresses.
 4. Activate the project. Activation creates a new deployment run and switches the
    sole active project. Pausing stops collection without deleting configuration.
 5. Read current metrics, recent readings, and incidents in the dashboard.
@@ -49,7 +52,10 @@ are independent; notification flags are currently stored only.
 - One active project, separate deployment runs, retained historical records.
 - Independent monitoring and visibility controls.
 - Bounded concurrent polling (24 workers), 15-second cycle delay.
-- Numeric SNMP v2c GET; TCP port reachability; basic Modbus TCP function 03.
+- Automatic ICMP host ping (including existing/restored assignments); numeric
+  SNMP v2c GET; TCP port reachability; basic Modbus TCP function 03.
+- Inline success confirmations and cleared add forms; failed submissions preserve
+  input and background refreshes preserve unfinished selections.
 - Warning/critical thresholds, two-reading persistence, incident recovery and local
   acknowledgement; unknown/stale status after 60 seconds without a reading.
 - Recent metric table (latest 200 readings per service/run), retention in days.
@@ -80,8 +86,9 @@ CLI recovery command and versioned encrypted archives remain planned.
 - Modbus TCP port 502/unit 1 only, unsigned 16-bit holding registers with scale.
   RTU/gateways, alternate unit IDs, signed/multi-register values, bitfields and
   manufacturer fault decoding are pending confirmation of the actual DRS interface.
-- TCP reachability is not ICMP host status. Explicit per-host reachability rollup,
-  ICMP support and paired-radio views are pending.
+- Host cards show ICMP online/offline/unknown independently of additional services.
+  Paired-radio views and a combined host/service health rollup remain pending.
+  Networks that block ICMP will show hosts as offline despite other services working.
 - Inventory/project creation and service removal are present; editing/removing
   devices/assignments, reusable profile management, cloning, and project readiness
   checks remain to be added.

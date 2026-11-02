@@ -4,6 +4,8 @@ Build a local-first equipment monitor for 100–150 network and power devices.
 The user requested readable, consistently indented code and explanatory comments.
 
 ## Requirements
+- Every assigned host gets automatic ICMP ping; no manually added service needed.
+- Successful add forms show inline confirmation and reset; errors preserve input.
 - Permanent inventory; reusable project assignments with per-project alias/address.
 - Exactly one active project. Each activation creates a deployment run; retain history.
 - Selected SNMP metrics and Mean Well DRS Modbus metrics, not exhaustive discovery.
@@ -30,3 +32,9 @@ Run locally with `MONITOR_DATA=./data python3 -m app.server`.
 Do not commit runtime data or secrets. Keep the relay/public exposure gated
 until authentication, encrypted transport, and replay-safe commands exist.
 See README.md for first-pass scope and limitations. Update it honestly.
+
+Automatic ping uses an internal non-removable service, sharing incident/history
+handling. `ensure_host_checks` backfills legacy assignments at startup and restore.
+GitHub repository: https://github.com/camdenyoung/network-monitor (public).
+Git HTTPS credentials are not configured locally; use the connected GitHub app
+for publishing if needed. Never upload runtime databases or secrets.

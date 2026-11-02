@@ -1,5 +1,5 @@
 FROM python:3.13-slim
-RUN apt-get update && apt-get install -y --no-install-recommends snmp && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends snmp iputils-ping && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv/monitor
 COPY app ./app
 RUN useradd --uid 10001 --create-home monitor && mkdir /data && chown monitor:monitor /data

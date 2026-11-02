@@ -7,6 +7,9 @@ services:
       - monitor-data:/data
     environment:
       MONITOR_DATA: /data
+    # Allow the non-root process to use Linux ICMP datagram sockets.
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
     restart: unless-stopped
     init: true
     healthcheck:

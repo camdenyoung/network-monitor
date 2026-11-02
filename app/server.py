@@ -7,6 +7,7 @@ import concurrent.futures
 import json
 import math
 import os
+import platform
 from pathlib import Path
 import socket
 import sqlite3
@@ -73,6 +74,22 @@ def initialize():
         ''')
         db.execute("INSERT OR IGNORE INTO settings VALUES ('retention_days','30')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
+        ensure_host_checks(db)
+
+
+def ensure_host_checks(db):
+    """Backfill built-in checks for existing assignments, including restored backups.
+
+    Store ping as an internal service so it shares history and incident handling.
+    Operators never need to create or remove this service themselves.
+    """
+    db.execute("""
+        INSERT INTO services (assignment, name, kind, target)
+        SELECT a.id, 'Host ping', 'ping', '' FROM assignments a
+        WHERE NOT EXISTS (
+            SELECT 1 FROM services s WHERE s.assignment=a.id AND s.kind='ping'
+        )
+    """)
 
 
 def setting(db, key):
@@ -104,6 +121,17 @@ def receive_exact(sock, length):
 def read_metric(service):
     """Read one explicit metric. TCP is reachability of a port, not ICMP ping."""
     host = service['address']
+    if service['kind'] == 'ping':
+        # Use a subprocess deadline as well as ping's platform-specific timeout.
+        # Reject option-like addresses; no shell is involved in any polling call.
+        if not host or host.startswith('-'):
+            raise ValueError('Invalid ping address')
+        wait = '2000' if platform.system() == 'Darwin' else '2'
+        subprocess.run(
+            ['ping', '-n', '-c', '1', '-W', wait, host],
+            capture_output=True, timeout=3, check=True,
+        )
+        return 1.0
     if service['kind'] == 'tcp':
         with socket.create_connection((host, int(service['target'])), timeout=2):
             return 1.0
@@ -213,6 +241,7 @@ def mutate(action, body):
         elif action == 'assignment':
             db.execute('INSERT INTO assignments(project,device,alias,address) VALUES(?,?,?,?)',
                        (int(body['project']), int(body['device']), body['alias'], body['address']))
+            ensure_host_checks(db)
         elif action == 'toggle':
             field = body['field']
             if field not in ('monitoring', 'visible', 'notifications'):
@@ -257,7 +286,7 @@ def mutate(action, body):
                  1, scale, body.get('units', ''), body['direction'], warning, critical))
         elif action == 'remove-service':
             # Preserve historical samples and incidents for removed services.
-            db.execute('DELETE FROM services WHERE id=?', (int(body['id']),))
+            db.execute("DELETE FROM services WHERE id=? AND kind!='ping'", (int(body['id']),))
         else:
             raise ValueError('Unknown action')
 
@@ -323,6 +352,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not required.issubset(tables):
                         raise ValueError('Incompatible backup')
                     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+                    ensure_host_checks(candidate)
                     candidate.commit()
                     with LOCK, connect() as destination:
                         candidate.backup(destination)

@@ -26,7 +26,7 @@ class MonitorTests(unittest.TestCase):
         })
         server.mutate('activate', {'project': 1})
         with server.connect() as db:
-            self.service = dict(db.execute('SELECT s.*,a.address FROM services s JOIN assignments a ON a.id=s.assignment').fetchone())
+            self.service = dict(db.execute("SELECT s.*,a.address FROM services s JOIN assignments a ON a.id=s.assignment WHERE s.kind='snmp'").fetchone())
 
     def tearDown(self):
         server.DB = self.previous_db
@@ -104,6 +104,51 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(len(state['projects']), 1)
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 1)
+
+    def host_service(self):
+        with server.connect() as db:
+            return dict(db.execute("""
+                SELECT s.*, a.address FROM services s
+                JOIN assignments a ON a.id=s.assignment WHERE s.kind='ping'
+            """).fetchone())
+
+    def test_host_ping_is_automatic_and_not_removable(self):
+        host = self.host_service()
+        server.mutate('remove-service', {'id': host['id']})
+        server.initialize()
+        checks = [row for row in server.snapshot()['services'] if row['kind'] == 'ping']
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0]['assignment'], 1)
+
+    def test_existing_assignment_gets_ping_on_upgrade(self):
+        with server.connect() as db:
+            db.execute("DELETE FROM services WHERE kind='ping'")
+        server.initialize()
+        self.assertEqual(self.host_service()['assignment'], 1)
+
+    def test_ping_success_and_failure_create_host_history_and_incident(self):
+        host = self.host_service()
+        with patch.object(server.subprocess, 'run') as run:
+            self.assertEqual(server.read_metric(host), 1)
+            self.assertEqual(run.call_args.args[0][-1], '127.0.0.1')
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incident = server.snapshot()['incidents'][0]
+        self.assertEqual(incident['service'], host['id'])
+        self.assertEqual(incident['status'], 'unreachable')
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        self.assertIsNotNone(server.snapshot()['incidents'][0]['closed'])
+
+    def test_option_like_ping_address_is_rejected(self):
+        host = self.host_service()
+        host['address'] = '-bad'
+        with patch.object(server.subprocess, 'run') as run:
+            with self.assertRaises(ValueError):
+                server.read_metric(host)
+            run.assert_not_called()
 
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):
