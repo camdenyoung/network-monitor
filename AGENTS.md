@@ -276,3 +276,8 @@ Activate / start new deployment opens a confirmation dialog with Continue and
 Cancel before sending any activation request. Explain that the new run starts a
 fresh current history/issue list while prior data remains stored. Resume continues
 a paused run. Capture the selected project on opening and retain errors in the dialog.
+
+Main dashboard live hosts have a top divider separating their controls from issue
+lists. Edit alias sits in the host heading beside Device ID - Alias in Cards and
+List views. List services use shared grid columns and fixed-width Pause/Resume
+and Actions controls so varying names, values and labels do not shift buttons.

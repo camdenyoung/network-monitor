@@ -50,8 +50,16 @@
     .host-list .host-row > td { vertical-align: top; background: var(--host-surface); border: 1px solid var(--host-border); border-left-width: 0; border-right-width: 0; padding: 16px; }
     .host-list .host-row > td:first-child { border-left-width: 1px; border-radius: 10px 0 0 10px; }
     .host-list .host-row > td:last-child { border-right-width: 1px; border-radius: 0 10px 10px 0; }
-    .host-list .metric { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 0; }
-    .host-list .metric-header { flex: 1; }
+    /* Shared columns keep controls aligned despite different names and values. */
+    .host-list .metric { display: grid; grid-template-columns: minmax(130px, 1fr) 164px 90px 150px; align-items: center; gap: 12px; min-width: 570px; padding: 7px 0; }
+    .host-list .metric-header { display: contents; }
+    .host-list .service-controls { display: grid; grid-template-columns: 70px 88px; align-items: start; gap: 6px; }
+    .host-list .service-controls > button, .host-list .action-menu > summary { box-sizing: border-box; margin: 0; padding: 5px 8px; font-size: 13px; line-height: 20px; }
+    .host-list .metric-header > button { margin: 0; }
+    #live-status-panel { border-top: 1px solid #435b78; margin-top: 24px; padding-top: 12px; }
+    .host-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .host-heading h2 { margin: 0; }
+    .host-heading > button { flex-shrink: 0; font-size: 13px; padding: 4px 8px; }
     .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
     .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
@@ -602,15 +610,15 @@
         }).join('');
         if (hostView === 'list') {
           return `<tr class="host-row ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}">
-            <td><strong>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</strong>
+            <td><div class="host-heading"><strong>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</strong>
+              <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>
               <p>${escapeHtml(device?.address || 'IP required')}</p>
-              ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}
-              <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></td>
+              ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}</td>
             <td><span class="${hostStatus}">${hostLabel}</span><p><small>${hostDetails}</small></p></td>
             ${showServices ? `<td>${metrics || 'No additional services configured.'}</td>` : ''}
           </tr>`;
         }
-        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
+        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><div class="host-heading"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
       }).join('');
       el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
       el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
