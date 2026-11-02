@@ -40,8 +40,16 @@
   <section><h2>Incidents</h2><div id="incidents"></div></section>
   <details><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
-    <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><button>Add device</button></form><div id="inventory"></div></section>
-    <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><label>Address<input name="address" required placeholder="192.168.1.10"></label><button>Assign device</button></form></section>
+    <section><h2>Permanent inventory</h2><form data-action="device"><label>Device ID<input name="name" required maxlength="100"></label><label>Model<input name="model" maxlength="100"></label><label>IP address<input name="address" required placeholder="192.168.1.10"></label><button>Add device</button></form><div id="inventory"></div></section>
+    <section><h2>Update inventory IP</h2>
+      <p>Changing an inventory IP applies to every project using that device.</p>
+      <form data-action="device-address">
+        <label>Device<select name="device" id="address-device" required></select></label>
+        <label>New IP address<input name="address" required placeholder="192.168.1.10"></label>
+        <button>Update IP</button>
+      </form>
+    </section>
+    <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
     <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03, unit 1, TCP port 502.</p>
       <form data-action="service">
         <label>Assignment<select name="assignment" id="assignment" required></select></label>
@@ -108,15 +116,25 @@
       el('project').innerHTML = options(state.projects, row => row.name);
       el('project').value = selectedProject;
       el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id : 'Monitoring paused';
-      updateOptions('device', state.devices, row => row.name + ' · ' + row.model, 'Select device…');
+      const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
+      updateOptions('device', state.devices, deviceLabel, 'Select device…');
+      updateOptions('address-device', state.devices, deviceLabel, 'Select device…');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject);
       updateOptions('assignment', assignments, row => row.alias, 'Select host…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
-      el('inventory').textContent = state.devices.map(row => row.name + ' (' + row.model + ')').join(' · ') || 'No equipment added.';
+      el('inventory').innerHTML = state.devices.map(device => {
+        const legacy = (state.legacy_addresses || []).filter(row => row.device === device.id);
+        const addresses = [...new Set(legacy.map(row => row.address).filter(Boolean))];
+        const review = !device.address && addresses.length
+          ? ` · Select the correct IP below. Previous project addresses: ${addresses.map(escapeHtml).join(', ')}`
+          : '';
+        return `<p><strong>${escapeHtml(device.name)}</strong> · ${escapeHtml(device.model)} · ${escapeHtml(device.address || 'IP required; monitoring paused')}${review}</p>`;
+      }).join('') || 'No equipment added.';
       el('dashboard').innerHTML = assignments.filter(row => row.visible).map(assignment => {
+        const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
         const hostReading = state.latest.find(row => row.service === hostCheck?.id);
-        const hostStatus = readingStatus(hostReading, assignment, run);
+        const hostStatus = device?.address ? readingStatus(hostReading, assignment, run) : 'unknown';
         const hostLabel = hostStatus === 'healthy' ? 'Online' : hostStatus === 'unreachable' ? 'Offline' : 'Unknown / paused';
         const hostDetails = hostReading ? `Last ping: ${date(hostReading.timestamp)}` : 'Awaiting first ping';
         const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping');
@@ -125,9 +143,9 @@
           const status = readingStatus(reading, assignment, run);
           return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-remove="${service.id}">Remove</button></div>`;
         }).join('');
-        return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(assignment.address)} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
+        return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
-      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(row.address)}</td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
+      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')}</td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
       el('incidents').innerHTML = state.incidents.filter(row => row.run === run?.id).map(row => {
         const service = state.services.find(service => service.id === row.service);
         const assignment = state.assignments.find(assignment => assignment.id === service?.assignment);
@@ -145,6 +163,7 @@
     const successMessages = {
       project: 'Project added successfully.',
       device: 'Inventory device added successfully.',
+      'device-address': 'Inventory IP updated successfully for all projects.',
       assignment: 'Host assigned successfully. Automatic ping monitoring is configured.',
       service: 'Service added successfully.',
       retention: 'Retention updated successfully.',

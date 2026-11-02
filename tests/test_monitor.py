@@ -16,9 +16,9 @@ class MonitorTests(unittest.TestCase):
         server.DB = Path(self.directory.name) / 'test.sqlite3'
         server.initialize()
         server.mutate('project', {'name': 'Festival'})
-        server.mutate('device', {'name': 'MW-014', 'model': 'Siklu'})
+        server.mutate('device', {'name': 'MW-014', 'model': 'Siklu', 'address': '127.0.0.1'})
         server.mutate('assignment', {
-            'project': 1, 'device': 1, 'alias': 'Stage link', 'address': '127.0.0.1',
+            'project': 1, 'device': 1, 'alias': 'Stage link',
         })
         server.mutate('service', {
             'assignment': 1, 'name': 'RSSI', 'kind': 'snmp', 'target': '.1.2.3',
@@ -26,7 +26,7 @@ class MonitorTests(unittest.TestCase):
         })
         server.mutate('activate', {'project': 1})
         with server.connect() as db:
-            self.service = dict(db.execute("SELECT s.*,a.address FROM services s JOIN assignments a ON a.id=s.assignment WHERE s.kind='snmp'").fetchone())
+            self.service = dict(db.execute("SELECT s.*,d.address FROM services s JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device WHERE s.kind='snmp'").fetchone())
 
     def tearDown(self):
         server.DB = self.previous_db
@@ -108,8 +108,9 @@ class MonitorTests(unittest.TestCase):
     def host_service(self):
         with server.connect() as db:
             return dict(db.execute("""
-                SELECT s.*, a.address FROM services s
-                JOIN assignments a ON a.id=s.assignment WHERE s.kind='ping'
+                SELECT s.*, d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment
+                JOIN devices d ON d.id=a.device WHERE s.kind='ping'
             """).fetchone())
 
     def test_host_ping_is_automatic_and_not_removable(self):
@@ -149,6 +150,60 @@ class MonitorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 server.read_metric(host)
             run.assert_not_called()
+
+    def test_inventory_address_applies_to_all_projects(self):
+        server.mutate('project', {'name': 'Motorsport'})
+        server.mutate('assignment', {'project': 2, 'device': 1, 'alias': 'Timing link'})
+        server.mutate('device-address', {'device': 1, 'address': '192.168.1.25'})
+        state = server.snapshot()
+        self.assertEqual(state['devices'][0]['address'], '192.168.1.25')
+        self.assertEqual(len(state['assignments']), 2)
+        self.assertTrue(all('address' not in row for row in state['assignments']))
+        self.assertEqual(self.host_service()['address'], '192.168.1.25')
+
+    def test_in_flight_reading_from_previous_inventory_ip_is_discarded(self):
+        server.mutate('device-address', {'device': 1, 'address': '192.168.1.25'})
+        self.poll(-50)
+        self.assertEqual(server.snapshot()['latest'], [])
+
+    def test_inventory_requires_valid_ip(self):
+        with self.assertRaises(ValueError):
+            server.mutate('device', {'name': 'Bad IP', 'address': '-invalid'})
+
+    def legacy_database(self, addresses):
+        """Create the old schema shape to exercise upgrade and restored backups."""
+        db = sqlite3.connect(':memory:')
+        db.executescript("""
+            CREATE TABLE devices (id INTEGER PRIMARY KEY, name TEXT, model TEXT);
+            CREATE TABLE assignments (
+                id INTEGER PRIMARY KEY, device INTEGER, address TEXT NOT NULL
+            );
+            INSERT INTO devices VALUES(1, 'Radio', 'Siklu');
+        """)
+        db.executemany('INSERT INTO assignments(device,address) VALUES(1,?)',
+                       [(address,) for address in addresses])
+        return db
+
+    def test_legacy_addresses_migrate_idempotently(self):
+        db = self.legacy_database(['192.168.1.10', '192.168.1.10'])
+        try:
+            server.migrate_inventory_addresses(db)
+            server.migrate_inventory_addresses(db)
+            self.assertEqual(db.execute('SELECT address FROM devices').fetchone()[0],
+                             '192.168.1.10')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM legacy_assignment_addresses').fetchone()[0], 2)
+            self.assertNotIn('address', [row[1] for row in db.execute('PRAGMA table_info(assignments)')])
+        finally:
+            db.close()
+
+    def test_conflicting_legacy_addresses_are_preserved_for_review(self):
+        db = self.legacy_database(['192.168.1.10', '192.168.2.10'])
+        try:
+            server.migrate_inventory_addresses(db)
+            self.assertEqual(db.execute('SELECT address FROM devices').fetchone()[0], '')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM legacy_assignment_addresses').fetchone()[0], 2)
+        finally:
+            db.close()
 
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):

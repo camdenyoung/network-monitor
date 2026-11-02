@@ -6,7 +6,8 @@ The user requested readable, consistently indented code and explanatory comments
 ## Requirements
 - Every assigned host gets automatic ICMP ping; no manually added service needed.
 - Successful add forms show inline confirmation and reset; errors preserve input.
-- Permanent inventory; reusable project assignments with per-project alias/address.
+- Permanent inventory; reusable project assignments with per-project aliases.
+- IP addresses belong to inventory devices and are shared across all projects.
 - Exactly one active project. Each activation creates a deployment run; retain history.
 - Selected SNMP metrics and Mean Well DRS Modbus metrics, not exhaustive discovery.
 - Warning/critical thresholds, persistence, recovery, acknowledgement, retention.
@@ -41,3 +42,8 @@ for publishing if needed. Never upload runtime databases or secrets.
 
 Compose host address/port use MONITOR_BIND and MONITOR_PORT in a gitignored
 .env file. Keep the container port and health check on 8080. Maintain .env.example.
+
+`migrate_inventory_addresses` moves old assignment addresses to inventory on startup
+and restore. Conflicts are preserved in legacy_assignment_addresses; no address
+is chosen automatically and those devices are not polled until configured.
+SQLite >=3.35 is required for the migration. Do not restore project-specific IPs.

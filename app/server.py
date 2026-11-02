@@ -5,6 +5,7 @@ trusted machine until the authenticated relay and user accounts are implemented.
 """
 import concurrent.futures
 import json
+import ipaddress
 import math
 import os
 import platform
@@ -47,11 +48,11 @@ def initialize():
                 id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
             CREATE TABLE IF NOT EXISTS devices (
                 id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
-                model TEXT NOT NULL DEFAULT '');
+                model TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS assignments (
                 id INTEGER PRIMARY KEY, project INTEGER REFERENCES projects(id),
                 device INTEGER REFERENCES devices(id), alias TEXT NOT NULL,
-                address TEXT NOT NULL, monitoring INTEGER DEFAULT 1,
+                monitoring INTEGER DEFAULT 1,
                 visible INTEGER DEFAULT 1, notifications INTEGER DEFAULT 1,
                 UNIQUE(project, device));
             CREATE TABLE IF NOT EXISTS services (
@@ -74,7 +75,47 @@ def initialize():
         ''')
         db.execute("INSERT OR IGNORE INTO settings VALUES ('retention_days','30')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
+        migrate_inventory_addresses(db)
         ensure_host_checks(db)
+
+
+def migrate_inventory_addresses(db):
+    """Move legacy project addresses onto equipment without guessing conflicts.
+
+    Preserve all old values for review. If projects disagree on an address, leave
+    the device unconfigured until the operator chooses its correct inventory IP.
+    This migration runs at startup and when restoring an older backup.
+    """
+    columns = {row[1] for row in db.execute('PRAGMA table_info(devices)')}
+    if 'address' not in columns:
+        db.execute("ALTER TABLE devices ADD COLUMN address TEXT NOT NULL DEFAULT ''")
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS legacy_assignment_addresses (
+            assignment INTEGER PRIMARY KEY, device INTEGER, address TEXT NOT NULL
+        )
+    """)
+    assignment_columns = {row[1] for row in db.execute('PRAGMA table_info(assignments)')}
+    if 'address' not in assignment_columns:
+        return
+    db.execute("""
+        INSERT OR IGNORE INTO legacy_assignment_addresses
+        SELECT id, device, address FROM assignments
+    """)
+    db.execute("""
+        UPDATE devices SET address=(
+            SELECT MIN(TRIM(a.address)) FROM assignments a
+            WHERE a.device=devices.id AND TRIM(a.address)!=''
+        ) WHERE address='' AND (
+            SELECT COUNT(DISTINCT TRIM(a.address)) FROM assignments a
+            WHERE a.device=devices.id AND TRIM(a.address)!=''
+        )=1
+    """)
+    db.execute('ALTER TABLE assignments DROP COLUMN address')
+
+
+def inventory_address(value):
+    """Inventory records require an IPv4 or IPv6 literal, not command options."""
+    return str(ipaddress.ip_address(value.strip()))
 
 
 def ensure_host_checks(db):
@@ -178,6 +219,16 @@ def poll_one(service, run):
         # Discard in-flight results when the operator changes projects or restores.
         if setting(db, 'active_run') != str(run):
             return
+        current = db.execute("""
+            SELECT d.address FROM services s
+            JOIN assignments a ON a.id=s.assignment
+            JOIN devices d ON d.id=a.device
+            JOIN runs r ON r.project=a.project
+            WHERE s.id=? AND r.id=? AND a.monitoring=1
+        """, (service['id'], run)).fetchone()
+        # Ignore reads made against an old address while an inventory edit was saved.
+        if current is None or current['address'] != service['address']:
+            return
         db.execute('INSERT INTO samples(run,service,timestamp,value,status,error) VALUES(?,?,?,?,?,?)',
                    (run, service['id'], time.time(), value, status, error))
         recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT ?',
@@ -202,9 +253,11 @@ def poll_loop():
                 with LOCK, connect() as db:
                     run = int(setting(db, 'active_run'))
                     services = [dict(row) for row in db.execute('''
-                        SELECT s.*, a.address FROM services s
-                        JOIN assignments a ON a.id=s.assignment JOIN runs r ON r.project=a.project
-                        WHERE r.id=? AND a.monitoring=1''', (run,))]
+                        SELECT s.*, d.address FROM services s
+                        JOIN assignments a ON a.id=s.assignment
+                        JOIN devices d ON d.id=a.device
+                        JOIN runs r ON r.project=a.project
+                        WHERE r.id=? AND a.monitoring=1 AND d.address!='' ''', (run,))]
                     cutoff = time.time() - int(setting(db, 'retention_days')) * 86400
                     db.execute('DELETE FROM samples WHERE timestamp<?', (cutoff,))
                 list(pool.map(lambda service: poll_one(service, run), services))
@@ -218,6 +271,8 @@ def snapshot():
     with LOCK, connect() as db:
         result = {table: [dict(row) for row in db.execute('SELECT * FROM ' + table)]
                   for table in ('projects', 'devices', 'assignments', 'runs')}
+        result['legacy_addresses'] = [dict(row) for row in db.execute(
+            'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
             SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence
@@ -237,10 +292,14 @@ def mutate(action, body):
         if action == 'project':
             db.execute('INSERT INTO projects(name) VALUES(?)', (body['name'],))
         elif action == 'device':
-            db.execute('INSERT INTO devices(name,model) VALUES(?,?)', (body['name'], body.get('model', '')))
+            db.execute('INSERT INTO devices(name,model,address) VALUES(?,?,?)',
+                       (body['name'], body.get('model', ''), inventory_address(body['address'])))
+        elif action == 'device-address':
+            db.execute('UPDATE devices SET address=? WHERE id=?',
+                       (inventory_address(body['address']), int(body['device'])))
         elif action == 'assignment':
-            db.execute('INSERT INTO assignments(project,device,alias,address) VALUES(?,?,?,?)',
-                       (int(body['project']), int(body['device']), body['alias'], body['address']))
+            db.execute('INSERT INTO assignments(project,device,alias) VALUES(?,?,?)',
+                       (int(body['project']), int(body['device']), body['alias']))
             ensure_host_checks(db)
         elif action == 'toggle':
             field = body['field']
@@ -352,6 +411,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not required.issubset(tables):
                         raise ValueError('Incompatible backup')
                     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+                    migrate_inventory_addresses(candidate)
                     ensure_host_checks(candidate)
                     candidate.commit()
                     with LOCK, connect() as destination:

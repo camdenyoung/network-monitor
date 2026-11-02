@@ -44,8 +44,9 @@ support, which must be present in the local Python build.
 ## Initial workflow
 
 1. Expand inventory/configuration and create a project.
-2. Add permanent equipment, then assign it to the selected project with its alias
-   and address. A device may appear in multiple saved projects.
+2. Add permanent equipment with its IP address, then assign it to the selected
+   project with its project-specific alias. The IP belongs to inventory and is
+   shared by every project; change it using the inventory IP update form. A device may appear in multiple saved projects.
 3. Host ping is configured automatically on assignment. Add any additional services
    using verified OIDs or register addresses.
 4. Activate the project. Activation creates a new deployment run and switches the
@@ -59,7 +60,8 @@ are independent; notification flags are currently stored only.
 
 ## Implemented
 
-- Permanent inventory and saved project assignments, per-project alias/address.
+- Permanent inventory with a shared device IP; saved project assignments with
+  per-project aliases. Inventory IP edits apply to all projects.
 - One active project, separate deployment runs, retained historical records.
 - Independent monitoring and visibility controls.
 - Bounded concurrent polling (24 workers), 15-second cycle delay.
@@ -80,7 +82,13 @@ monitoring continues. The file includes credentials in plaintext: protect it as 
 secret. Copy backups off the monitoring server. Restore accepts this application's
 SQLite backup, checks database integrity/table presence, replaces the database,
 and sets monitoring to paused. Download a backup before replacing current state.
-The current file format is development-only, without migration/version guarantees.
+Older backups with assignment addresses migrate during restore (and existing
+databases migrate on startup). Matching addresses move to inventory automatically.
+Conflicting addresses are preserved in `legacy_assignment_addresses` and shown in
+inventory; the device stays unconfigured and is not polled until an IP is selected.
+This migration requires SQLite 3.35 or newer (included in the Docker image).
+The current file format remains development-only, without general migration/version
+guarantees. Take a backup before upgrading.
 
 For recovery without a working UI: stop the container, use a temporary container
 mounting the same named volume to replace `/data/monitor.sqlite3` with a validated
@@ -101,7 +109,7 @@ CLI recovery command and versioned encrypted archives remain planned.
   Paired-radio views and a combined host/service health rollup remain pending.
   Networks that block ICMP will show hosts as offline despite other services working.
 - Inventory/project creation and service removal are present; editing/removing
-  devices/assignments, reusable profile management, cloning, and project readiness
+  devices/assignments beyond inventory IP edits, reusable profile management, cloning, and project readiness
   checks remain to be added.
 - No graphs or historical run selector yet; data remains in the database.
 - No hysteresis, dependencies, maintenance windows, configurable polling intervals,
