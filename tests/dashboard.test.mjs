@@ -573,7 +573,7 @@ assert.equal(publicNodes.get('status-session-link').textContent, 'Sign in');
 publicData.viewer = {username:'operator',role:'operator',must_change_password:false};
 await sortedPublic.refresh();
 assert.equal(publicNodes.get('status-session').textContent, 'Signed in: operator · Operator');
-assert.equal(publicNodes.get('status-session-link').textContent, 'Dashboard');
+assert.equal(publicNodes.get('status-session-link').textContent, 'Admin Dashboard');
 publicData.viewer.must_change_password = true;
 await sortedPublic.refresh();
 assert.equal(publicNodes.get('status-session-link').textContent, 'Change password');

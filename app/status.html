@@ -246,7 +246,7 @@
         document.getElementById('status-session').textContent = viewer
           ? 'Signed in: ' + (viewer.full_name || viewer.username) + ' · ' + (roles[viewer.role] || viewer.role) : 'Not signed in';
         const sessionLink = document.getElementById('status-session-link');
-        sessionLink.textContent = viewer ? (viewer.must_change_password ? 'Change password' : 'Dashboard') : 'Sign in';
+        sessionLink.textContent = viewer ? (viewer.must_change_password ? 'Change password' : 'Admin Dashboard') : 'Sign in';
         sessionLink.setAttribute('href', viewer && !viewer.must_change_password ? '/' : '/login');
         document.getElementById('status-ack-note').hidden = !data.acknowledge_enabled || data.can_acknowledge;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
