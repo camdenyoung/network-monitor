@@ -240,3 +240,6 @@ of acknowledgement remains authoritative, even after profile changes/deletion.
 Status dashboard host display controls (Cards/List, sorting, services and filters)
 sit immediately above hosts, below issue lists, and hide when hosts are hidden.
 The Show/Hide hosts button stays accessible above the issue lists.
+
+The status Show/Hide hosts button sets aria-pressed to host visibility so the
+shared active background follows toggles and restored browser preferences.

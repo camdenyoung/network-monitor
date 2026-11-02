@@ -78,7 +78,7 @@
   <p id="summary" role="status"></p>
   <div class="display-controls" role="group" aria-label="Status section visibility">
     <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false" aria-pressed="false">Show acknowledged issues</button>
-    <button id="toggle-hosts" aria-controls="devices host-controls" aria-expanded="true">Hide host cards</button>
+    <button id="toggle-hosts" aria-controls="devices host-controls" aria-expanded="true" aria-pressed="true">Hide host cards</button>
   </div>
   <section aria-labelledby="incidents-title">
     <h2 id="incidents-title">Active issues</h2>
@@ -149,6 +149,7 @@
       const button = document.getElementById('toggle-hosts');
       button.textContent = (showHosts ? 'Hide host ' : 'Show host ') + (hostView === 'list' ? 'list' : 'cards');
       button.setAttribute('aria-expanded', String(showHosts));
+      button.setAttribute('aria-pressed', String(showHosts));
     }
     document.getElementById('toggle-hosts').onclick = () => {
       showHosts = !showHosts;
