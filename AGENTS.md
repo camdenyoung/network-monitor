@@ -23,6 +23,9 @@ The user requested readable, consistently indented code and explanatory comments
   users, all configuration, acknowledgements and backups. Viewers inspect only.
 - First-run admin password is generated in /data/initial-admin-password.txt or supplied
   via MONITOR_ADMIN_PASSWORD; require change on first login. Never commit defaults.
+- Public /status overview shows active incidents above host cards. Reuse dependency-
+  aware active incidents, excluding acknowledged/resolved/suppressed faults and
+  hidden, paused or inactive equipment. Allowlist display fields only.
 - Public /status overview needs no login; allowlist active/visible status and values
   without IP addresses, OIDs, credentials, user data or other project inventory.
 - Telegram group notifications and optional WhatsApp Business Cloud API templates.

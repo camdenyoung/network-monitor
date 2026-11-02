@@ -308,6 +308,57 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIsNotNone(token)
 
+    def test_public_incidents_are_allowlisted_and_acknowledgement_removes_them(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        public = json.loads(self.request('/api/status')['content'])
+        self.assertEqual(len(public['incidents']), 1)
+        incident = public['incidents'][0]
+        self.assertEqual(incident['device'], 'Switch-1')
+        self.assertEqual(incident['alias'], 'Stage switch')
+        self.assertEqual(set(incident), {'device', 'alias', 'service', 'status', 'opened'})
+        incident_id = server.snapshot()['incident_lists']['active'][0]['id']
+        server.mutate('ack', {'id': incident_id})
+        self.assertEqual(json.loads(self.request('/api/status')['content'])['incidents'], [])
+
+    def test_public_incidents_exclude_hidden_paused_and_inactive_equipment(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        for field in ('visible', 'monitoring'):
+            server.mutate('toggle', {'id': 1, 'field': field})
+            self.assertEqual(server.status_overview()['incidents'], [])
+            server.mutate('toggle', {'id': 1, 'field': field})
+        server.mutate('project', {'name': 'Other deployment'})
+        server.mutate('activate', {'project': 2})
+        self.assertEqual(server.status_overview()['incidents'], [])
+        server.mutate('pause', {})
+        self.assertEqual(server.status_overview()['incidents'], [])
+
+    def test_public_incidents_respect_host_dependency_suppression(self):
+        host = self.create_host()
+        server.mutate('service', {'assignment': 1, 'name': 'Temperature', 'kind': 'snmp',
+            'target': '.1.2.3', 'direction': 'above', 'warning': '80', 'critical': '90'})
+        with server.connect() as db:
+            child = dict(db.execute("""SELECT s.*,d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+                WHERE s.kind='snmp'""").fetchone())
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+        with patch.object(server, 'read_metric', return_value=95):
+            server.poll_one(child, 1)
+            server.poll_one(child, 1)
+        self.assertEqual(server.status_overview()['incidents'][0]['service'], 'Temperature')
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        incidents = server.status_overview()['incidents']
+        self.assertEqual(len(incidents), 1)
+        self.assertEqual(incidents[0]['service'], 'Host ping')
+
     def test_provider_payloads_use_group_id_and_three_whatsapp_parameters(self):
         self.configure_channels()
         captured = []

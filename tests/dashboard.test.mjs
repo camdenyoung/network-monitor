@@ -110,3 +110,31 @@ context.historyView(false);
 assert.equal(element('history-graph').hidden, true);
 assert.equal(element('readings').hidden, false);
 console.log('Dashboard smoke tests passed: cards, menus, alias/state editors, dependency display, graphs and gaps.');
+
+// The anonymous overview must render active incidents before equipment cards,
+// while escaping operator-controlled names and providing an empty state.
+const statusPage = await readFile(new URL('../app/status.html', import.meta.url), 'utf8');
+assert.ok(statusPage.indexOf('id="incidents"') < statusPage.indexOf('id="devices"'));
+const publicNodes = new Map();
+const publicData = {
+    project: 'Deployment', updated: now,
+    devices: [{ name: 'SW001', alias: 'Stage', status: 'unreachable', services: [] }],
+    incidents: [{ device: 'SW001', alias: '<img src=x>', service: 'Host ping', status: 'unreachable', opened: now }],
+};
+const publicContext = vm.createContext({
+    document: { getElementById(id) {
+        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '' });
+        return publicNodes.get(id);
+    } },
+    fetch: async () => ({ ok: true, json: async () => publicData }),
+    setInterval() {},
+});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(publicContext);
+await publicContext.refresh();
+assert.match(publicNodes.get('incidents').innerHTML, /Host ping/);
+assert.match(publicNodes.get('incidents').innerHTML, /Offline/);
+assert.doesNotMatch(publicNodes.get('incidents').innerHTML, /<img/);
+publicData.incidents = [];
+await publicContext.refresh();
+assert.match(publicNodes.get('incidents').innerHTML, /No active incidents/);
+console.log('Public incident overview smoke tests passed.');

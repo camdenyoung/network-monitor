@@ -65,8 +65,9 @@ password. User edits, password resets and deletion revoke that user's sessions.
 Sessions last 12 hours, use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
 
-The public `/status` dashboard shows only the active project's visible hosts and
-current service values. It excludes IP addresses, credentials, OIDs, inventory of
+The public `/status` dashboard shows active incidents above the active project's visible hosts and
+current service values. Incidents for hidden, paused or inactive equipment are
+excluded, as are acknowledged, resolved and dependency-suppressed incidents. It excludes IP addresses, credentials, OIDs, inventory of
 other projects, history, user accounts, and configuration. It is available locally
 without login; this does not create the future public-facing relay.
 

@@ -699,7 +699,7 @@ def status_overview():
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
-        return {'project': None, 'devices': [], 'updated': time.time()}
+        return {'project': None, 'devices': [], 'incidents': [], 'updated': time.time()}
     project = next(row for row in data['projects'] if row['id'] == run['project'])
     devices = {row['id']: row for row in data['devices']}
     latest = {row['service']: row for row in data['latest']}
@@ -725,7 +725,22 @@ def status_overview():
                 'units': service['units'] if service['value_type'] == 'metric' else ''})
         output.append({'name': device['name'], 'alias': assignment['alias'],
                        'status': host_status, 'services': children})
-    return {'project': project['name'], 'devices': output, 'updated': time.time()}
+    # Reuse dependency-aware active incidents, then allowlist only displayed hosts.
+    # Acknowledged/resolved/suppressed incidents and hidden equipment stay private.
+    assignments = {row['id']: row for row in data['assignments']
+                   if row['project'] == run['project'] and row['visible'] and row['monitoring']}
+    services = {row['id']: row for row in data['services'] if row['enabled']}
+    incidents = []
+    for incident in data['incident_lists']['active']:
+        service = services.get(incident['service'])
+        assignment = assignments.get(service['assignment']) if service else None
+        if assignment is None:
+            continue
+        incidents.append({'device': devices[assignment['device']]['name'],
+            'alias': assignment['alias'], 'service': service['name'],
+            'status': incident['status'], 'opened': incident['opened']})
+    return {'project': project['name'], 'devices': output,
+            'incidents': incidents, 'updated': time.time()}
 
 
 class Handler(BaseHTTPRequestHandler):

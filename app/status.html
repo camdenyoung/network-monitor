@@ -35,7 +35,12 @@
   </style></head>
 <body>
   <header><div><h1>Network status</h1><p id="project">Loading…</p></div><a href="/">Sign in / dashboard</a></header>
-  <p id="summary" role="status"></p><div id="devices" class="grid"></div><p id="updated"></p>
+  <p id="summary" role="status"></p>
+  <section aria-labelledby="incidents-title">
+    <h2 id="incidents-title">Active incidents</h2>
+    <div id="incidents" aria-live="polite"></div>
+  </section>
+  <div id="devices" class="grid"></div><p id="updated"></p>
   <script>
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed'};
@@ -47,6 +52,12 @@
         document.getElementById('project').textContent = data.project || 'Monitoring paused';
         const online = data.devices.filter(device => device.status === 'healthy').length;
         document.getElementById('summary').textContent = `${online} of ${data.devices.length} displayed hosts online`;
+        document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
+          <div class="metric">
+            <strong class="${escape(incident.status)}">${escape(labels[incident.status] || incident.status)}</strong>
+            · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
+            <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
+          </div>`).join('') || '<p>No active incidents.</p>';
         document.getElementById('devices').innerHTML = data.devices.map(device => `<article><h2>${escape(device.name)} - ${escape(device.alias)}</h2><p class="${escape(device.status)}">${escape(labels[device.status] || device.status)}</p>${device.services.map(service => `<div class="metric"><strong>${escape(service.name)}</strong><p class="${escape(service.status)}">${escape(service.value ?? labels[service.status] ?? service.status)} ${escape(service.units)} · ${escape(service.status)}</p></div>`).join('')}</article>`).join('') || '<section>No active equipment to display.</section>';
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
       } catch (error) {
