@@ -1,9 +1,16 @@
-# Network Monitor v0.1.2
+# Network Monitor v0.1.3
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Release notes
+
+### v0.1.3
+
+- Return users to the dashboard where sign-in started, including after required password changes.
+- Restrict login return destinations to the local Status and Admin dashboards.
+- Added Admin-configurable session duration under User management → Login sessions (1–168 hours, default 12).
+- Apply session-duration changes to new sign-ins, keeping existing session expiry unchanged.
 
 ### v0.1.2
 
