@@ -57,11 +57,13 @@
     .display-controls button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     /* Keep this space even when the image is hidden, preventing selector shifts. */
-    .project-toolbar { justify-content: flex-start; }
+    .project-toolbar { justify-content: flex-start; align-items: flex-end; }
+    .project-toolbar > small { flex: 0 0 100%; }
     .project-logo-slot { flex: 0 0 180px; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
     .project-selector { flex: 1 1 240px; max-width: 360px; min-width: 0; }
     .project-selector select { width: 100%; box-sizing: border-box; }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
+    .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
     button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
@@ -69,7 +71,7 @@
 </head>
 <body data-role="viewer">
   <header><div><h1>Field Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
-  <nav class="toolbar"><span id="signed-in"></span><a class="button-link" href="/status" target="_blank">Public overview</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
+  <nav class="toolbar"><span id="signed-in" class="user-badge"></span><a class="button-link" href="/status" target="_blank">Public overview</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
   <p id="message" role="status"></p>
   <section class="toolbar project-toolbar">
     <div class="project-logo-slot">
@@ -91,6 +93,7 @@
   <div class="display-controls" role="group" aria-label="Host display options">
     <button id="view-cards" aria-pressed="true">Cards</button>
     <button id="view-list" aria-pressed="false">List</button>
+    <button id="toggle-services" aria-pressed="true">Hide services</button>
     <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
     <datalist id="service-filter-options"></datalist>
     <button id="clear-service-filter">All services</button>
@@ -361,8 +364,10 @@
     }
 
     let hostView = 'cards';
+    let showServices = true;
     let serviceFilter = '';
     try {
+      showServices = localStorage.getItem('field-monitor.main.hide-services') !== 'true';
       hostView = localStorage.getItem('field-monitor.main.host-view') === 'list' ? 'list' : 'cards';
       serviceFilter = (localStorage.getItem('field-monitor.main.service-filter') || '').slice(0, 100);
     } catch (error) { /* Controls work without browser storage. */ }
@@ -373,11 +378,13 @@
 
     function saveHostDisplay() {
       try {
+        localStorage.setItem('field-monitor.main.hide-services', String(!showServices));
         localStorage.setItem('field-monitor.main.host-view', hostView);
         localStorage.setItem('field-monitor.main.service-filter', serviceFilter);
       } catch (error) { /* Keep the selection for this page session. */ }
       if (state) renderHosts();
     }
+    el('toggle-services').onclick = () => { showServices = !showServices; saveHostDisplay(); };
     el('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
     el('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
     el('service-filter').oninput = () => { serviceFilter = el('service-filter').value; saveHostDisplay(); };
@@ -424,16 +431,18 @@
               ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}
               <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></td>
             <td><span class="${hostStatus}">${hostLabel}</span><p><small>${hostDetails}</small></p></td>
-            <td>${metrics || 'No additional services configured.'}</td>
+            ${showServices ? `<td>${metrics || 'No additional services configured.'}</td>` : ''}
           </tr>`;
         }
-        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
+        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} incident</span>` : ''}<button data-admin data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
       }).join('');
       el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
       el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
         : hostView === 'cards' ? rendered
-        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th><th>Services</th></tr></thead><tbody>' + rendered + '</tbody></table>';
+        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th>' + (showServices ? '<th>Services</th>' : '') + '</tr></thead><tbody>' + rendered + '</tbody></table>';
       el('host-view-summary').textContent = `Showing ${matches.length} of ${visible.length} displayed hosts`;
+      el('toggle-services').textContent = showServices ? 'Hide services' : 'Show services';
+      el('toggle-services').setAttribute('aria-pressed', String(showServices));
       el('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
       el('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
       el('service-filter').value = serviceFilter;

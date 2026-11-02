@@ -48,9 +48,14 @@
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
-    .status-header { align-items: flex-start; }
-    .status-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-    .status-brand h1 { margin: 0; }
+    .status-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }
+    .status-header h1 { justify-self: start; margin: 0; }
+    .status-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; max-width: min(420px, 35vw); overflow-wrap: anywhere; }
+    .status-header > .button-link { justify-self: end; }
+    @media (max-width: 900px) {
+      .status-header { grid-template-columns: 1fr auto; }
+      .status-brand { grid-column: 1 / -1; grid-row: 2; justify-self: center; max-width: 100%; }
+    }
     .project-name { margin: 0; font-size: 20px; font-weight: 600; color: #e8eff8; }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
@@ -59,8 +64,8 @@
   </style></head>
 <body>
   <header class="status-header">
+    <h1>Network Status</h1>
     <div class="status-brand">
-      <h1>Network status</h1>
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
       <p id="project" class="project-name">Loading…</p>
     </div>
@@ -71,6 +76,7 @@
     <button id="toggle-hosts" aria-controls="devices" aria-expanded="true">Hide host cards</button>
     <button id="view-cards" aria-pressed="true">Cards</button>
     <button id="view-list" aria-pressed="false">List</button>
+    <button id="toggle-services" aria-pressed="true">Hide services</button>
     <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
     <datalist id="service-filter-options"></datalist>
     <button id="clear-service-filter">All services</button>
@@ -87,10 +93,12 @@
     const labels = {healthy:'Online',unreachable:'Offline',unknown:'Unknown / paused',blocked:'Suppressed',paused:'Paused'};
     let publicState = null;
     let hostView = 'cards';
+    let showServices = true;
     let serviceFilter = '';
     let showHosts = true;
     try {
       showHosts = localStorage.getItem('field-monitor.status.hide-hosts') !== 'true';
+      showServices = localStorage.getItem('field-monitor.status.hide-services') !== 'true';
       hostView = localStorage.getItem('field-monitor.status.host-view') === 'list' ? 'list' : 'cards';
       serviceFilter = (localStorage.getItem('field-monitor.status.service-filter') || '').slice(0, 100);
     }
@@ -113,12 +121,14 @@
     }
     function saveHostDisplay() {
       try {
+        localStorage.setItem('field-monitor.status.hide-services', String(!showServices));
         localStorage.setItem('field-monitor.status.host-view', hostView);
         localStorage.setItem('field-monitor.status.service-filter', serviceFilter);
       } catch (error) { /* Display preferences work without browser storage. */ }
       hostVisibility();
       if (publicState) renderHosts();
     }
+    document.getElementById('toggle-services').onclick = () => { showServices = !showServices; saveHostDisplay(); };
     document.getElementById('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
     document.getElementById('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
     document.getElementById('service-filter').oninput = () => {
@@ -131,6 +141,8 @@
       const matches = publicState.devices.filter(device => !serviceFilter.trim() || device.services.some(serviceMatches));
       const online = matches.filter(device => device.status === 'healthy').length;
       document.getElementById('summary').textContent = `Showing ${matches.length} of ${publicState.devices.length} displayed hosts · ${online} online`;
+      document.getElementById('toggle-services').textContent = showServices ? 'Hide services' : 'Show services';
+      document.getElementById('toggle-services').setAttribute('aria-pressed', String(showServices));
       document.getElementById('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
       document.getElementById('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
       document.getElementById('service-filter').value = serviceFilter;
@@ -144,14 +156,14 @@
         ).join('') || 'No additional services configured.';
         if (hostView === 'list') {
           return `<tr class="host-row ${severity}"><td><strong>${escape(device.name)} - ${escape(device.alias)}</strong><p>${badge}</p></td>
-            <td class="${escape(device.status)}">${escape(labels[device.status] || formatStatus(device.status))}</td><td>${services}</td></tr>`;
+            <td class="${escape(device.status)}">${escape(labels[device.status] || formatStatus(device.status))}</td>${showServices ? `<td>${services}</td>` : ''}</tr>`;
         }
-        return `<article class="host-card ${severity}"><h2>${escape(device.name)} - ${escape(device.alias)}</h2>${badge}<p class="${escape(device.status)}">${escape(labels[device.status] || formatStatus(device.status))}</p>${services}</article>`;
+        return `<article class="host-card ${severity}"><h2>${escape(device.name)} - ${escape(device.alias)}</h2>${badge}<p class="${escape(device.status)}">${escape(labels[device.status] || formatStatus(device.status))}</p>${showServices ? services : ''}</article>`;
       }).join('');
       const container = document.getElementById('devices');
       container.className = hostView === 'cards' ? 'grid' : 'scroll';
       container.innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>' : hostView === 'cards' ? rendered
-        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th><th>Services</th></tr></thead><tbody>' + rendered + '</tbody></table>';
+        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th>' + (showServices ? '<th>Services</th>' : '') + '</tr></thead><tbody>' + rendered + '</tbody></table>';
     }
 
     async function refresh() {

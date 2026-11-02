@@ -337,3 +337,8 @@ same inventory device back to the project restores its previous configuration.
 The configured-service manager shows nothing until a host (or **All hosts**) is
 selected. Filter by service name/OID, protocol, and enabled/paused monitoring.
 Results start at 20; **Show 20 more** expands the list intentionally.
+
+Both dashboards have **Hide services / Show services** for a host-only Cards or
+List display. Host details, incident badges/colours, and incident lists remain.
+This is a display preference, not a monitoring pause. It is saved per dashboard
+in browser storage and restored after refresh.

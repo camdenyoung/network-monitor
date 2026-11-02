@@ -366,3 +366,52 @@ reloadedMain.renderServiceCatalogue();
 assert.equal(element('service-catalogue').innerHTML, '');
 assert.match(element('catalogue-summary').textContent, /Choose a host/);
 console.log('Per-service pause controls, archived-host visibility and bounded service-catalogue filters passed.');
+
+// Hiding services removes readings/actions, but never the host or severity badge.
+vm.runInContext('currentUser.role="viewer"', reloadedMain);
+reloadedMain.renderHosts();
+assert.match(element('dashboard').innerHTML, /Port status/);
+element('toggle-services').onclick();
+assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
+assert.match(element('dashboard').innerHTML, /Warning incident/);
+assert.doesNotMatch(element('dashboard').innerHTML, /Port status|Local RSSI|data-service-monitoring/);
+assert.equal(element('toggle-services').textContent, 'Show services');
+assert.equal(mainStorage.get('field-monitor.main.hide-services'), 'true');
+element('view-list').onclick();
+assert.match(element('dashboard').innerHTML, /<table class="host-list">/);
+assert.doesNotMatch(element('dashboard').innerHTML, /<th>Services<\/th>|Port status/);
+await reloadedMain.refresh();
+assert.doesNotMatch(element('dashboard').innerHTML, /<th>Services<\/th>|Port status/);
+
+const hostOnlyMain = vm.createContext({
+    document: context.document, localStorage: context.localStorage,
+    fetch: async path => ({ok:true,json:async () => path === '/api/me'
+        ? {id:2,username:'reader',role:'viewer',csrf:'test',must_change_password:0} : fixture}),
+    setInterval() {},
+});
+new vm.Script(script).runInContext(hostOnlyMain);
+await hostOnlyMain.initializeSession();
+assert.equal(element('toggle-services').textContent, 'Show services');
+assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
+assert.doesNotMatch(element('dashboard').innerHTML, /Port status/);
+element('toggle-services').onclick();
+assert.match(element('dashboard').innerHTML, /Port status/);
+
+publicNodes.get('toggle-services').onclick();
+assert.match(publicNodes.get('devices').innerHTML, /SW001 - Stage/);
+assert.match(publicNodes.get('devices').innerHTML, /Critical incident/);
+assert.doesNotMatch(publicNodes.get('devices').innerHTML, /Remote RSSI|Temperature/);
+assert.equal(publicStorage.get('field-monitor.status.hide-services'), 'true');
+publicNodes.get('view-list').onclick();
+assert.doesNotMatch(publicNodes.get('devices').innerHTML, /<th>Services<\/th>|Remote RSSI/);
+const hostOnlyPublic = vm.createContext({
+    document: publicContext.document, localStorage: publicContext.localStorage,
+    fetch: async () => ({ok:true,json:async () => publicData}), setInterval() {},
+});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(hostOnlyPublic);
+await hostOnlyPublic.refresh();
+assert.equal(publicNodes.get('toggle-services').textContent, 'Show services');
+assert.doesNotMatch(publicNodes.get('devices').innerHTML, /<th>Services<\/th>|Remote RSSI/);
+publicNodes.get('toggle-services').onclick();
+assert.match(publicNodes.get('devices').innerHTML, /Remote RSSI/);
+console.log('Host-only Cards/List views and service visibility persistence passed on both dashboards.');

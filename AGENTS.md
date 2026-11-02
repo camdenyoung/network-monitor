@@ -10,6 +10,9 @@ The user requested readable, consistently indented code and explanatory comments
   codes lowercase. Confirmed unresolved incidents tint host cards by highest
   severity on both dashboards; acknowledged faults retain colour until recovery.
   Ignore suppressed child faults, stale checks and paused monitoring for card colour.
+- Both dashboards can hide/show services for host-only Cards/List views. Persist
+  this separately per dashboard in localStorage. Keep host details, incident
+  severity colours and complete incident lists; presentation does not pause polling.
 - Both dashboards have Cards/List views and a case-insensitive substring service
   name filter (e.g. RSSI). Hide hosts without matching enabled services. Persist
   each dashboard's view/filter separately in localStorage; retain public show/hide.
@@ -19,9 +22,14 @@ The user requested readable, consistently indented code and explanatory comments
   and host count) sit after Resolved incidents, immediately before the hosts.
 - Both dashboards place active incidents above hosts; on the main dashboard,
   acknowledged/suppressed/resolved sections also precede hosts.
+- Keep the signed-in user label in its existing top-left navigation position;
+  style it as a bordered, rounded badge without adding a fake button action.
+- Align the main project dropdown with activation/pause buttons along the bottom;
+  keep the polling note on its own line.
 - Reserve a fixed logo slot on the main project toolbar, including when no logo
   is assigned, so project controls stay in place. Public status stacks the project
-  logo above the project name.
+  logo above the project name in the centre, with Network Status on the left and
+  the sign-in/dashboard button on the right (stack branding beneath on narrow screens).
 - Admins can rename projects and upload/replace/remove PNG/JPEG event logos.
   Logo blobs live in project_logos and are included in backups. Limit 2 MB and
   4096 pixels per side; disallow SVG/active formats. Public logo access is restricted
