@@ -93,6 +93,7 @@
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
     <button data-admin id="activate" class="primary">Activate / start new deployment</button>
+    <button data-admin id="resume" hidden>Resume all monitoring</button>
     <button data-admin id="pause">Pause all monitoring</button>
     <small>15-second polling · issue persistence is configurable per service</small>
   </section>
@@ -636,7 +637,14 @@
         editingProject = selectedProject;
         el('project-feedback').textContent = '';
       }
-      el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id : 'Monitoring paused';
+      const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
+      el('pause').disabled = !run;
+      el('resume').hidden = Boolean(run) || !pausedRun;
+      el('resume').disabled = String(pausedRun?.project) !== selectedProject;
+      el('resume').title = pausedRun && String(pausedRun.project) !== selectedProject
+        ? 'Select the paused project to resume its deployment.' : '';
+      el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
+        : pausedRun ? 'Paused: ' + state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'Monitoring paused';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
       updateOptions('device', state.devices, deviceLabel, 'Select device…');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
@@ -1266,6 +1274,7 @@
 
     el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
     el('activate').onclick = () => performAction('activate', {project: selectedProject}).catch(report);
+    el('resume').onclick = () => performAction('resume', {project: selectedProject}).catch(report);
     el('pause').onclick = () => performAction('pause', {}).catch(report);
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;

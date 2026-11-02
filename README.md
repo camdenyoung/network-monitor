@@ -414,3 +414,9 @@ to preserve browser preferences. Complete backup downloads use a server-generate
 network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposition,
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
+
+Pause all monitoring retains paused_run. Resume all monitoring continues that same
+deployment for the selected paused project; it never creates a run or resets history,
+issues or per-service pause flags. New deployment remains a separate action and
+clears paused_run. Resume requires fresh reads and invalidates pre-pause in-flight
+results. Paused deployment survives restart; restore remains paused but resumable.

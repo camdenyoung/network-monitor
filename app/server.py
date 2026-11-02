@@ -78,6 +78,11 @@ def initialize():
         ''')
         db.execute("INSERT OR IGNORE INTO settings VALUES ('retention_days','30')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
+        # Older releases stored only active_run=0 when paused; their most recent
+        # deployment is the one that can be resumed after upgrading.
+        db.execute("""INSERT OR IGNORE INTO settings SELECT 'paused_run',
+            CASE WHEN (SELECT value FROM settings WHERE key='active_run')='0'
+            THEN CAST(COALESCE(MAX(id),0) AS TEXT) ELSE '0' END FROM runs""")
         migrate_inventory_addresses(db)
         migrate_service_lifecycle(db)
         ensure_service_library(db)
@@ -798,8 +803,26 @@ def mutate(action, body, actor=None):
                 raise ValueError('Unknown project')
             cursor = db.execute('INSERT INTO runs(project,started) VALUES(?,?)', (project, time.time()))
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(cursor.lastrowid),))
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
         elif action == 'pause':
-            db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+            run = setting(db, 'active_run')
+            # Repeated Pause clicks must not discard the resumable deployment.
+            if run != '0':
+                db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (run,))
+                db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+        elif action == 'resume':
+            if setting(db, 'active_run') != '0':
+                raise ValueError('Monitoring is already active')
+            run = db.execute('SELECT id,project FROM runs WHERE id=?',
+                             (setting(db, 'paused_run'),)).fetchone()
+            if not run or run['project'] != int(body['project']):
+                raise ValueError('Select the paused project to resume monitoring')
+            # Fresh reads are required after a pause. This also rejects network
+            # results still in flight from before the pause, without erasing history.
+            db.execute("""UPDATE services SET monitoring_since=? WHERE assignment IN
+                (SELECT id FROM assignments WHERE project=?)""", (time.time(), run['project']))
+            db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(run['id']),))
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
         elif action == 'ack':
             record_acknowledgement(db, int(body['id']), actor)
         elif action == 'retention':
@@ -1157,6 +1180,11 @@ class Handler(BaseHTTPRequestHandler):
                     tables = {row[0] for row in candidate.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                     if not required.issubset(tables):
                         raise ValueError('Incompatible backup')
+                    # Preserve the backed-up deployment for an explicit Resume.
+                    if setting(candidate, 'active_run') != '0':
+                        candidate.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)",
+                                          (setting(candidate, 'active_run'),))
+                    candidate.execute("INSERT OR IGNORE INTO settings VALUES ('paused_run','0')")
                     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
                     migrate_inventory_addresses(candidate)
                     migrate_service_lifecycle(candidate)

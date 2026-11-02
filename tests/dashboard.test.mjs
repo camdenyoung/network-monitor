@@ -679,3 +679,17 @@ console.log('Configuration Show/Hide controls default hidden on every reload.');
 assert.ok(statusPage.indexOf('id="acknowledged-incidents"') < statusPage.indexOf('id="host-controls"'));
 assert.ok(statusPage.indexOf('id="host-controls"') < statusPage.indexOf('id="view-cards"'));
 assert.ok(statusPage.indexOf('id="view-list"') < statusPage.indexOf('id="devices"'));
+
+fixture.settings.active_run = '0';
+fixture.settings.paused_run = '1';
+await namedMain.refresh();
+assert.equal(element('resume').hidden, false);
+assert.equal(element('resume').disabled, false);
+assert.equal(element('pause').disabled, true);
+assert.match(element('active').textContent, /Paused: Test · deployment 1/);
+fixture.settings.active_run = '1';
+fixture.settings.paused_run = '0';
+await namedMain.refresh();
+assert.equal(element('resume').hidden, true);
+assert.equal(element('pause').disabled, false);
+console.log('Resume controls preserve paused deployment identity.');

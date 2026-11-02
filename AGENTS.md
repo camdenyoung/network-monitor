@@ -255,3 +255,9 @@ status dashboards, including browser page titles.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
 main heading, following the AxisPy reference; do not render them at heading size.
+
+Pause all monitoring retains paused_run. Resume all monitoring continues that same
+deployment for the selected paused project; it never creates a run or resets history,
+issues or per-service pause flags. New deployment remains a separate action and
+clears paused_run. Resume requires fresh reads and invalidates pre-pause in-flight
+results. Paused deployment survives restart; restore remains paused but resumable.

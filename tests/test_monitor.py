@@ -40,6 +40,44 @@ class MonitorTests(unittest.TestCase):
         with patch.object(server, 'read_metric', return_value=value):
             server.poll_one(self.service, run)
 
+    def test_pause_resume_keeps_deployment_history_and_issues(self):
+        self.poll(-80)
+        self.poll(-80)
+        before = server.snapshot()
+        server.mutate('pause', {})
+        server.mutate('pause', {})
+        server.initialize()
+        with server.connect() as db:
+            db.execute("DELETE FROM settings WHERE key='paused_run'")
+        server.initialize()
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '1')
+        server.mutate('resume', {'project': 1})
+        after = server.snapshot()
+        self.assertEqual(after['settings']['active_run'], '1')
+        self.assertEqual(after['settings']['paused_run'], '0')
+        self.assertEqual(after['runs'], before['runs'])
+        self.assertEqual(after['incidents'], before['incidents'])
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 2)
+        with self.assertRaises(ValueError):
+            server.mutate('resume', {'project': 1})
+        server.mutate('pause', {})
+        with self.assertRaises(ValueError):
+            server.mutate('resume', {'project': 999})
+        server.mutate('activate', {'project': 1})
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '0')
+        self.assertEqual(len(server.snapshot()['runs']), 2)
+
+    def test_pause_resume_discards_inflight_reads(self):
+        def delayed_read(service):
+            server.mutate('pause', {})
+            server.mutate('resume', {'project': 1})
+            return -80
+        with patch.object(server, 'read_metric', side_effect=delayed_read):
+            server.poll_one(self.service, 1)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 0)
+
     def test_persistence_acknowledgement_and_recovery(self):
         self.poll(-80)
         self.assertEqual(server.snapshot()['incidents'], [])
