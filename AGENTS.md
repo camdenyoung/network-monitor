@@ -15,6 +15,8 @@ The user requested readable, consistently indented code and explanatory comments
   each dashboard's view/filter separately in localStorage; retain public show/hide.
   Filters affect host readings only; incident lists and severity rollups stay complete.
   Preserve role restrictions, history/actions, dependency states and row colours.
+- Main dashboard host display controls (Cards/List, service filter, All services
+  and host count) sit after Resolved incidents, immediately before the hosts.
 - Both dashboards place active incidents above hosts; on the main dashboard,
   acknowledged/suppressed/resolved sections also precede hosts.
 - Admins can rename projects and upload/replace/remove PNG/JPEG event logos.

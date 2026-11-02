@@ -73,6 +73,14 @@
     <button data-admin id="pause">Pause all monitoring</button>
     <small>15-second polling · incident persistence is configurable per service</small>
   </section>
+  <section>
+    <h2>Active incidents</h2>
+    <p id="incident-feedback" class="form-feedback" role="status"></p>
+    <div id="incidents"></div>
+  </section>
+  <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
+  <details><summary>Suppressed service incidents</summary><section id="suppressed-incidents"></section></details>
+  <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
   <div class="display-controls" role="group" aria-label="Host display options">
     <button id="view-cards" aria-pressed="true">Cards</button>
     <button id="view-list" aria-pressed="false">List</button>
@@ -82,14 +90,6 @@
   </div>
   <p id="host-view-summary"></p>
   <small>Service filters narrow host readings. Incident lists show all incidents.</small>
-  <section>
-    <h2>Active incidents</h2>
-    <p id="incident-feedback" class="form-feedback" role="status"></p>
-    <div id="incidents"></div>
-  </section>
-  <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
-  <details><summary>Suppressed service incidents</summary><section id="suppressed-incidents"></section></details>
-  <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
   <div id="dashboard" class="grid"></div>
   <details data-admin><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
