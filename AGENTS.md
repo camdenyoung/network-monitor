@@ -251,7 +251,7 @@ using the monitoring host local timezone. Compose mounts /etc/localtime read-onl
 from the host so container time follows the host, including daylight saving.
 
 Current displayed release is v0.1. Show it after the title on both the main and
-status dashboards, including browser page titles.
+status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
 main heading, following the AxisPy reference; do not render them at heading size.
