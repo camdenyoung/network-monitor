@@ -977,13 +977,15 @@ def status_overview():
 
 
 class Handler(BaseHTTPRequestHandler):
-    def send(self, content, mime='application/json', status=200):
+    def send(self, content, mime='application/json', status=200, filename=None):
         if not isinstance(content, bytes):
             content = content.encode()
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(content)))
         self.send_header('Cache-Control', 'no-store')
+        if filename:
+            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers()
         self.wfile.write(content)
@@ -1100,7 +1102,10 @@ class Handler(BaseHTTPRequestHandler):
                 destination.commit()
                 payload = destination.serialize()
                 destination.close()
-            self.send(payload, 'application/octet-stream')
+            # UTC makes portable backup filenames unambiguous across machines.
+            stamp = time.strftime('%Y-%m-%d_%H-%M-%S_UTC', time.gmtime())
+            self.send(payload, 'application/octet-stream',
+                      filename=f'network-monitor-backup-{stamp}.sqlite3')
         elif self.path.startswith('/api/history?'):
             from urllib.parse import parse_qs, urlsplit
             try:

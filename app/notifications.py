@@ -132,7 +132,7 @@ def enqueue_test(db, channel='telegram'):
         raise ValueError('Enable the notification channel first')
     db.execute('''INSERT INTO notification_outbox
         (event,channel,text,config_revision,next_attempt,created) VALUES('test',?,?,?,?,?)''',
-        (channel, 'TEST · Field Monitor\nNotification test\nThis destination is configured for issue alerts.',
+        (channel, 'TEST · Network Monitor\nNotification test\nThis destination is configured for issue alerts.',
          config['revision'], time.time(), time.time()))
 
 
@@ -186,7 +186,7 @@ def send_whatsapp(config, text):
     # Approved template body must have three positional text parameters:
     # device/service, status/project, details. No free-form session window needed.
     lines = text.split('\n')
-    parameters = [lines[1] if len(lines) > 1 else 'Field Monitor', lines[0], ' '.join(lines[2:]) or 'Notification']
+    parameters = [lines[1] if len(lines) > 1 else 'Network Monitor', lines[0], ' '.join(lines[2:]) or 'Notification']
     body = {'messaging_product': 'whatsapp', 'recipient_type': config['recipient_type'],
         'to': config['chat_id'], 'type': 'template', 'template': {
             'name': config['template_name'], 'language': {'code': config['language']},

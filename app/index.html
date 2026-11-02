@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Field Monitor</title>
+  <title>Network Monitor</title>
   <style>
     :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #101823; color: #e8eff8; }
     body { max-width: 1250px; margin: auto; padding: 28px; }
@@ -83,7 +83,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Field Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor</h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar"><span id="signed-in" class="user-badge"></span><a class="button-link" href="/status" target="_blank">Status Dashboard</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
   <p id="message" role="status"></p>
   <section class="toolbar project-toolbar">
@@ -300,7 +300,7 @@
   </section></div>
   <div data-admin id="backup-panel" hidden><section>
     <p>Backup includes credentials and history. Store it securely; the archive contains credentials and password hashes. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
-    <p><a class="button-link" href="/api/backup" download="field-monitor.sqlite3">Download complete backup</a></p>
+    <p><a class="button-link" href="/api/backup" download>Download complete backup</a></p>
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>

@@ -243,3 +243,7 @@ The Show/Hide hosts button stays accessible above the issue lists.
 
 The status Show/Hide hosts button sets aria-pressed to host visibility so the
 shared active background follows toggles and restored browser preferences.
+
+The product name is Network Monitor. Retain legacy field-monitor localStorage keys
+to preserve browser preferences. Complete backup downloads use a server-generated
+network-monitor-backup-YYYY-MM-DD_HH-MM-SS_UTC.sqlite3 filename via Content-Disposition.

@@ -49,7 +49,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         handler.headers['Content-Length'] = str(len(data))
         handler.rfile = io.BytesIO(data)
         response = {}
-        handler.send = lambda content, mime=None, status=200: response.update(status=status, content=content, mime=mime)
+        handler.send = lambda content, mime=None, status=200, filename=None: response.update(status=status, content=content, mime=mime, filename=filename)
         handler.session_response = lambda token=None: response.update(status=200, token=token)
         if body is None:
             handler.do_GET()
@@ -225,7 +225,9 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertIn(flag, cookie)
 
     def test_backup_requires_admin_and_excludes_live_sessions(self):
-        response = self.request('/api/backup', token=self.admin_token)
+        with patch.object(server.time, 'gmtime', return_value=(2026, 11, 2, 8, 9, 10, 0, 306, 0)):
+            response = self.request('/api/backup', token=self.admin_token)
+        self.assertEqual(response['filename'], 'network-monitor-backup-2026-11-02_08-09-10_UTC.sqlite3')
         self.assertEqual(response['status'], 200)
         restored = sqlite3.connect(':memory:')
         try:

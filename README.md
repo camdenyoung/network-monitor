@@ -1,4 +1,4 @@
-# Field Monitor — first implementation
+# Network Monitor — first implementation
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -408,3 +408,7 @@ of acknowledgement remains authoritative, even after profile changes/deletion.
 Status dashboard host display controls (Cards/List, sorting, services and filters)
 sit immediately above hosts, below issue lists, and hide when hosts are hidden.
 The Show/Hide hosts button stays accessible above the issue lists.
+
+The product name is Network Monitor. Retain legacy field-monitor localStorage keys
+to preserve browser preferences. Complete backup downloads use a server-generated
+network-monitor-backup-YYYY-MM-DD_HH-MM-SS_UTC.sqlite3 filename via Content-Disposition.
