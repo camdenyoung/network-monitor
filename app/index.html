@@ -122,7 +122,29 @@
     <small>Service filters narrow host readings. Issue lists show all issues.</small>
     <div id="dashboard" class="grid"></div>
   </div>
-  <details data-admin><summary>Inventory and project configuration</summary>
+  <details data-admin id="permanent-inventory"><summary>Permanent inventory</summary>
+    <section>
+      <h2>Permanent inventory</h2>
+      <form data-action="device">
+        <label>Device ID<input name="name" required maxlength="100"></label>
+        <label>Model<input name="model" maxlength="100"></label>
+        <label>IP address<input name="address" required placeholder="192.168.1.10"></label>
+        <button>Add device</button>
+      </form>
+      <p id="inventory-feedback" class="form-feedback" role="status"></p>
+      <div class="display-controls">
+        <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
+        <button id="inventory-clear">Clear search</button>
+      </div>
+      <details id="inventory-details">
+        <summary id="inventory-count">Inventory devices</summary>
+        <p id="inventory-results"></p>
+        <div id="inventory"></div>
+        <button id="inventory-more" hidden>Show 50 more</button>
+      </details>
+    </section>
+  </details>
+  <details data-admin id="project-configuration"><summary>Project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
     <section class="project-settings">
       <h2>Edit selected project</h2>
@@ -172,26 +194,6 @@
         </div>
       </div>
       <p id="project-feedback" class="project-settings-feedback" role="status"></p>
-    </section>
-    <section>
-      <h2>Permanent inventory</h2>
-      <form data-action="device">
-        <label>Device ID<input name="name" required maxlength="100"></label>
-        <label>Model<input name="model" maxlength="100"></label>
-        <label>IP address<input name="address" required placeholder="192.168.1.10"></label>
-        <button>Add device</button>
-      </form>
-      <p id="inventory-feedback" class="form-feedback" role="status"></p>
-      <div class="display-controls">
-        <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
-        <button id="inventory-clear">Clear search</button>
-      </div>
-      <details id="inventory-details">
-        <summary id="inventory-count">Inventory devices</summary>
-        <p id="inventory-results"></p>
-        <div id="inventory"></div>
-        <button id="inventory-more" hidden>Show 50 more</button>
-      </details>
     </section>
     <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
     <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>

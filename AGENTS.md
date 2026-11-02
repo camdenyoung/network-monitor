@@ -221,3 +221,7 @@ this display name. The main navigation link is labelled Status Dashboard.
 User management keeps the add-user form independent. Edit opens a native dialog
 with all account fields and inline errors; Cancel leaves the creation form intact.
 Populate the editor only when opened; background refresh must preserve edits.
+
+Permanent inventory is its own top-level Admin section, separate from Project
+configuration. Keep inventory creation/search/edit/removal there; project assignment
+and service configuration remain under Project configuration.

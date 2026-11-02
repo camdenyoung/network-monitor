@@ -389,3 +389,7 @@ this display name. The main navigation link is labelled Status Dashboard.
 
 User editing opens a separate dialog with Save changes and Cancel. The inline
 user form is dedicated to adding accounts and is not overwritten by editing.
+
+Permanent inventory is its own top-level Admin section, separate from Project
+configuration. Keep inventory creation/search/edit/removal there; project assignment
+and service configuration remain under Project configuration.
