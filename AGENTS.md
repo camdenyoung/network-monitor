@@ -19,6 +19,9 @@ The user requested readable, consistently indented code and explanatory comments
   and host count) sit after Resolved incidents, immediately before the hosts.
 - Both dashboards place active incidents above hosts; on the main dashboard,
   acknowledged/suppressed/resolved sections also precede hosts.
+- Reserve a fixed logo slot on the main project toolbar, including when no logo
+  is assigned, so project controls stay in place. Public status stacks the project
+  logo above the project name.
 - Admins can rename projects and upload/replace/remove PNG/JPEG event logos.
   Logo blobs live in project_logos and are included in backups. Limit 2 MB and
   4096 pixels per side; disallow SVG/active formats. Public logo access is restricted
