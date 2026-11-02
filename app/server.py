@@ -890,7 +890,7 @@ def update_card_incidents(data):
 
 
 def status_overview():
-    """Allowlist public output: no addresses, OIDs, secrets, users or history."""
+    """Allowlist public output: no addresses, OIDs, secrets or account records."""
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
@@ -921,7 +921,8 @@ def status_overview():
         output.append({'name': device['name'], 'alias': assignment['alias'],
                        'status': host_status, 'services': children,
                        'incident_status': assignment['incident_status']})
-    # Both public lists use the same visibility rules and omit private actor data.
+    # Both public lists use the same visibility rules. Only the recorded actor
+    # username is public; account IDs and other account details remain private.
     assignments = {row['id']: row for row in data['assignments']
                    if row['project'] == run['project'] and row['visible']
                    and row['monitoring'] and not row['removed']}
@@ -938,7 +939,8 @@ def status_overview():
                 'alias': assignment['alias'], 'service': service['name'],
                 'status': incident['status'], 'opened': incident['opened']}
             if category == 'acknowledged':
-                item.update(acknowledged=incident['acknowledged'], closed=incident['closed'])
+                item.update(acknowledged=incident['acknowledged'], closed=incident['closed'],
+                            acknowledged_by_username=incident['acknowledged_by_username'])
             output.append(item)
         return output
 

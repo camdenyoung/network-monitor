@@ -161,7 +161,7 @@ CLI recovery command and versioned encrypted archives remain planned.
 
 - No public relay or chat-based remote acknowledgement yet. Outbound Telegram and WhatsApp
   Business notifications are supported directly from the local server.
-- Built-in TLS, audit actor identity and credential encryption remain pending.
+- Built-in TLS and credential encryption remain pending.
   Account passwords are hashed; network/provider credentials in backups remain plaintext.
 - No verified manufacturer profiles: do not invent OIDs or Mean Well registers.
 - SNMP v2c only. Raw counters are not throughput; counter-rate calculation, counter
@@ -367,7 +367,7 @@ with a Show more button for larger inventories.
 
 The status dashboard shows whether the current browser is signed in and displays
 that user's name/role. Its navigation changes to Sign in, Dashboard, or Change
-password as appropriate. Anonymous responses contain no account identity.
+password as appropriate. Anonymous responses include recorded acknowledging usernames but no account details.
 
 Acknowledgements retain the authenticated account ID and username at the time of
 acknowledgement, including after account rename/deletion. Legacy records display
@@ -377,4 +377,5 @@ localStorage. Hiding sections does not pause monitoring or hide active incidents
 
 The public status dashboard also has a separate acknowledged-incidents section
 with a colour-coded Show/Hide button, saved in browser storage. It shows
-acknowledgement/recovery times without exposing account identities.
+acknowledgement/recovery times and the recorded acknowledging username. Legacy
+records display Unknown user (legacy); account IDs and other details stay private.

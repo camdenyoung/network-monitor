@@ -323,8 +323,9 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('ack', {'id': incident_id}, actor={'id': 1})
         acknowledged = server.status_overview()['acknowledged_incidents']
         self.assertEqual(len(acknowledged), 1)
+        self.assertEqual(acknowledged[0]['acknowledged_by_username'], 'admin')
         self.assertEqual(set(acknowledged[0]), {
-            'id', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed'})
+            'id', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username'})
         with server.connect() as db:
             db.execute('UPDATE assignments SET visible=0 WHERE id=1')
         self.assertEqual(server.status_overview()['acknowledged_incidents'], [])

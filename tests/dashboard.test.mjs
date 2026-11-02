@@ -575,7 +575,7 @@ assert.match(sectionReload.renderIncidents([{acknowledged:123, acknowledged_by_u
 assert.match(sectionReload.renderIncidents([{acknowledged:123}]), /Unknown user \(legacy\)/);
 console.log('Acknowledgement attribution and persisted section visibility passed.');
 
-publicData.acknowledged_incidents = [{device:'SW1',alias:'<event>',service:'RSSI',status:'critical',acknowledged:now,closed:null}];
+publicData.acknowledged_incidents = [{device:'SW1',alias:'<event>',service:'RSSI',status:'critical',acknowledged:now,closed:null,acknowledged_by_username:'<operator>'}];
 await sortedPublic.refresh();
 assert.equal(publicNodes.get('acknowledged-panel').hidden, true);
 publicNodes.get('toggle-acknowledged').onclick();
@@ -594,3 +594,8 @@ publicNodes.get('toggle-acknowledged').onclick();
 assert.equal(publicNodes.get('acknowledged-panel').hidden, true);
 assert.equal(publicNodes.get('toggle-acknowledged').getAttribute('aria-pressed'), 'false');
 console.log('Public acknowledged incidents and persisted visibility passed.');
+
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /by &lt;operator&gt;/);
+publicData.acknowledged_incidents[0].acknowledged_by_username = null;
+await acknowledgedReload.refresh();
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /Unknown user \(legacy\)/);

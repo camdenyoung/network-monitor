@@ -73,7 +73,8 @@ The user requested readable, consistently indented code and explanatory comments
   aware active incidents, excluding resolved/suppressed faults and
   hidden, paused or inactive equipment. Allowlist display fields only.
 - Public /status overview needs no login; allowlist active/visible status and values
-  without IP addresses, OIDs, credentials, user data or other project inventory.
+  without IP addresses, OIDs, credentials, account details or other project inventory;
+  acknowledged incidents explicitly expose the recorded username only.
 - Telegram group notifications and optional WhatsApp Business Cloud API templates.
   WhatsApp Business does not connect ordinary app-created groups; Telegram is the
   intended shared group route. Both providers have separate settings and queues.
@@ -189,8 +190,8 @@ IP. Searching expands it, with 50 initial results and explicit Show more. Preser
 open/search state during refresh; don't render the whole inventory while collapsed.
 
 Public status shows Not signed in or the caller's username/role, with Sign in /
-Dashboard navigation. Return only the current caller's identity in /api/status,
-never other accounts, email or password/session hashes. Temporary-password users
+Dashboard navigation. /api/status exposes the caller's identity and recorded
+acknowledging usernames, never account lists, email or password/session hashes. Temporary-password users
 get Change password navigation and remain unable to acknowledge.
 
 Acknowledgements retain the authenticated account ID and username at the time of
@@ -204,4 +205,5 @@ colour while their section is visible, including after restoring browser prefere
 
 Public status includes an allowlisted acknowledged-incident list above hosts, with
 a colour-coded Show/Hide toggle persisted separately in localStorage. Apply current
-project/host/service visibility rules and never expose acknowledgement user identities.
+project/host/service visibility rules. Show the recorded acknowledging username,
+with Unknown user (legacy) for older records; never expose actor IDs or account details.
