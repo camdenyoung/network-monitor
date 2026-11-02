@@ -12,17 +12,29 @@
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
     .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
-    input, select, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    input, select, textarea, button { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
     button { cursor: pointer; } button:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
-    .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
+    .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
     .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
     button:disabled { opacity: 0.5; cursor: wait; }
     details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
     table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
+    .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+    .metric-status { display: block; margin-top: 4px; font-size: 13px; }
+    .metric-value { font-size: 21px; margin: 8px 0 3px; }
+    details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
+    .action-menu summary { padding: 5px 9px; border: 1px solid #435b78; border-radius: 5px; font-size: 13px; }
+    .action-menu .menu-buttons { position: absolute; right: 0; top: 34px; z-index: 10; display: grid; gap: 4px; min-width: 170px; padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+    .action-menu .menu-buttons button { text-align: left; margin: 0; padding: 8px; }
+    #history { width: 880px; box-sizing: border-box; }
+    #history-graph svg { display: block; width: 100%; height: auto; }
+    .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
+    .view-tabs button[aria-pressed="true"] { background: #176959; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
   </style>
@@ -43,6 +55,7 @@
     <div id="incidents"></div>
   </section>
   <details><summary>Acknowledged incidents</summary><section id="acknowledged-incidents"></section></details>
+  <details><summary>Suppressed service incidents</summary><section id="suppressed-incidents"></section></details>
   <details><summary>Resolved incidents</summary><section id="resolved-incidents"></section></details>
   <details><summary>Inventory and project configuration</summary>
     <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
@@ -57,17 +70,25 @@
         <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
         <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
         <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" value="2" required></label>
-        <label>Scale<input name="scale" type="number" step="any" value="1" required></label>
-        <label>Units<input name="units" placeholder="dBm"></label>
-        <label>Alarm direction<select name="direction"><option value="below">Below</option><option value="above">Above</option></select></label>
-        <label>Warning<input name="warning" type="number" step="any"></label>
-        <label>Critical<input name="critical" type="number" step="any"></label>
+      <label>Returned value<select name="value_type">
+        <option value="metric">Numeric metric (percent, degrees, etc.)</option>
+        <option value="state">Numeric state codes with labels</option>
+      </select></label>
+      <label data-state hidden>State mappings: number | label | severity
+        <textarea name="state_map" rows="4" placeholder="1 | Up | healthy&#10;2 | Down | critical"></textarea>
+        <small>One per line. Severity: healthy, warning, or critical. Unmapped codes warn.</small>
+      </label>
+        <label data-numeric>Scale<input name="scale" type="number" step="any" value="1" required></label>
+        <label data-numeric>Units<input name="units" placeholder="dBm"></label>
+        <label data-numeric>Alarm direction<select name="direction"><option value="below">Below</option><option value="above">Above</option></select></label>
+        <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
+        <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
         <button>Add service</button>
       </form>
       <p id="service-feedback" class="form-feedback" role="status"></p>
       <div id="service-catalogue"></div>
     </section>
-    <section><h2>Project assignments</h2><p>Notification flags are saved for future messaging integration; this preview does not send notifications.</p><div id="assignments" class="scroll"></div></section>
+    <section><h2>Project assignments</h2><p>Notification flags are saved for future messaging integration; this preview does not send notifications.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
   </details>
   <details><summary>Reusable service library</summary><section>
     <h2>Predefined services</h2>
@@ -83,7 +104,17 @@
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></details>
-  <dialog id="history"><button id="close-history">Close</button><h2>Recent readings</h2><div id="readings" class="scroll"></div></dialog>
+  <dialog id="history">
+    <button id="close-history">Close</button>
+    <h2 id="history-title">Service history</h2>
+    <p id="history-description"></p>
+    <div class="view-tabs" role="group" aria-label="History view">
+      <button id="show-history-graph" aria-pressed="true">Graph</button>
+      <button id="show-history-table" aria-pressed="false">Table</button>
+    </div>
+    <div id="history-graph"></div>
+    <div id="readings" class="scroll" hidden></div>
+  </dialog>
   <dialog id="device-editor">
     <h2>Edit inventory item</h2>
     <p>Changes apply across all projects. Project aliases stay as configured.</p>
@@ -113,13 +144,21 @@
         <input name="community" type="password" autocomplete="new-password">
       </label>
       <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" required></label>
-      <label>Scale<input name="scale" type="number" step="any" required></label>
-      <label>Units<input name="units"></label>
-      <label>Alarm direction<select name="direction">
+      <label>Returned value<select name="value_type">
+        <option value="metric">Numeric metric (percent, degrees, etc.)</option>
+        <option value="state">Numeric state codes with labels</option>
+      </select></label>
+      <label data-state hidden>State mappings: number | label | severity
+        <textarea name="state_map" rows="4" placeholder="1 | Up | healthy&#10;2 | Down | critical"></textarea>
+        <small>One per line. Severity: healthy, warning, or critical. Unmapped codes warn.</small>
+      </label>
+      <label data-numeric>Scale<input name="scale" type="number" step="any" required></label>
+      <label data-numeric>Units<input name="units"></label>
+      <label data-numeric>Alarm direction<select name="direction">
         <option value="below">Below</option><option value="above">Above</option>
       </select></label>
-      <label>Warning<input name="warning" type="number" step="any"></label>
-      <label>Critical<input name="critical" type="number" step="any"></label>
+      <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
+      <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
       <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
       <button class="primary">Save changes</button>
       <button type="button" id="cancel-service-edit">Cancel</button>
@@ -141,6 +180,17 @@
       <button type="button" id="cancel-service-transfer">Cancel</button>
     </form>
     <p id="transfer-feedback" role="status"></p>
+  </dialog>
+  <dialog id="alias-editor">
+    <h2>Edit project alias</h2>
+    <p id="alias-editor-context"></p>
+    <form id="alias-edit-form">
+      <input name="assignment" type="hidden">
+      <label>Project alias<input name="alias" required maxlength="100"></label>
+      <button class="primary">Save alias</button>
+      <button type="button" id="cancel-alias-edit">Cancel</button>
+    </form>
+    <p id="alias-edit-feedback" role="status"></p>
   </dialog>
   <script>
     // Escape all operator/device content before inserting it into HTML.
@@ -179,6 +229,19 @@
       return reading.status;
     }
 
+    function serviceActions(service) {
+      return `<details class="action-menu" data-service-actions="${service.id}">
+        <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
+        <div class="menu-buttons">
+          <button data-history="${service.id}">History / graph</button>
+          <button data-edit-service="${service.id}">Edit</button>
+          <button data-copy-service="${service.id}">Copy to host</button>
+          <button data-save-template="${service.id}">Save to library</button>
+          <button data-remove="${service.id}">Remove</button>
+        </div>
+      </details>`;
+    }
+
     async function refresh() {
       const response = await fetch('/api/state');
       if (!response.ok) throw new Error('Cannot read monitor state');
@@ -206,6 +269,7 @@
           <button data-delete-device="${device.id}">Delete permanently</button>
         </article>`;
       }).join('') || 'No equipment added.';
+      const openActions = new Set([...document.querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
       el('dashboard').innerHTML = assignments.filter(row => row.visible).map(assignment => {
         const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
@@ -216,14 +280,27 @@
         const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping' && row.enabled !== 0);
         const metrics = services.map(service => {
           const reading = run?.project === assignment.project ? state.latest.find(row => row.service === service.id) : null;
-          const status = readingStatus(reading, assignment, run);
-          return `<div class="metric"><strong>${escapeHtml(service.name)}</strong> <span class="${status}">${status}</span><br>${reading?.value ?? '—'} ${escapeHtml(service.units)} <small>${date(reading?.timestamp)}</small><button data-history="${service.id}">History</button><button data-edit-service="${service.id}">Edit</button>
-          <button data-copy-service="${service.id}">Copy to host</button>
-          <button data-save-template="${service.id}">Save to library</button><button data-remove="${service.id}">Remove</button></div>`;
+          const blocked = hostStatus !== 'healthy' || reading?.status === 'blocked';
+          const status = blocked ? 'blocked' : readingStatus(reading, assignment, run);
+          const statusLabel = blocked
+            ? (hostStatus === 'unreachable' ? 'Suppressed — host offline' : 'Awaiting host / service check') : status;
+          const value = blocked ? '—' : (reading?.display_value ?? reading?.value ?? '—');
+          const units = service.value_type === 'state' ? '' : service.units;
+          return `<div class="metric">
+            <div class="metric-header">
+              <div><strong>${escapeHtml(service.name)}</strong>
+                <span class="metric-status ${status}">${escapeHtml(statusLabel)}</span>
+              </div>
+              ${serviceActions(service)}
+            </div>
+            <div class="metric-value">${escapeHtml(value)} <small>${escapeHtml(units)}</small></div>
+            <small>${date(reading?.timestamp)}</small>
+          </div>`;
         }).join('');
-        return `<article><h2>${escapeHtml(assignment.alias)}</h2><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
+        return `<article><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-edit-alias="${assignment.id}">Edit alias</button><p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${metrics || '<p>No additional services configured.</p>'}</article>`;
       }).join('') || '<section>No visible equipment in this project. Add inventory and assignments below.</section>';
-      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')}</td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
+      document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
+      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}</tr>`).join('') + '</table>';
       const projectServices = state.services.filter(service => service.enabled !== 0 &&
         service.kind !== 'ping' && assignments.some(row => row.id === service.assignment));
       el('service-catalogue').innerHTML = projectServices.map(service => {
@@ -245,10 +322,11 @@
       const lists = state.incident_lists;
       el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active incidents.</p>';
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged incidents.</p>';
+      el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service incidents.</p>';
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved incidents.</p>';
     }
 
-    function renderIncidents(incidents, allowAcknowledgement = false) {
+    function renderIncidents(incidents, allowAcknowledgement = false, suppressed = false) {
       return incidents.map(incident => {
         const service = state.services.find(row => row.id === incident.service);
         const assignment = state.assignments.find(row => row.id === service?.assignment);
@@ -256,7 +334,9 @@
         const acknowledgement = incident.acknowledged
           ? `Acknowledged ${date(incident.acknowledged)}`
           : allowAcknowledgement ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
-        return `<p><span class="${escapeHtml(incident.status)}">${escapeHtml(incident.status)}</span>
+        const isSuppressed = suppressed || incident.suppressed;
+        const status = isSuppressed ? 'Suppressed — awaiting host / service check' : incident.status;
+        return `<p><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
           · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</p>`;
       }).join('');
@@ -268,6 +348,45 @@
     }
 
     function report(error) { notify(error.message); }
+
+    function updateValueMode(form) {
+      const stateMode = form.elements.namedItem('value_type').value === 'state';
+      form.querySelectorAll('[data-numeric], [data-state]').forEach(label => {
+        const visible = label.hasAttribute('data-state') ? stateMode : !stateMode;
+        label.hidden = !visible;
+        label.querySelectorAll('input, select, textarea').forEach(field => {
+          field.disabled = !visible;
+        });
+      });
+    }
+
+    function servicePayload(form) {
+      const body = Object.fromEntries(new FormData(form));
+      if (body.value_type === 'state') {
+        const mapping = {};
+        for (const line of (body.state_map || '').split('\n').filter(line => line.trim())) {
+          const parts = line.split('|').map(part => part.trim());
+          const number = Number(parts[0]);
+          if (parts.length !== 3 || !parts[0] || !Number.isFinite(number)) {
+            throw new Error('State mappings must use: number | label | severity');
+          }
+          const key = String(number);
+          if (Object.hasOwn(mapping, key)) throw new Error('Each state number must be unique.');
+          mapping[key] = {label: parts[1], status: parts[2]};
+        }
+        body.state_map = mapping;
+        body.direction = 'below';
+        body.scale = 1;
+      } else {
+        body.state_map = {};
+      }
+      return body;
+    }
+
+    document.querySelectorAll('select[name="value_type"]').forEach(select => {
+      select.onchange = () => updateValueMode(select.form);
+      updateValueMode(select.form);
+    });
 
     const successMessages = {
       project: 'Project added successfully.',
@@ -287,7 +406,9 @@
       form.addEventListener('submit', async event => {
         event.preventDefault();
         const action = form.dataset.action;
-        const body = Object.fromEntries(new FormData(form));
+        let body;
+        try { body = action === 'service' ? servicePayload(form) : Object.fromEntries(new FormData(form)); }
+        catch (error) { feedback.textContent = error.message; report(error); return; }
         if (action === 'assignment') body.project = selectedProject;
         const button = form.querySelector('button');
         button.disabled = true;
@@ -296,6 +417,7 @@
           await request(action, body);
           // Reset only after a confirmed write; failed requests retain entered data.
           if (action !== 'retention') form.reset();
+          if (action === 'service') updateValueMode(form);
           feedback.textContent = successMessages[action];
           feedback.classList.add('success');
           notify(successMessages[action], true);
@@ -370,9 +492,13 @@
       const form = el('service-edit-form');
       form.elements.namedItem('service').value = configuration.id || '';
       for (const field of ['name', 'kind', 'target', 'unit', 'scale', 'units',
-                           'direction', 'warning', 'critical', 'persistence']) {
+                           'direction', 'warning', 'critical', 'persistence', 'value_type']) {
         form.elements.namedItem(field).value = configuration[field] ?? '';
       }
+      const mapping = configuration.state_map || {};
+      form.elements.namedItem('state_map').value = Object.entries(mapping)
+        .map(([value, entry]) => `${value} | ${entry.label} | ${entry.status}`).join('\n');
+      updateValueMode(form);
       // Credentials are never fetched or prefilled. Blank keeps the source secret.
       form.elements.namedItem('community').value = '';
       el('service-editor-title').textContent = title;
@@ -394,7 +520,7 @@
     function openTemplateEditor(id = null) {
       const template = id ? state.service_templates.find(row => row.id === Number(id)) : {
         name: '', kind: 'snmp', target: '', unit: 1, scale: 1, units: '',
-        direction: 'below', warning: '', critical: '', persistence: 2,
+        direction: 'below', warning: '', critical: '', persistence: 2, value_type: 'metric', state_map: {},
       };
       if (!template) throw new Error('Library service no longer exists.');
       openConfigurationEditor(template, id ? 'template-edit' : 'template-create', null,
@@ -410,7 +536,7 @@
       const buttons = form.querySelectorAll('button');
       buttons.forEach(button => { button.disabled = true; });
       try {
-        const body = Object.fromEntries(new FormData(form));
+        const body = servicePayload(form);
         if (serviceEditorMode === 'template-edit') body.template = body.service;
         if (serviceEditorSource) body.source = serviceEditorSource;
         await request(serviceEditorMode, body);
@@ -490,6 +616,146 @@
       }
     };
 
+    function openAliasEditor(id) {
+      const assignment = state.assignments.find(row => row.id === Number(id));
+      if (!assignment) throw new Error('Project assignment no longer exists.');
+      const device = state.devices.find(row => row.id === assignment.device);
+      const project = state.projects.find(row => row.id === assignment.project);
+      const form = el('alias-edit-form');
+      form.elements.namedItem('assignment').value = assignment.id;
+      form.elements.namedItem('alias').value = assignment.alias;
+      el('alias-editor-context').textContent = `${device?.name} in ${project?.name}. Other projects are unchanged.`;
+      el('alias-edit-feedback').textContent = '';
+      el('alias-editor').showModal();
+    }
+
+    el('cancel-alias-edit').onclick = () => el('alias-editor').close();
+    el('alias-edit-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const buttons = form.querySelectorAll('button');
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        await request('assignment-edit', Object.fromEntries(new FormData(form)));
+        el('alias-editor').close();
+        form.reset();
+        el('assignment-feedback').textContent = 'Project alias updated successfully.';
+        el('assignment-feedback').classList.add('success');
+        notify('Project alias updated successfully.', true);
+        try {
+          await refresh();
+        } catch (error) {
+          notify('Alias saved. Dashboard refresh failed; reload to see changes.');
+        }
+      } catch (error) {
+        el('alias-edit-feedback').textContent = error.message;
+      } finally {
+        buttons.forEach(button => { button.disabled = false; });
+      }
+    };
+
+    function historyView(graph) {
+      el('history-graph').hidden = !graph;
+      el('readings').hidden = graph;
+      el('show-history-graph').setAttribute('aria-pressed', String(graph));
+      el('show-history-table').setAttribute('aria-pressed', String(!graph));
+    }
+
+    el('show-history-graph').onclick = () => historyView(true);
+    el('show-history-table').onclick = () => historyView(false);
+
+    function historyGraph(rows, service) {
+      // Keep configuration revisions separate: a changed OID/scale/state mode may
+      // describe a different quantity. The table still includes older revisions.
+      const samples = rows.filter(row => row.revision === service.revision).slice().reverse();
+      const valid = row => row.value !== null && Number.isFinite(row.value) &&
+        Number.isFinite(row.timestamp) && !['blocked', 'unreachable'].includes(row.status);
+      const points = samples.filter(valid);
+      if (!points.length) return '<p>No usable readings for the current service configuration yet.</p>';
+      const width = 800, height = 330;
+      const margin = {left: 105, right: 25, top: 28, bottom: 55};
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+      let minValue = Math.min(...points.map(row => row.value));
+      let maxValue = Math.max(...points.map(row => row.value));
+      const stateMode = service.value_type === 'state';
+      const stateTicks = [...new Set(points.map(row => row.value))].sort((a, b) => a - b);
+      if (minValue === maxValue) {
+        const padding = Math.max(Math.abs(minValue) * 0.05, 1);
+        minValue -= padding;
+        maxValue += padding;
+      } else {
+        const padding = (maxValue - minValue) * 0.1;
+        minValue -= padding;
+        maxValue += padding;
+      }
+      let minTime = Math.min(...samples.map(row => row.timestamp));
+      let maxTime = Math.max(...samples.map(row => row.timestamp));
+      if (minTime === maxTime) { minTime -= 7.5; maxTime += 7.5; }
+      const x = time => margin.left + (time - minTime) / (maxTime - minTime) * plotWidth;
+      const y = value => height - margin.bottom - (value - minValue) / (maxValue - minValue) * plotHeight;
+      const ticks = stateMode ? stateTicks.slice(0, 12) : Array.from({length: 5}, (_, i) => minValue + (maxValue - minValue) * i / 4);
+      const labelFor = value => stateMode
+        ? (service.state_map[String(value)]?.label || String(value))
+        : Number(value.toPrecision(5)).toString();
+      let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(service.name)} history graph">
+        <title>${escapeHtml(service.name)}: recent readings, gaps indicate missing or suppressed checks</title>`;
+      for (const tick of ticks) {
+        svg += `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="#314257"/>
+          <text x="${margin.left - 10}" y="${y(tick) + 4}" fill="#a9bad0" font-size="12" text-anchor="end">${escapeHtml(labelFor(tick))}</text>`;
+      }
+      svg += `<text x="${margin.left}" y="16" fill="#a9bad0" font-size="12">${escapeHtml(stateMode ? 'State' : service.units || 'Value')}</text>`;
+      for (let i = 0; i < 3; i++) {
+        const time = minTime + (maxTime - minTime) * i / 2;
+        const label = new Date(time * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        svg += `<text x="${x(time)}" y="${height - 20}" fill="#a9bad0" font-size="12" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}">${escapeHtml(label)}</text>`;
+      }
+      if (!stateMode) {
+        for (const [level, colour] of [['warning', '#ffcb69'], ['critical', '#ff8b96']]) {
+          const limit = service[level];
+          if (limit !== null && limit !== undefined && limit >= minValue && limit <= maxValue) {
+            svg += `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(limit)}" y2="${y(limit)}" stroke="${colour}" stroke-dasharray="5 5"><title>${level}: ${limit}</title></line>`;
+          }
+        }
+      }
+      let path = '', previous = null;
+      const flush = () => {
+        if (path) svg += `<path d="${path}" fill="none" stroke="#7cddd0" stroke-width="2"/>`;
+        path = ''; previous = null;
+      };
+      for (const row of samples) {
+        // Explicit missing readings and long collection gaps must not be bridged.
+        if (!valid(row)) { flush(); continue; }
+        if (previous && row.timestamp - previous.timestamp > 60) flush();
+        path += !previous ? `M ${x(row.timestamp)} ${y(row.value)} `
+          : stateMode ? `H ${x(row.timestamp)} V ${y(row.value)} ` : `L ${x(row.timestamp)} ${y(row.value)} `;
+        previous = row;
+      }
+      flush();
+      for (const row of points) {
+        const colour = row.status === 'critical' ? '#ff8b96' : row.status === 'warning' ? '#ffcb69' : '#7cddd0';
+        svg += `<circle cx="${x(row.timestamp)}" cy="${y(row.value)}" r="3" fill="${colour}">
+          <title>${escapeHtml(date(row.timestamp))}: ${escapeHtml(row.display_value ?? row.value)} ${escapeHtml(stateMode ? '' : service.units)} (${escapeHtml(row.status)})</title></circle>`;
+      }
+      return svg + '</svg><small>Hover over a point for its reading. Gaps indicate missing or suppressed checks. Dashed lines show thresholds within the plotted range.</small>';
+    }
+
+    async function openHistory(id) {
+      const service = state.services.find(row => row.id === Number(id));
+      if (!service) throw new Error('Service no longer exists.');
+      const response = await fetch(`/api/history?service=${id}&run=${state.settings.active_run}`);
+      if (!response.ok) throw new Error('Could not load service history.');
+      const rows = await response.json();
+      el('history-title').textContent = service.name + ' — history';
+      el('history-description').textContent = 'Latest 200 readings from the active deployment. Graph uses the current configuration; table includes earlier configurations.';
+      el('history-graph').innerHTML = historyGraph(rows, service);
+      el('readings').innerHTML = '<table><tr><th>Time</th><th>Value</th><th>Status</th></tr>' + rows.map(row =>
+        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(row.status)}</td></tr>`
+      ).join('') + '</table>';
+      historyView(true);
+      el('history').showModal();
+    }
+
     async function removeDevice(id, button) {
       const device = state.devices.find(row => row.id === Number(id));
       if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
@@ -517,7 +783,10 @@
     el('pause').onclick = () => performAction('pause', {}).catch(report);
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
+      const menu = event.target.closest('.action-menu');
+      if (menu && event.target.tagName === 'BUTTON') menu.open = false;
       try {
+        if (data.editAlias) openAliasEditor(data.editAlias);
         if (data.copyService) openServiceTransfer('service-copy', data.copyService);
         if (data.saveTemplate) openServiceEditor(data.saveTemplate, true);
         if (data.applyTemplate) openServiceTransfer('template-apply', data.applyTemplate);
@@ -539,12 +808,7 @@
           await refresh();
         }
         if (data.remove && confirm('Remove this service? Historical readings are retained.')) await performAction('remove-service', {id: data.remove});
-        if (data.history) {
-          const response = await fetch(`/api/history?service=${data.history}&run=${state.settings.active_run}`);
-          const rows = await response.json();
-          el('readings').innerHTML = '<table><tr><th>Time</th><th>Value</th><th>Status</th></tr>' + rows.map(row => `<tr><td>${date(row.timestamp)}</td><td>${row.value ?? '—'}</td><td>${escapeHtml(row.status)}</td></tr>`).join('') + '</table>';
-          el('history').showModal();
-        }
+        if (data.history) await openHistory(data.history);
       } catch (error) {
         if (data.deleteDevice) inventoryFeedback(error.message);
         else report(error);

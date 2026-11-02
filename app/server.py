@@ -79,6 +79,7 @@ def initialize():
         migrate_inventory_addresses(db)
         migrate_service_lifecycle(db)
         ensure_service_library(db)
+        migrate_value_types(db)
         ensure_host_checks(db)
 
 
@@ -155,6 +156,41 @@ def ensure_service_library(db):
     """)
 
 
+def migrate_value_types(db):
+    """Defaults keep existing services/templates as ordinary numeric metrics."""
+    for table in ('services', 'service_templates'):
+        columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+        if 'value_type' not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN value_type TEXT NOT NULL DEFAULT 'metric'")
+        if 'state_map' not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN state_map TEXT NOT NULL DEFAULT '{{}}'")
+    if 'display_value' not in {row[1] for row in db.execute('PRAGMA table_info(samples)')}:
+        db.execute('ALTER TABLE samples ADD COLUMN display_value TEXT')
+
+
+def state_key(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('State numbers must be finite')
+    return str(int(number)) if number.is_integer() else str(number)
+
+
+def state_definition(service, value):
+    mapping = service['state_map']
+    if isinstance(mapping, str):
+        mapping = json.loads(mapping)
+    return mapping.get(state_key(value))
+
+
+def display_value(service, value):
+    if value is None:
+        return None
+    if service['value_type'] == 'state':
+        definition = state_definition(service, value)
+        return definition['label'] if definition else f'Unmapped state ({state_key(value)})'
+    return str(value)
+
+
 def next_record_id(db, table):
     """Allocate a durable ID even after the highest existing record is deleted."""
     if table not in ('devices', 'assignments', 'services'):
@@ -217,6 +253,9 @@ def setting(db, key):
 
 def classify(value, service):
     """Critical takes precedence; null thresholds mean that check is disabled."""
+    if service['value_type'] == 'state':
+        definition = state_definition(service, value)
+        return definition['status'] if definition else 'warning'
     for level in ('critical', 'warning'):
         limit = service[level]
         if limit is not None:
@@ -257,10 +296,11 @@ def read_metric(service):
     if service['kind'] == 'snmp':
         result = subprocess.run(
             ['snmpget', '-v2c', '-c', service['community'], '-t', '2', '-r', '0',
-             '-Oqv', '--', host, service['target']],
+             '-Oeqv', '--', host, service['target']],
             capture_output=True, text=True, timeout=4, check=True,
         )
-        # Only numeric OIDs are accepted; counters are raw values, not rates.
+        # Request enum codes numerically so states such as up(1) parse as 1.
+        # Counters remain raw values, not rates.
         value = float(result.stdout.strip().split()[0])
     elif service['kind'] == 'modbus':
         register = int(service['target'])
@@ -285,10 +325,29 @@ def read_metric(service):
     return value
 
 
+def host_is_up(db, service, run):
+    """Require a recent successful ping for this deployment and current address."""
+    host = db.execute("""
+        SELECT samples.status, samples.timestamp FROM samples
+        JOIN services ping ON ping.id=samples.service
+        JOIN assignments a ON a.id=ping.assignment
+        JOIN devices d ON d.id=a.device
+        WHERE ping.assignment=? AND ping.kind='ping' AND samples.run=?
+          AND samples.revision=ping.revision AND d.address=?
+        ORDER BY samples.id DESC LIMIT 1
+    """, (service['assignment'], run, service['address'])).fetchone()
+    return bool(host and host['status'] == 'healthy' and time.time() - host['timestamp'] <= 60)
+
+
 def poll_one(service, run):
+    with LOCK, connect() as db:
+        blocked = service['kind'] != 'ping' and not host_is_up(db, service, run)
     try:
-        value = read_metric(service)
-        status, error = classify(value, service), ''
+        if blocked:
+            value, status, error = None, 'blocked', 'Host unavailable'
+        else:
+            value = read_metric(service)
+            status, error = classify(value, service), ''
     except Exception as exc:
         value, status = None, 'unreachable'
         # subprocess exceptions include command-line credentials; never persist them.
@@ -308,8 +367,19 @@ def poll_one(service, run):
         if (current is None or current['address'] != service['address']
                 or current['revision'] != service['revision']):
             return
-        db.execute('INSERT INTO samples(run,service,timestamp,value,status,error,revision) VALUES(?,?,?,?,?,?,?)',
-                   (run, service['id'], time.time(), value, status, error, service['revision']))
+        # Recheck after network I/O so a concurrent host failure cannot create
+        # a child incident from a reading that completed after the failed ping.
+        if service['kind'] != 'ping' and not host_is_up(db, service, run):
+            value, status, error = None, 'blocked', 'Host unavailable'
+        db.execute('''INSERT INTO samples
+            (run,service,timestamp,value,status,error,revision,display_value)
+            VALUES(?,?,?,?,?,?,?,?)''',
+            (run, service['id'], time.time(), value, status, error,
+             service['revision'], display_value(service, value)))
+        if status == 'blocked':
+            # Preserve existing incidents without claiming recovery; blocked samples
+            # break persistence streaks before services resume after host recovery.
+            return
         recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? ORDER BY id DESC LIMIT ?',
                             (service['id'], run, service['revision'], service['persistence'])).fetchall()
         confirmed = len(recent) == service['persistence'] and all(row[0] == status for row in recent)
@@ -323,6 +393,16 @@ def poll_one(service, run):
         if status != 'healthy' and incident is None:
             db.execute('INSERT INTO incidents(run,service,opened,status) VALUES(?,?,?,?)',
                        (run, service['id'], time.time(), status))
+
+
+def poll_host(services, run):
+    """Complete the host ping before its children, while hosts run concurrently."""
+    ping = next((service for service in services if service['kind'] == 'ping'), None)
+    if ping:
+        poll_one(ping, run)
+    for service in services:
+        if service['kind'] != 'ping':
+            poll_one(service, run)
 
 
 def poll_loop():
@@ -339,7 +419,10 @@ def poll_loop():
                         WHERE r.id=? AND a.monitoring=1 AND s.enabled=1 AND d.address!='' ''', (run,))]
                     cutoff = time.time() - int(setting(db, 'retention_days')) * 86400
                     db.execute('DELETE FROM samples WHERE timestamp<?', (cutoff,))
-                list(pool.map(lambda service: poll_one(service, run), services))
+                hosts = {}
+                for service in services:
+                    hosts.setdefault(service['assignment'], []).append(service)
+                list(pool.map(lambda group: poll_host(group, run), hosts.values()))
             except Exception:
                 # Keep the scheduler alive; no credentials or raw command lines in logs.
                 print('Polling cycle failed', flush=True)
@@ -354,12 +437,14 @@ def snapshot():
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision
+            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map
             FROM services''')]
         result['service_templates'] = [dict(row) for row in db.execute('''
-            SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence
+            SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence,value_type,state_map
             FROM service_templates ORDER BY name
         ''')]
+        for configuration in result['services'] + result['service_templates']:
+            configuration['state_map'] = json.loads(configuration['state_map'])
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
         result['latest'] = [dict(row) for row in db.execute('''
             SELECT s.* FROM samples s JOIN (
@@ -383,6 +468,31 @@ def snapshot():
             result['incident_lists'][category] = [dict(row) for row in db.execute(
                 f'SELECT * FROM incidents WHERE run=? AND {predicate} ORDER BY id DESC{limit}',
                 (run,))]
+        result['incident_lists']['suppressed'] = []
+        configurations = {row['id']: row for row in db.execute('''
+            SELECT s.*, d.address FROM services s
+            JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+        ''')}
+        latest = {row['service']: row for row in result['latest']}
+        for category in ('active', 'acknowledged'):
+            visible = []
+            for incident in result['incident_lists'][category]:
+                service = configurations.get(incident['service'])
+                reading = latest.get(incident['service'])
+                suppressed = (not incident['closed'] and service is not None
+                    and service['kind'] != 'ping' and (
+                        not host_is_up(db, service, run)
+                        or reading is None or reading['status'] == 'blocked'))
+                if suppressed:
+                    incident['suppressed'] = True
+                    if category == 'acknowledged':
+                        # Acknowledgement remains the primary list membership.
+                        visible.append(incident)
+                    else:
+                        result['incident_lists']['suppressed'].append(incident)
+                else:
+                    visible.append(incident)
+            result['incident_lists'][category] = visible
         return result
 
 
@@ -413,8 +523,32 @@ def service_details(body, existing=None):
     if not 1 <= unit <= 247 or not 1 <= persistence <= 120:
         raise ValueError('Invalid unit ID or persistence')
     community = body.get('community') or (existing['community'] if existing else 'public')
+    value_type = body.get('value_type', 'metric')
+    mapping = body.get('state_map', {})
+    if isinstance(mapping, str):
+        mapping = json.loads(mapping)
+    if value_type not in ('metric', 'state') or not isinstance(mapping, dict):
+        raise ValueError('Invalid value type or state mapping')
+    normalized = {}
+    if value_type == 'state':
+        if not mapping or len(mapping) > 100:
+            raise ValueError('State services require 1–100 mapped values')
+        for key, definition in mapping.items():
+            numeric_key = state_key(key)
+            if numeric_key in normalized or not isinstance(definition, dict):
+                raise ValueError('Duplicate state value or invalid definition')
+            label = definition.get('label', '')
+            if not isinstance(label, str):
+                raise ValueError('State labels must be text')
+            label = label.strip()
+            status = definition.get('status', 'healthy')
+            if not label or len(label) > 100 or any(c in label for c in '|\r\n') or status not in ('healthy', 'warning', 'critical'):
+                raise ValueError('Invalid state label or severity')
+            normalized[numeric_key] = {'label': label, 'status': status}
+        # State codes are interpreted before scaling and have no numeric thresholds.
+        scale, warning, critical = 1, None, None
     return (name, kind, target, community, unit, scale, body.get('units', ''),
-            direction, warning, critical, persistence)
+            direction, warning, critical, persistence, value_type, json.dumps(normalized))
 
 
 def reusable_service(db, service_id):
@@ -440,7 +574,7 @@ def insert_service(db, assignment_id, details):
         raise ValueError('Unknown target host')
     db.execute("""INSERT INTO services
         (id,assignment,name,kind,target,community,unit,scale,units,direction,
-         warning,critical,persistence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         warning,critical,persistence,value_type,state_map) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (next_record_id(db, 'services'), assignment_id, *details))
 
 
@@ -468,6 +602,14 @@ def mutate(action, body):
                        (next_record_id(db, 'assignments'), int(body['project']),
                         int(body['device']), body['alias']))
             ensure_host_checks(db)
+        elif action == 'assignment-edit':
+            alias = body['alias'].strip()
+            if not alias or len(alias) > 100:
+                raise ValueError('Alias must contain 1–100 characters')
+            cursor = db.execute('UPDATE assignments SET alias=? WHERE id=?',
+                                (alias, int(body['assignment'])))
+            if cursor.rowcount != 1:
+                raise ValueError('Unknown project assignment')
         elif action == 'toggle':
             field = body['field']
             if field not in ('monitoring', 'visible', 'notifications'):
@@ -501,7 +643,7 @@ def mutate(action, body):
             details = service_details(body, existing)
             # Retain identity/history but start persistence counting for the new config.
             db.execute("""UPDATE services SET name=?,kind=?,target=?,community=?,unit=?,
-                scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,
+                scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,value_type=?,state_map=?,
                 revision=revision+1 WHERE id=?""", (*details, service_id))
         elif action == 'service-copy':
             source = reusable_service(db, body['service'])
@@ -518,13 +660,13 @@ def mutate(action, body):
             source = reusable_service(db, body['source']) if body.get('source') else None
             details = service_details(body, source)
             db.execute("""INSERT INTO service_templates
-                (name,kind,target,community,unit,scale,units,direction,warning,critical,persistence)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)""", details)
+                (name,kind,target,community,unit,scale,units,direction,warning,critical,persistence,value_type,state_map)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", details)
         elif action == 'template-edit':
             source = library_template(db, body['template'])
             details = service_details(body, source)
             db.execute("""UPDATE service_templates SET name=?,kind=?,target=?,community=?,
-                unit=?,scale=?,units=?,direction=?,warning=?,critical=?,persistence=?
+                unit=?,scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,value_type=?,state_map=?
                 WHERE id=?""", (*details, source['id']))
         elif action == 'template-delete':
             source = library_template(db, body['template'])
@@ -573,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 query = parse_qs(urlsplit(self.path).query)
                 with connect() as db:
-                    rows = db.execute('SELECT timestamp,value,status FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
+                    rows = db.execute('SELECT timestamp,value,status,display_value,revision FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
                                       (int(query['service'][0]), int(query['run'][0]))).fetchall()
                 self.send(json.dumps([dict(row) for row in rows]))
             except (KeyError, ValueError):
@@ -607,6 +749,7 @@ class Handler(BaseHTTPRequestHandler):
                     migrate_inventory_addresses(candidate)
                     migrate_service_lifecycle(candidate)
                     ensure_service_library(candidate)
+                    migrate_value_types(candidate)
                     ensure_host_checks(candidate)
                     candidate.commit()
                     with LOCK, connect() as destination:

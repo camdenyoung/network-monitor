@@ -15,6 +15,10 @@ class MonitorTests(unittest.TestCase):
         self.previous_db = server.DB
         server.DB = Path(self.directory.name) / 'test.sqlite3'
         server.initialize()
+        # Most tests isolate service behaviour from the host dependency.
+        self.host_dependency = patch.object(server, 'host_is_up', return_value=True)
+        self.host_dependency.start()
+        self.addCleanup(self.host_dependency.stop)
         server.mutate('project', {'name': 'Festival'})
         server.mutate('device', {'name': 'MW-014', 'model': 'Siklu', 'address': '127.0.0.1'})
         server.mutate('assignment', {
@@ -491,6 +495,215 @@ class MonitorTests(unittest.TestCase):
             db.execute('DROP TABLE service_templates')
         server.initialize()
         self.assertEqual(server.snapshot()['service_templates'], [])
+
+    def reload_service(self):
+        with server.connect() as db:
+            self.service = dict(db.execute("""
+                SELECT s.*, d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+                WHERE s.id=?
+            """, (self.service['id'],)).fetchone())
+
+    def poll_ping(self, up):
+        host = self.host_service()
+        if up:
+            with patch.object(server, 'read_metric', return_value=1):
+                server.poll_one(host, 1)
+        else:
+            with patch.object(server, 'read_metric', side_effect=TimeoutError):
+                server.poll_one(host, 1)
+
+    def test_host_down_suppresses_children_without_network_reads_or_child_incidents(self):
+        self.host_dependency.stop()
+        self.poll_ping(False)
+        with patch.object(server, 'read_metric') as read:
+            server.poll_one(self.service, 1)
+            server.poll_one(self.service, 1)
+            read.assert_not_called()
+        latest = next(row for row in server.snapshot()['latest'] if row['service'] == self.service['id'])
+        self.assertEqual(latest['status'], 'blocked')
+        self.assertIsNone(latest['value'])
+        self.assertEqual(server.snapshot()['incidents'], [])
+        self.poll_ping(False)
+        active = server.snapshot()['incident_lists']['active']
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]['service'], self.host_service()['id'])
+
+    def test_missing_or_stale_ping_does_not_report_service_failure(self):
+        self.host_dependency.stop()
+        with patch.object(server, 'read_metric') as read:
+            server.poll_one(self.service, 1)
+            read.assert_not_called()
+        self.poll_ping(True)
+        with server.connect() as db:
+            db.execute("UPDATE samples SET timestamp=0 WHERE service=?", (self.host_service()['id'],))
+        with patch.object(server, 'read_metric') as read:
+            server.poll_one(self.service, 1)
+            read.assert_not_called()
+        self.assertEqual(server.snapshot()['incident_lists']['active'], [])
+
+    def test_services_can_fail_when_host_is_online(self):
+        self.host_dependency.stop()
+        self.poll_ping(True)
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(self.service, 1)
+            server.poll_one(self.service, 1)
+        active = server.snapshot()['incident_lists']['active']
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]['service'], self.service['id'])
+
+    def test_existing_service_incident_is_suppressed_and_not_falsely_recovered(self):
+        self.host_dependency.stop()
+        self.poll_ping(True)
+        self.poll(-80)
+        self.poll(-80)
+        self.poll_ping(False)
+        self.poll(-80)  # Blocked rather than collected when ping is down.
+        lists = server.snapshot()['incident_lists']
+        self.assertEqual(lists['active'], [])
+        self.assertEqual(len(lists['suppressed']), 1)
+        self.assertIsNone(lists['suppressed'][0]['closed'])
+        self.poll_ping(True)
+        self.assertEqual(len(server.snapshot()['incident_lists']['suppressed']), 1)
+        self.poll(-50)
+        self.poll(-50)
+        lists = server.snapshot()['incident_lists']
+        self.assertEqual(lists['suppressed'], [])
+        self.assertEqual(len(lists['resolved']), 1)
+
+    def test_poll_host_checks_ping_before_children(self):
+        self.host_dependency.stop()
+        calls = []
+        def read(service):
+            calls.append(service['kind'])
+            if service['kind'] == 'ping':
+                raise TimeoutError()
+            return -80
+        with patch.object(server, 'read_metric', side_effect=read):
+            server.poll_host([self.service, self.host_service()], 1)
+        self.assertEqual(calls, ['ping'])
+
+    def configure_state_service(self):
+        mapping = {'1': {'label': 'Up', 'status': 'healthy'},
+                   '2': {'label': 'Down', 'status': 'critical'}}
+        server.mutate('service-edit', self.edited_service_body(
+            name='Port state', value_type='state', state_map=mapping,
+            scale='1', warning='', critical='',
+        ))
+        self.reload_service()
+        return mapping
+
+    def test_state_values_display_labels_and_control_severity(self):
+        self.configure_state_service()
+        self.assertEqual(server.classify(1, self.service), 'healthy')
+        self.assertEqual(server.classify(2, self.service), 'critical')
+        self.assertEqual(server.display_value(self.service, 1), 'Up')
+        self.assertEqual(server.display_value(self.service, 2), 'Down')
+        self.poll(2)
+        reading = next(row for row in server.snapshot()['latest'] if row['service'] == self.service['id'])
+        self.assertEqual(reading['display_value'], 'Down')
+        self.assertEqual(reading['value'], 2)
+        self.assertEqual(reading['status'], 'critical')
+        self.poll(2)
+        self.poll(2)
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+        self.poll(1)
+        self.poll(1)
+        self.poll(1)
+        self.assertEqual(len(server.snapshot()['incident_lists']['resolved']), 1)
+
+    def test_unmapped_state_warns_instead_of_showing_healthy(self):
+        self.configure_state_service()
+        self.assertEqual(server.classify(99, self.service), 'warning')
+        self.assertEqual(server.display_value(self.service, 99), 'Unmapped state (99)')
+
+    def test_state_mapping_survives_copy_and_library_apply(self):
+        mapping = self.configure_state_service()
+        target = self.add_copy_target()
+        server.mutate('service-copy', {'service': self.service['id'], 'assignment': target})
+        server.mutate('template-create', {**dict(self.service), 'source': self.service['id']})
+        template = server.snapshot()['service_templates'][0]
+        self.assertEqual(template['state_map'], mapping)
+        server.mutate('template-apply', {'template': template['id'], 'assignment': target})
+        copies = [row for row in server.snapshot()['services'] if row['assignment'] == target and row['kind'] == 'snmp']
+        self.assertEqual(len(copies), 2)
+        self.assertTrue(all(row['state_map'] == mapping and row['value_type'] == 'state' for row in copies))
+
+    def test_invalid_state_mappings_are_rejected(self):
+        for mapping in ({}, {'x': {'label': 'Up', 'status': 'healthy'}},
+                        {'1': {'label': '', 'status': 'healthy'}},
+                        {'1': {'label': 'Up', 'status': 'invalid'}},
+                        {'1': {'label': 'Up', 'status': 'healthy'},
+                         '1.0': {'label': 'Duplicate', 'status': 'critical'}}):
+            with self.assertRaises(ValueError):
+                server.mutate('service-edit', self.edited_service_body(
+                    value_type='state', state_map=mapping,
+                ))
+
+    def test_host_failure_during_service_read_suppresses_result(self):
+        self.host_dependency.stop()
+        self.poll_ping(True)
+        def read(service):
+            self.poll_ping(False)
+            return -80
+        with patch.object(server, 'read_metric', side_effect=read):
+            server.poll_one(self.service, 1)
+        reading = next(row for row in server.snapshot()['latest'] if row['service'] == self.service['id'])
+        self.assertEqual(reading['status'], 'blocked')
+        self.assertEqual(server.snapshot()['incident_lists']['active'], [])
+
+    def test_numeric_metric_scaling_and_snmp_enum_output(self):
+        self.service['scale'] = 0.1
+        result = type('Result', (), {'stdout': '32\n'})()
+        with patch.object(server.subprocess, 'run', return_value=result) as run:
+            self.assertAlmostEqual(server.read_metric(self.service), 3.2)
+            self.assertIn('-Oeqv', run.call_args.args[0])
+        self.assertEqual(server.display_value(self.service, 3.2), '3.2')
+
+    def test_blocked_samples_break_service_persistence_streaks(self):
+        self.host_dependency.stop()
+        self.poll_ping(True)
+        self.poll(-80)
+        self.poll_ping(False)
+        self.poll(-80)
+        self.poll_ping(True)
+        self.poll(-80)
+        self.assertEqual(server.snapshot()['incident_lists']['active'], [])
+        self.poll(-80)
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+
+    def test_project_alias_edit_preserves_history_and_other_project_aliases(self):
+        self.poll(-55)
+        server.mutate('project', {'name': 'Other project'})
+        server.mutate('assignment', {'project': 2, 'device': 1, 'alias': 'Other alias'})
+        server.mutate('assignment-edit', {'assignment': 1, 'alias': 'New stage alias'})
+        state = server.snapshot()
+        self.assertEqual([row['alias'] for row in state['assignments']],
+                         ['New stage alias', 'Other alias'])
+        self.assertEqual(state['devices'][0]['name'], 'MW-014')
+        self.assertEqual(len(state['latest']), 1)
+        self.assertEqual(len(state['services']), 3)
+
+    def test_alias_edit_rejects_empty_alias_or_unknown_assignment(self):
+        with self.assertRaises(ValueError):
+            server.mutate('assignment-edit', {'assignment': 1, 'alias': '   '})
+        with self.assertRaises(ValueError):
+            server.mutate('assignment-edit', {'assignment': 999, 'alias': 'New alias'})
+        self.assertEqual(server.snapshot()['assignments'][0]['alias'], 'Stage link')
+
+    def test_acknowledged_service_stays_acknowledged_when_host_goes_down(self):
+        self.host_dependency.stop()
+        self.poll_ping(True)
+        self.poll(-80)
+        self.poll(-80)
+        incident = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('ack', {'id': incident['id']})
+        self.poll_ping(False)
+        lists = server.snapshot()['incident_lists']
+        self.assertEqual(lists['active'], [])
+        self.assertEqual(len(lists['acknowledged']), 1)
+        self.assertTrue(lists['acknowledged'][0]['suppressed'])
+        self.assertEqual(lists['suppressed'], [])
 
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):

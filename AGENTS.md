@@ -4,6 +4,14 @@ Build a local-first equipment monitor for 100–150 network and power devices.
 The user requested readable, consistently indented code and explanatory comments.
 
 ## Requirements
+- Project assignment aliases are editable independently; preserve assignment IDs,
+  services, history and aliases in other projects.
+- Monitor card headings use `Device ID - Alias`.
+- Services depend on a fresh healthy host ping. Poll ping first; suppress child
+  polling/failure reports for offline, stale or unknown hosts. Preserve existing
+  child incidents as suppressed, without claiming recovery; resume on fresh reads.
+- Services and library entries support numeric metrics or numeric state maps.
+  State codes map to labels and healthy/warning/critical; unmapped codes warn.
 - Every assigned host gets automatic ICMP ping; no manually added service needed.
 - Successful add forms show inline confirmation and reset; errors preserve input.
 - Permanent inventory; reusable project assignments with per-project aliases.
@@ -73,3 +81,17 @@ service_templates stores independent reusable definitions, including credentials
 ensure_service_library runs on startup/restore for backward-compatible backups.
 Redact template communities from snapshot, just like normal service credentials.
 Deleting a host or library entry must not affect already-materialized copies.
+
+migrate_value_types runs at startup/restore after ensuring the template table.
+Keep value_type/state_map in every service/template create/edit/copy/apply path.
+Samples retain numeric values and display labels as read. State modes use raw
+codes (scale=1) and mapped severity, not numeric thresholds. SNMP uses -Oeqv to
+request numeric enum codes. Use incident_lists for current reporting; incidents
+contains historical records which can include currently suppressed child faults.
+
+Service monitor cards use a compact native details/summary Actions menu. Retain
+open menu state during background refreshes; close on choosing an action.
+History supports graph/table views over the latest 200 readings. Numeric graphs
+use lines; states use labeled steps. Preserve explicit/long gaps; never connect
+readings from different configuration revisions. No external chart dependencies.
+Optional UI logic checks: `node tests/dashboard.test.mjs` (Node 18+).

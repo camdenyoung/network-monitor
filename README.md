@@ -72,6 +72,12 @@ are independent; notification flags are currently stored only.
 - One active project, separate deployment runs, retained historical records.
 - Independent monitoring and visibility controls.
 - Bounded concurrent polling (24 workers), 15-second cycle delay.
+- Host-first dependency checks: child services are suppressed while the host ping
+  is failed, stale or missing. Existing child incidents stay recorded in a suppressed
+  list, without being falsely recovered. Fresh service reads resume after host recovery.
+- Numeric metrics with units/thresholds or numeric state codes with per-value labels
+  and healthy/warning/critical severity. Unmapped state codes produce warnings.
+- Monitor card headings use `Device ID - Alias`.
 - Automatic ICMP host ping (including existing/restored assignments); numeric
   SNMP v2c GET; TCP port reachability; basic Modbus TCP function 03.
 - Inline success confirmations and cleared add forms; failed submissions preserve
@@ -123,12 +129,13 @@ CLI recovery command and versioned encrypted archives remain planned.
   manufacturer fault decoding are pending confirmation of the actual DRS interface.
 - Host cards show ICMP online/offline/unknown independently of additional services.
   Paired-radio views and a combined host/service health rollup remain pending.
-  Networks that block ICMP will show hosts as offline despite other services working.
+  Networks that block ICMP will show hosts as offline and suppress their child services.
 - Inventory creation/editing/deletion and service creation/editing/removal are present; assignment
-  editing/removal, multi-service device profiles, project cloning, and project readiness
+  removal, multi-service device profiles, project cloning, and project readiness
   checks remain to be added.
-- No graphs or historical run selector yet; data remains in the database.
-- No hysteresis, dependencies, maintenance windows, configurable polling intervals,
+- History graphs cover the latest 200 readings in the active deployment. A full
+  historical run selector and longer-range graph queries remain to be added.
+- No hysteresis, upstream network dependencies, maintenance windows, configurable polling intervals,
   or notification reminders yet. Recovery uses the same thresholds as triggering.
 - No scheduled/off-site/encrypted backups, pre-upgrade backup automation, schema
   migration tooling, or downgrade support yet.
@@ -160,3 +167,42 @@ remain recorded and are reconciled by subsequent confirmed readings.
 Service library entries are user-defined. No unverified manufacturer OIDs or
 registers are preloaded. Older backups get an empty library on restore. Applying
 a library service requires a device already assigned to the target project.
+
+## State services and host dependencies
+
+Choose **Numeric metric** for scaled readings such as percent, voltage, RSSI or
+degrees; set units and numeric thresholds. Choose **Numeric state codes** for
+values such as switch port status, then enter one mapping per line:
+
+```text
+1 | Up | healthy
+2 | Down | critical
+3 | Testing | warning
+```
+
+The dashboard and history show the assigned label. Raw numeric readings remain in
+the database. State codes bypass scaling and numeric thresholds; unmapped codes
+warn. Mappings travel with copied services, library entries and backups.
+SNMP enum values are requested numerically using Net-SNMP's
+[output options](https://www.net-snmp.org/docs/man/snmpcmd.html).
+
+Each host is pinged before its child checks. A failed/missing ping or a ping older
+than 60 seconds blocks child polling and records a suppressed sample instead of a
+service-down event. Confirmed host failures still create host incidents. Existing
+child incidents move to the suppressed list and keep their original history and
+acknowledgements. After host recovery, service persistence starts again from fresh
+readings; recovery is recorded only after confirmed healthy readings.
+
+To rename a project alias, select the project, expand **Inventory and project
+configuration**, and use **Edit alias** in **Project assignments**, or click
+**Edit alias** directly on its monitor card. This changes
+only that assignment; inventory IDs and aliases in other projects are preserved.
+
+Service cards keep actions in a compact **Actions** menu. Use **History / graph**
+to switch between an SVG graph and exact readings. Numeric metrics use lines;
+state codes use labeled steps. Missing/suppressed readings and gaps over 60 seconds
+break the line. Graphs use the current configuration revision; the table preserves
+older configurations. Graphs are local and do not depend on a CDN or chart service.
+
+Optional dashboard logic tests (Node.js 18+): `node tests/dashboard.test.mjs`.
+These use a minimal DOM stub; a full browser layout check remains separate.
