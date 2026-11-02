@@ -95,6 +95,8 @@
     }
     @media (max-width: 760px) { .project-settings-grid { grid-template-columns: 1fr; } }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
+    .account-nav { justify-content: flex-start; }
+    .account-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
     .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
     button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
@@ -103,7 +105,14 @@
 </head>
 <body data-role="viewer">
   <header><div><h1>Network Monitor <small class="app-version">v0.1.1</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
-  <nav class="toolbar"><span id="signed-in" class="user-badge"></span><a class="button-link" href="/status" target="_blank">Status Dashboard</a><a class="button-link" href="/login">Change password</a><button id="logout">Sign out</button></nav>
+  <nav class="toolbar account-nav">
+    <span id="signed-in" class="user-badge"></span>
+    <div class="account-actions">
+      <a class="button-link" href="/status" target="_blank">Status Dashboard</a>
+      <a class="button-link" href="/login">Change password</a>
+      <button id="logout">Sign out</button>
+    </div>
+  </nav>
   <p id="message" role="status"></p>
   <section class="toolbar project-toolbar">
     <div class="project-logo-slot">

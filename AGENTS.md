@@ -281,3 +281,6 @@ Main dashboard live hosts and all their display controls sit together inside a
 rounded bordered panel, separate from issue lists. Edit alias sits in the host heading beside Device ID - Alias in Cards and
 List views. List services use shared grid columns and fixed-width Pause/Resume
 and Actions controls so varying names, values and labels do not shift buttons.
+
+Main account navigation keeps the signed-in badge left and groups Status Dashboard,
+Change password and Sign out on the right, wrapping the action group on narrow screens.
