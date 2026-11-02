@@ -236,3 +236,7 @@ Older username-only acknowledgements display the account Full Name after it is
 filled in, matching both recorded account ID and username. This enriches response
 data without rewriting stored audit records. A real full name captured at the time
 of acknowledgement remains authoritative, even after profile changes/deletion.
+
+Status dashboard host display controls (Cards/List, sorting, services and filters)
+sit immediately above hosts, below issue lists, and hide when hosts are hidden.
+The Show/Hide hosts button stays accessible above the issue lists.
