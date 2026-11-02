@@ -60,7 +60,8 @@ def initialize():
                 name TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL,
                 community TEXT DEFAULT 'public', unit INTEGER DEFAULT 1,
                 scale REAL DEFAULT 1, units TEXT DEFAULT '', direction TEXT DEFAULT 'below',
-                warning REAL, critical REAL, persistence INTEGER DEFAULT 2);
+                warning REAL, critical REAL, persistence INTEGER DEFAULT 2,
+                enabled INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS runs (
                 id INTEGER PRIMARY KEY, project INTEGER REFERENCES projects(id), started REAL);
             CREATE TABLE IF NOT EXISTS settings (
@@ -76,6 +77,7 @@ def initialize():
         db.execute("INSERT OR IGNORE INTO settings VALUES ('retention_days','30')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
         migrate_inventory_addresses(db)
+        migrate_service_lifecycle(db)
         ensure_host_checks(db)
 
 
@@ -118,19 +120,75 @@ def inventory_address(value):
     return str(ipaddress.ip_address(value.strip()))
 
 
-def ensure_host_checks(db):
-    """Backfill built-in checks for existing assignments, including restored backups.
+def migrate_service_lifecycle(db):
+    """Keep removed service ownership so deleting equipment can purge its history."""
+    columns = {row[1] for row in db.execute('PRAGMA table_info(services)')}
+    if 'enabled' not in columns:
+        db.execute('ALTER TABLE services ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1')
+    # Remember IDs before deletion, so delayed polling cannot attach to a new item.
+    for table in ('devices', 'assignments', 'services'):
+        maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
+        db.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',
+                   ('last_id_' + table, str(maximum)))
+        previous = int(setting(db, 'last_id_' + table))
+        db.execute('UPDATE settings SET value=? WHERE key=?',
+                   (str(max(maximum, previous)), 'last_id_' + table))
 
-    Store ping as an internal service so it shares history and incident handling.
-    Operators never need to create or remove this service themselves.
-    """
-    db.execute("""
-        INSERT INTO services (assignment, name, kind, target)
-        SELECT a.id, 'Host ping', 'ping', '' FROM assignments a
-        WHERE NOT EXISTS (
+
+def next_record_id(db, table):
+    """Allocate a durable ID even after the highest existing record is deleted."""
+    if table not in ('devices', 'assignments', 'services'):
+        raise ValueError('Unsupported record type')
+    maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
+    value = max(maximum, int(setting(db, 'last_id_' + table))) + 1
+    db.execute('UPDATE settings SET value=? WHERE key=?',
+               (str(value), 'last_id_' + table))
+    return value
+
+
+def ensure_host_checks(db):
+    """Create built-in ping checks for new, upgraded, and restored assignments."""
+    missing = db.execute("""
+        SELECT a.id FROM assignments a WHERE NOT EXISTS (
             SELECT 1 FROM services s WHERE s.assignment=a.id AND s.kind='ping'
         )
-    """)
+    """).fetchall()
+    for assignment in missing:
+        db.execute("""
+            INSERT INTO services (id, assignment, name, kind, target)
+            VALUES (?, ?, 'Host ping', 'ping', '')
+        """, (next_record_id(db, 'services'), assignment[0]))
+
+
+def device_details(body):
+    """Validate editable inventory fields before writing any of them."""
+    name = body['name'].strip()
+    model = body.get('model', '').strip()
+    if not name or len(name) > 100 or len(model) > 100:
+        raise ValueError('Invalid device name or model')
+    return name, model, inventory_address(body['address'])
+
+
+def delete_device(db, device_id):
+    """Purge a device and all its related data in the caller's transaction.
+
+    Runs and projects are shared with other equipment and must survive deletion.
+    Disabled services retain their ownership until this point, so their old
+    readings and incidents are removed along with currently monitored services.
+    """
+    if not db.execute('SELECT id FROM devices WHERE id=?', (device_id,)).fetchone():
+        raise ValueError('Unknown device')
+    service_ids = [row[0] for row in db.execute("""
+        SELECT s.id FROM services s
+        JOIN assignments a ON a.id=s.assignment WHERE a.device=?
+    """, (device_id,))]
+    for service_id in service_ids:
+        db.execute('DELETE FROM samples WHERE service=?', (service_id,))
+        db.execute('DELETE FROM incidents WHERE service=?', (service_id,))
+        db.execute('DELETE FROM services WHERE id=?', (service_id,))
+    db.execute('DELETE FROM legacy_assignment_addresses WHERE device=?', (device_id,))
+    db.execute('DELETE FROM assignments WHERE device=?', (device_id,))
+    db.execute('DELETE FROM devices WHERE id=?', (device_id,))
 
 
 def setting(db, key):
@@ -224,7 +282,7 @@ def poll_one(service, run):
             JOIN assignments a ON a.id=s.assignment
             JOIN devices d ON d.id=a.device
             JOIN runs r ON r.project=a.project
-            WHERE s.id=? AND r.id=? AND a.monitoring=1
+            WHERE s.id=? AND r.id=? AND a.monitoring=1 AND s.enabled=1
         """, (service['id'], run)).fetchone()
         # Ignore reads made against an old address while an inventory edit was saved.
         if current is None or current['address'] != service['address']:
@@ -257,7 +315,7 @@ def poll_loop():
                         JOIN assignments a ON a.id=s.assignment
                         JOIN devices d ON d.id=a.device
                         JOIN runs r ON r.project=a.project
-                        WHERE r.id=? AND a.monitoring=1 AND d.address!='' ''', (run,))]
+                        WHERE r.id=? AND a.monitoring=1 AND s.enabled=1 AND d.address!='' ''', (run,))]
                     cutoff = time.time() - int(setting(db, 'retention_days')) * 86400
                     db.execute('DELETE FROM samples WHERE timestamp<?', (cutoff,))
                 list(pool.map(lambda service: poll_one(service, run), services))
@@ -275,7 +333,7 @@ def snapshot():
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence
+            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled
             FROM services''')]
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
         result['latest'] = [dict(row) for row in db.execute('''
@@ -292,14 +350,24 @@ def mutate(action, body):
         if action == 'project':
             db.execute('INSERT INTO projects(name) VALUES(?)', (body['name'],))
         elif action == 'device':
-            db.execute('INSERT INTO devices(name,model,address) VALUES(?,?,?)',
-                       (body['name'], body.get('model', ''), inventory_address(body['address'])))
+            details = device_details(body)
+            db.execute('INSERT INTO devices(id,name,model,address) VALUES(?,?,?,?)',
+                       (next_record_id(db, 'devices'), *details))
+        elif action == 'device-edit':
+            details = device_details(body)
+            cursor = db.execute('UPDATE devices SET name=?,model=?,address=? WHERE id=?',
+                                (*details, int(body['device'])))
+            if cursor.rowcount != 1:
+                raise ValueError('Unknown device')
+        elif action == 'delete-device':
+            delete_device(db, int(body['device']))
         elif action == 'device-address':
             db.execute('UPDATE devices SET address=? WHERE id=?',
                        (inventory_address(body['address']), int(body['device'])))
         elif action == 'assignment':
-            db.execute('INSERT INTO assignments(project,device,alias) VALUES(?,?,?)',
-                       (int(body['project']), int(body['device']), body['alias']))
+            db.execute('INSERT INTO assignments(id,project,device,alias) VALUES(?,?,?,?)',
+                       (next_record_id(db, 'assignments'), int(body['project']),
+                        int(body['device']), body['alias']))
             ensure_host_checks(db)
         elif action == 'toggle':
             field = body['field']
@@ -339,13 +407,14 @@ def mutate(action, body):
             if body['direction'] not in ('above', 'below'):
                 raise ValueError('Invalid threshold direction')
             db.execute('''INSERT INTO services
-                (assignment,name,kind,target,community,unit,scale,units,direction,warning,critical)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
-                (int(body['assignment']), body['name'], kind, target, body.get('community', 'public'),
+                (id,assignment,name,kind,target,community,unit,scale,units,direction,warning,critical)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (next_record_id(db, 'services'), int(body['assignment']), body['name'], kind, target, body.get('community', 'public'),
                  1, scale, body.get('units', ''), body['direction'], warning, critical))
         elif action == 'remove-service':
-            # Preserve historical samples and incidents for removed services.
-            db.execute("DELETE FROM services WHERE id=? AND kind!='ping'", (int(body['id']),))
+            # Keep ownership for history and later full-device deletion.
+            db.execute("UPDATE services SET enabled=0 WHERE id=? AND kind!='ping'",
+                       (int(body['id']),))
         else:
             raise ValueError('Unknown action')
 
@@ -412,6 +481,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError('Incompatible backup')
                     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
                     migrate_inventory_addresses(candidate)
+                    migrate_service_lifecycle(candidate)
                     ensure_host_checks(candidate)
                     candidate.commit()
                     with LOCK, connect() as destination:

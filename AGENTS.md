@@ -7,6 +7,9 @@ The user requested readable, consistently indented code and explanatory comments
 - Every assigned host gets automatic ICMP ping; no manually added service needed.
 - Successful add forms show inline confirmation and reset; errors preserve input.
 - Permanent inventory; reusable project assignments with per-project aliases.
+- Inventory supports full ID/name, model, IP edits and confirmed permanent deletion.
+- Device deletion purges all linked assignments, services, history and incidents;
+  preserve shared projects/runs and all other equipment.
 - IP addresses belong to inventory devices and are shared across all projects.
 - Exactly one active project. Each activation creates a deployment run; retain history.
 - Selected SNMP metrics and Mean Well DRS Modbus metrics, not exhaustive discovery.
@@ -47,3 +50,9 @@ Compose host address/port use MONITOR_BIND and MONITOR_PORT in a gitignored
 and restore. Conflicts are preserved in legacy_assignment_addresses; no address
 is chosen automatically and those devices are not polled until configured.
 SQLite >=3.35 is required for the migration. Do not restore project-specific IPs.
+
+Service removal disables the service and preserves ownership/history. Poll only
+enabled services. Device deletion purges both active and disabled services.
+Persistent ID counters in settings prevent ID reuse after deletion; use
+next_record_id for device, assignment and service creation, including built-in ping.
+The editor must retain failed edits and must not be overwritten by dashboard refresh.

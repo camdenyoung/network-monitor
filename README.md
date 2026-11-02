@@ -46,7 +46,8 @@ support, which must be present in the local Python build.
 1. Expand inventory/configuration and create a project.
 2. Add permanent equipment with its IP address, then assign it to the selected
    project with its project-specific alias. The IP belongs to inventory and is
-   shared by every project; change it using the inventory IP update form. A device may appear in multiple saved projects.
+   shared by every project; change it using the inventory Edit button. A device
+   may appear in multiple saved projects.
 3. Host ping is configured automatically on assignment. Add any additional services
    using verified OIDs or register addresses.
 4. Activate the project. Activation creates a new deployment run and switches the
@@ -60,7 +61,10 @@ are independent; notification flags are currently stored only.
 
 ## Implemented
 
-- Permanent inventory with a shared device IP; saved project assignments with
+- Permanent inventory with full ID/name, model and IP editing; confirmed permanent
+  deletion removes the device and its assignments, services, readings, incidents,
+  and legacy address records across all projects. Shared projects/runs survive.
+- Shared device IP; saved project assignments with
   per-project aliases. Inventory IP edits apply to all projects.
 - One active project, separate deployment runs, retained historical records.
 - Independent monitoring and visibility controls.
@@ -108,8 +112,8 @@ CLI recovery command and versioned encrypted archives remain planned.
 - Host cards show ICMP online/offline/unknown independently of additional services.
   Paired-radio views and a combined host/service health rollup remain pending.
   Networks that block ICMP will show hosts as offline despite other services working.
-- Inventory/project creation and service removal are present; editing/removing
-  devices/assignments beyond inventory IP edits, reusable profile management, cloning, and project readiness
+- Inventory creation/editing/deletion and service removal are present; assignment
+  editing/removal, reusable profile management, cloning, and project readiness
   checks remain to be added.
 - No graphs or historical run selector yet; data remains in the database.
 - No hysteresis, dependencies, maintenance windows, configurable polling intervals,
@@ -127,5 +131,11 @@ python3 -m compileall app
 ```
 
 Tests cover threshold persistence/recovery, acknowledgement, deployment isolation,
-credential redaction, OID validation, and backup preservation. Hardware polling
+credential redaction, OID validation, backup preservation, full inventory edits,
+transactional deletion and isolation from delayed polling results. Hardware polling
 requires validation with real equipment. See AGENTS.md for full agent context.
+
+Removed services are now disabled rather than detached from their equipment. This
+preserves their history and allows subsequent full-device deletion to remove it.
+Older versions could leave history for already-deleted services without ownership;
+those legacy orphan records cannot reliably be attributed to an inventory item.

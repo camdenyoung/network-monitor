@@ -205,6 +205,84 @@ class MonitorTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_full_inventory_edit_preserves_identity_aliases_and_history(self):
+        self.poll(-55)
+        server.mutate('device-edit', {
+            'device': 1, 'name': 'MW-RENAMED', 'model': 'EH710',
+            'address': '192.168.1.70',
+        })
+        state = server.snapshot()
+        self.assertEqual(state['devices'][0], {
+            'id': 1, 'name': 'MW-RENAMED', 'model': 'EH710', 'address': '192.168.1.70',
+        })
+        self.assertEqual(state['assignments'][0]['alias'], 'Stage link')
+        self.assertEqual(len(state['services']), 2)
+        self.assertEqual(len(state['latest']), 1)
+
+    def test_invalid_or_duplicate_inventory_edit_is_atomic(self):
+        server.mutate('device', {'name': 'Other', 'address': '127.0.0.2'})
+        for name, address, error in [
+            ('Other', '192.168.1.70', sqlite3.IntegrityError),
+            ('Changed', 'invalid-ip', ValueError),
+            ('   ', '192.168.1.70', ValueError),
+        ]:
+            with self.assertRaises(error):
+                server.mutate('device-edit', {
+                    'device': 1, 'name': name, 'model': 'Changed', 'address': address,
+                })
+            device = server.snapshot()['devices'][0]
+            self.assertEqual(device['name'], 'MW-014')
+            self.assertEqual(device['address'], '127.0.0.1')
+
+    def test_device_deletion_purges_all_projects_but_preserves_other_equipment(self):
+        self.poll(-80)
+        self.poll(-80)
+        # Removing a service retains history until its owning device is deleted.
+        server.mutate('remove-service', {'id': self.service['id']})
+        server.mutate('project', {'name': 'Second project'})
+        server.mutate('assignment', {'project': 2, 'device': 1, 'alias': 'Other use'})
+        server.mutate('device', {'name': 'Keep me', 'address': '127.0.0.2'})
+        server.mutate('assignment', {'project': 1, 'device': 2, 'alias': 'Keep host'})
+        with server.connect() as db:
+            db.execute("INSERT INTO legacy_assignment_addresses VALUES(1,1,'127.0.0.1')")
+        server.mutate('delete-device', {'device': 1})
+        state = server.snapshot()
+        self.assertEqual([row['name'] for row in state['devices']], ['Keep me'])
+        self.assertEqual(len(state['assignments']), 1)
+        self.assertEqual(state['assignments'][0]['device'], 2)
+        self.assertEqual(len(state['services']), 1)
+        self.assertEqual(state['latest'], [])
+        self.assertEqual(state['incidents'], [])
+        self.assertEqual(state['legacy_addresses'], [])
+        self.assertEqual(len(state['projects']), 2)
+        self.assertEqual(len(state['runs']), 1)
+        with server.connect() as db:
+            self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 0)
+
+    def test_deleted_device_ids_are_not_reused_by_new_equipment(self):
+        old_host = self.host_service()
+        server.mutate('delete-device', {'device': 1})
+        server.mutate('device', {'name': 'Replacement', 'address': '127.0.0.1'})
+        replacement = server.snapshot()['devices'][0]
+        self.assertGreater(replacement['id'], 1)
+        server.mutate('assignment', {
+            'project': 1, 'device': replacement['id'], 'alias': 'Replacement host',
+        })
+        self.assertGreater(self.host_service()['id'], old_host['id'])
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(old_host, 1)
+        self.assertEqual(server.snapshot()['latest'], [])
+
+    def test_edit_and_delete_unknown_device_are_rejected(self):
+        with self.assertRaises(ValueError):
+            server.mutate('delete-device', {'device': 999})
+        with self.assertRaises(ValueError):
+            server.mutate('device-edit', {
+                'device': 999, 'name': 'Missing', 'model': '', 'address': '127.0.0.1',
+            })
+        self.assertEqual(len(server.snapshot()['devices']), 1)
+
     def test_poll_failure_does_not_log_credential(self):
         with patch.object(server, 'read_metric', side_effect=RuntimeError('secret community')):
             server.poll_one(self.service, 1)
