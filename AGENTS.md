@@ -288,3 +288,13 @@ Change password and Sign out on the right, wrapping the action group on narrow s
 Every displayed version change must update the README title and add concise release
 notes describing that release. Keep both dashboard labels and this version context
 in sync; do not add versions to browser tab titles.
+
+Sign-in from the status dashboard uses /login?next=%2Fstatus and returns there
+after login, including any required password change. Admin dashboard sign-in
+defaults to /. Only /status and / are allowed return destinations; external or
+unrecognised URLs fall back to /. Return context is kept in the login URL per tab.
+
+Admins can set the fixed session duration in User management → Login sessions
+(1–168 whole hours, default 12). Changes apply to new sign-ins, not existing
+sessions; activity does not extend expiry. The database setting controls both
+server session expiry and cookie Max-Age and is included in backups.

@@ -52,10 +52,14 @@
       <label>New password<input name="password" type="password" minlength="10" maxlength="256" required autocomplete="new-password"></label>
       <label>Confirm new password<input name="confirm" type="password" required autocomplete="new-password"></label>
       <button>Save password</button>
-    </form><p><a class="button-link" href="/">Back to dashboard</a></p>
+    </form><p><a id="back-dashboard" class="button-link" href="/">Back to dashboard</a></p>
   </section>
   <p id="message" role="status"></p>
   <script>
+    // Only known local dashboards may be return destinations; never arbitrary URLs.
+    const requestedDestination = new URLSearchParams(location.search).get('next');
+    const returnDestination = requestedDestination === '/status' ? '/status' : '/';
+    document.getElementById('back-dashboard').setAttribute('href', returnDestination);
     let user;
     async function session() {
       const response = await fetch('/api/me');
@@ -78,7 +82,7 @@
         if (!response.ok) throw new Error(result.error);
         form.reset();
         await session();
-        if (path === 'password' || !user.must_change_password) location.assign('/');
+        if (path === 'password' || !user.must_change_password) location.assign(returnDestination);
       } catch (error) { document.getElementById('message').textContent = error.message; }
       finally { button.disabled = false; }
     }

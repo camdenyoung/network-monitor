@@ -577,7 +577,7 @@ assert.equal(publicNodes.get('status-session-link').textContent, 'Admin Dashboar
 publicData.viewer.must_change_password = true;
 await sortedPublic.refresh();
 assert.equal(publicNodes.get('status-session-link').textContent, 'Change password');
-assert.equal(publicNodes.get('status-session-link').getAttribute('href'), '/login');
+assert.equal(publicNodes.get('status-session-link').getAttribute('href'), '/login?next=%2Fstatus');
 console.log('Collapsible/searchable inventory, project panel preview and public login indicators passed.');
 
 // Section preferences persist independently and remain applied during polling.
@@ -757,3 +757,76 @@ await element('confirm-deployment').onclick();
 assert.equal(deploymentRequests.length, 2);
 assert.equal(element('deployment-confirmation').open, false);
 console.log('New deployment requires Continue; Cancel sends no request and failures remain reviewable.');
+
+// Login preserves the originating dashboard through normal and forced-password flows.
+const loginPage = await readFile(new URL('../app/login.html', import.meta.url), 'utf8');
+const loginScript = loginPage.match(/<script>([\s\S]*?)<\/script>/)[1];
+async function checkLoginReturn(search, expected, forcePassword = false, rejectLogin = false) {
+    const redirects = [];
+    let authenticated = false;
+    let mustChange = forcePassword;
+    const loginContext = vm.createContext({
+        document:context.document, FormData:context.FormData, URLSearchParams,
+        location:{search,assign:path => redirects.push(path)},
+        fetch:async (path, options) => {
+            if (path === '/api/me') return {ok:authenticated,json:async () => ({csrf:'login-test',must_change_password:mustChange})};
+            if (path === '/api/login') {
+                if (rejectLogin) return {ok:false,json:async () => ({error:'Invalid login'})};
+                authenticated = true;
+            }
+            if (path === '/api/password') mustChange = false;
+            return {ok:true,json:async () => ({ok:true})};
+        },
+    });
+    new vm.Script(loginScript).runInContext(loginContext);
+    await loginContext.session();
+    const loginForm = element('login-form');
+    loginForm.elements.namedItem('username').value = 'operator';
+    loginForm.elements.namedItem('password').value = 'Password-12345';
+    await loginForm.onsubmit({preventDefault(){},target:loginForm});
+    assert.equal(element('back-dashboard').getAttribute('href'), expected);
+    if (rejectLogin) {
+        assert.equal(redirects.length, 0);
+        assert.equal(element('message').textContent, 'Invalid login');
+        return;
+    }
+    if (forcePassword) {
+        assert.equal(redirects.length, 0);
+        assert.equal(element('password-section').hidden, false);
+        const passwordForm = element('password-form');
+        passwordForm.elements.namedItem('password').value = 'New-password-123';
+        passwordForm.elements.namedItem('confirm').value = 'New-password-123';
+        await passwordForm.onsubmit({preventDefault(){},target:passwordForm});
+    }
+    assert.deepEqual(redirects, [expected]);
+}
+await checkLoginReturn('?next=%2Fstatus', '/status');
+await checkLoginReturn('?next=%2Fstatus', '/status', true);
+await checkLoginReturn('?next=%2F', '/');
+await checkLoginReturn('', '/', true);
+await checkLoginReturn('?next=https%3A%2F%2Fexample.com', '/');
+await checkLoginReturn('?next=%2F%2Fexample.com', '/');
+await checkLoginReturn('?next=%2Funknown', '/');
+await checkLoginReturn('?next=%2Fstatus', '/status', false, true);
+assert.match(statusPage, /href="\/login\?next=%2Fstatus"/);
+console.log('Login returns to its originating dashboard, including password changes; external redirects are rejected.');
+
+// Session-duration form saves whole-hour settings without losing unfinished edits on refresh.
+const sessionSettingsForm = element('session-settings-form');
+sessionSettingsForm.elements.namedItem('hours').value = '24';
+await namedMain.refresh();
+assert.equal(sessionSettingsForm.elements.namedItem('hours').value, '24');
+let savedSessionHours;
+namedMain.fetch = async (path, options) => {
+    if (path === '/api/session-settings') {
+        savedSessionHours = JSON.parse(options.body).hours;
+        fixture.settings.session_hours = String(savedSessionHours);
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return originalNamedFetch(path, options);
+};
+await sessionSettingsForm.onsubmit({preventDefault(){},target:sessionSettingsForm});
+assert.equal(savedSessionHours, 24);
+assert.equal(sessionSettingsForm.elements.namedItem('hours').value, '24');
+assert.match(element('session-settings-feedback').textContent, /Applies to new sign-ins/);
+console.log('Admin session-duration form preserves edits and saves the configured lifetime.');

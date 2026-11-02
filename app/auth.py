@@ -80,12 +80,22 @@ def session_user(db, cookie_header):
     return dict(row) if row else None
 
 
+def session_seconds(db):
+    """Configured fixed lifetime for new logins; legacy backups default to 12 hours."""
+    row = db.execute("SELECT value FROM settings WHERE key='session_hours'").fetchone()
+    try:
+        hours = int(row[0]) if row else 12
+        return hours * 3600 if 1 <= hours <= 168 else SESSION_SECONDS
+    except (ValueError, TypeError):
+        return SESSION_SECONDS
+
+
 def new_session(db, user_id):
     token = secrets.token_urlsafe(32)
     csrf = secrets.token_urlsafe(32)
     db.execute('DELETE FROM sessions WHERE expires<=?', (time.time(),))
     db.execute('INSERT INTO sessions VALUES(?,?,?,?)',
-               (hashlib.sha256(token.encode()).hexdigest(), user_id, csrf, time.time() + SESSION_SECONDS))
+               (hashlib.sha256(token.encode()).hexdigest(), user_id, csrf, time.time() + session_seconds(db)))
     return token
 
 

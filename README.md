@@ -90,7 +90,7 @@ issues but cannot edit projects, equipment, services or any other configuration.
 **View Only** users can inspect monitoring data and history but
 cannot mutate configuration or acknowledge issues. All three roles can change their own
 password. User edits, password resets and deletion revoke that user's sessions.
-Sessions last 12 hours, use HttpOnly/SameSite cookies, and mutations require CSRF
+Sessions default to 12 hours (Admin configurable), use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
 
 The public `/status` dashboard shows active issues above the active project's visible hosts and
@@ -461,3 +461,13 @@ Main dashboard live hosts and all their display controls sit together inside a
 rounded bordered panel, separate from issue lists. Edit alias sits in the host heading beside Device ID - Alias in Cards and
 List views. List services use shared grid columns and fixed-width Pause/Resume
 and Actions controls so varying names, values and labels do not shift buttons.
+
+Sign-in from the status dashboard uses /login?next=%2Fstatus and returns there
+after login, including any required password change. Admin dashboard sign-in
+defaults to /. Only /status and / are allowed return destinations; external or
+unrecognised URLs fall back to /. Return context is kept in the login URL per tab.
+
+Admins can set the fixed session duration in User management → Login sessions
+(1–168 whole hours, default 12). Changes apply to new sign-ins, not existing
+sessions; activity does not extend expiry. The database setting controls both
+server session expiry and cookie Max-Age and is included in backups.

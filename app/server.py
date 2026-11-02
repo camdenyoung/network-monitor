@@ -77,6 +77,7 @@ def initialize():
                 opened REAL, closed REAL, status TEXT, acknowledged REAL);
         ''')
         db.execute("INSERT OR IGNORE INTO settings VALUES ('retention_days','30')")
+        db.execute("INSERT OR IGNORE INTO settings VALUES ('session_hours','12')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
         # Older releases stored only active_run=0 when paused; their most recent
         # deployment is the one that can be resumed after upgrading.
@@ -825,6 +826,11 @@ def mutate(action, body, actor=None):
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
         elif action == 'ack':
             record_acknowledgement(db, int(body['id']), actor)
+        elif action == 'session-settings':
+            hours = body['hours']
+            if type(hours) is not int or not 1 <= hours <= 168:
+                raise ValueError('Session duration must be 1–168 whole hours')
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('session_hours',?)", (str(hours),))
         elif action == 'retention':
             days = int(body['days'])
             if not 1 <= days <= 3650:
@@ -1038,7 +1044,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def session_response(self, token=None):
         self.send_response(200)
-        cookie = 'monitor_session=' + (token or '') + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + str(auth.SESSION_SECONDS if token else 0)
+        with connect() as db:
+            lifetime = auth.session_seconds(db) if token else 0
+        cookie = 'monitor_session=' + (token or '') + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + str(lifetime)
         if os.environ.get('MONITOR_SECURE_COOKIE') == 'true':
             cookie += '; Secure'
         self.send_header('Set-Cookie', cookie)
@@ -1072,7 +1080,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_logo(public=True)
         if self.path == '/api/health':
             return self.send('{"ok":true}')
-        if self.path == '/login':
+        if self.path.split('?', 1)[0] == '/login':
             return self.send(Path(__file__).with_name('login.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/status':
             return self.send(Path(__file__).with_name('status.html').read_bytes(), 'text/html; charset=utf-8')

@@ -290,6 +290,14 @@
       <label>Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
       <button>Add user</button><button id="clear-new-user" type="button">Clear</button>
     </form><p id="user-feedback" role="status"></p><div id="users"></div>
+    <h3>Login sessions</h3>
+    <p>Users are automatically signed out after this fixed duration from sign-in, even if active.
+      Changes apply to new sign-ins; existing sessions keep their current expiry.</p>
+    <form id="session-settings-form">
+      <label>Session duration (hours)<input name="hours" type="number" min="1" max="168" step="1" value="12" required></label>
+      <button>Save session duration</button>
+    </form>
+    <p id="session-settings-feedback" class="form-feedback" role="status"></p>
   </section></div>
   <div data-admin id="telegram-panel" hidden><section>
     <h2>Telegram group</h2>
@@ -457,6 +465,7 @@
     let currentUser = null;
     const roleLabels = {admin: 'Admin', operator: 'Operator', viewer: 'View Only'};
     let users = [];
+    let sessionSettingsLoaded = false;
     let telegramLoaded = false;
     let whatsappLoaded = false;
     let selectedProject = '';
@@ -651,6 +660,10 @@
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
       state = await response.json();
+      if (!sessionSettingsLoaded) {
+        el('session-settings-form').elements.namedItem('hours').value = state.settings.session_hours || '12';
+        sessionSettingsLoaded = true;
+      }
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
       if (!selectedProject) selectedProject = String(run?.project || state.projects[0]?.id || '');
       el('project').innerHTML = options(state.projects, row => row.name);
@@ -1432,6 +1445,19 @@
       el('whatsapp-queue').innerHTML = whatsapp.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
       el('telegram-queue').innerHTML = telegram.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
     }
+
+    el('session-settings-form').onsubmit = async event => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      button.disabled = true;
+      try {
+        await request('session-settings', {hours: Number(event.target.elements.namedItem('hours').value)});
+        sessionSettingsLoaded = false;
+        await refresh();
+        el('session-settings-feedback').textContent = 'Session duration saved. Applies to new sign-ins.';
+      } catch (error) { el('session-settings-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
 
     function openUserEditor(id) {
       const user = users.find(row => row.id === Number(id));

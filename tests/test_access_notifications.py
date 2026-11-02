@@ -224,6 +224,56 @@ class AccessAndNotificationTests(unittest.TestCase):
         for flag in ('HttpOnly', 'SameSite=Strict', 'Secure'):
             self.assertIn(flag, cookie)
 
+    def test_admin_session_duration_controls_new_sessions_and_cookie(self):
+        with server.connect() as db:
+            old_expiry = db.execute('SELECT expires FROM sessions WHERE user_id=1').fetchone()[0]
+        response = self.request('/api/session-settings', {'hours': 2}, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT expires FROM sessions WHERE user_id=1').fetchone()[0], old_expiry)
+            now = auth.time.time()
+            with patch.object(auth.time, 'time', return_value=now):
+                token = auth.new_session(db, 1)
+            with patch.object(auth.time, 'time', return_value=now + 7199):
+                self.assertIsNotNone(auth.session_user(db, 'monitor_session=' + token))
+            with patch.object(auth.time, 'time', return_value=now + 7200):
+                self.assertIsNone(auth.session_user(db, 'monitor_session=' + token))
+        handler = object.__new__(server.Handler)
+        headers = {}
+        handler.send_response = lambda status: None
+        handler.send_header = lambda key, value: headers.update({key: value})
+        handler.end_headers = lambda: None
+        handler.wfile = io.BytesIO()
+        handler.session_response(token)
+        self.assertIn('Max-Age=7200', headers['Set-Cookie'])
+        backup = self.request('/api/backup', token=self.admin_token)
+        restored = sqlite3.connect(':memory:')
+        try:
+            restored.deserialize(backup['content'])
+            self.assertEqual(auth.session_seconds(restored), 7200)
+        finally:
+            restored.close()
+
+    def test_session_settings_require_admin_csrf_and_bounded_whole_hours(self):
+        operator_token, operator = self.create_operator()
+        for token, actor in ((self.viewer_token, self.viewer), (operator_token, operator)):
+            self.assertEqual(self.request('/api/session-settings', {'hours': 2}, token, actor['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/session-settings', {'hours': 2}, self.admin_token)['status'], 403)
+        for value in (0, 169, 1.5, True, '12', None):
+            self.assertEqual(self.request('/api/session-settings', {'hours': value}, self.admin_token, self.admin['csrf'])['status'], 400)
+        for value in (1, 168):
+            self.assertEqual(self.request('/api/session-settings', {'hours': value}, self.admin_token, self.admin['csrf'])['status'], 200)
+        with server.connect() as db:
+            db.execute("DELETE FROM settings WHERE key='session_hours'")
+            self.assertEqual(auth.session_seconds(db), 43200)
+
+    def test_login_page_accepts_status_return_parameter_without_authentication(self):
+        for path in ('/login', '/login?next=%2Fstatus', '/login?next=%2F'):
+            response = self.request(path)
+            self.assertEqual(response['status'], 200)
+            self.assertIn('text/html', response['mime'])
+            self.assertIn(b'id="login-form"', response['content'])
+
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):
             response = self.request('/api/backup', token=self.admin_token)

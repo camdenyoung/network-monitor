@@ -73,7 +73,7 @@
     </div>
     <div class="status-account">
       <span id="status-session" class="user-badge" aria-live="polite">Not signed in</span>
-      <a id="status-session-link" class="button-link" href="/login">Sign in</a>
+      <a id="status-session-link" class="button-link" href="/login?next=%2Fstatus">Sign in</a>
     </div>
   </header>
   <p id="summary" role="status"></p>
@@ -247,7 +247,7 @@
           ? 'Signed in: ' + (viewer.full_name || viewer.username) + ' · ' + (roles[viewer.role] || viewer.role) : 'Not signed in';
         const sessionLink = document.getElementById('status-session-link');
         sessionLink.textContent = viewer ? (viewer.must_change_password ? 'Change password' : 'Admin Dashboard') : 'Sign in';
-        sessionLink.setAttribute('href', viewer && !viewer.must_change_password ? '/' : '/login');
+        sessionLink.setAttribute('href', viewer && !viewer.must_change_password ? '/' : '/login?next=%2Fstatus');
         document.getElementById('status-ack-note').hidden = !data.acknowledge_enabled || data.can_acknowledge;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">
