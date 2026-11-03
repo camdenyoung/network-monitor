@@ -152,7 +152,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 31</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 32</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -302,39 +302,9 @@
       <p id="project-feedback" class="project-settings-feedback" role="status"></p>
     </section>
     <section><h2>Assign equipment to selected project</h2><p>New assignments include the device’s service defaults. Existing project configurations remain independent.</p><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
-    <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>
-      <form data-action="service">
-        <label>Assignment<select name="assignment" id="assignment" required></select></label>
-        <label>Service name<input name="name" required placeholder="RSSI"></label>
-        <label>Protocol<select name="kind"><option value="snmp">SNMP v2c</option><option value="modbus">Modbus TCP</option><option value="tcp">TCP port reachability</option></select></label>
-        <label>OID / register / port<input name="target" required></label>
-        <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
-        <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
-        <fieldset class="flap-settings"><legend>Flap protection</legend>
-        <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
-        <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
-        <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
-        <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
-        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
-      </fieldset>
-      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" value="2" required></label>
-      <label>Returned value<select name="value_type">
-        <option value="metric">Numeric metric (percent, degrees, etc.)</option>
-        <option value="state">Numeric state codes with labels</option>
-      </select></label>
-      <label data-state hidden>State mappings: number | label | severity
-        <textarea name="state_map" rows="4" placeholder="1 | Up | Healthy&#10;2 | Down | Critical"></textarea>
-        <small>One per line. Severity: Healthy, Warning, or Critical. Unmapped codes warn.</small>
-      </label>
-        <label data-numeric>Scale<input name="scale" type="number" step="any" value="1" required></label>
-        <label data-numeric>Units<input name="units" placeholder="dBm"></label>
-        <label data-numeric>Alarm direction<select name="direction"><option value="below">Below</option><option value="above">Above</option></select></label>
-        <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
-        <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
-        <button>Add service</button>
-      </form>
+    <section><h2>Configured services</h2>
+      <p>Create definitions in Reusable service library and use Add to host to apply them. Manage existing project services below.</p>
       <p id="service-feedback" class="form-feedback" role="status"></p>
-      <h3>Configured services</h3>
       <div class="display-controls">
         <label>Host<select id="catalogue-host"><option value="">Choose a host…</option></select></label>
         <label>Service name / OID<input id="catalogue-search" type="search" maxlength="100" placeholder="e.g. RSSI"></label>
@@ -991,7 +961,6 @@
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
       updateOptions('device', state.devices, deviceLabel, 'Select device…');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
-      updateOptions('assignment', assignments, row => row.alias, 'Select host…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       renderInventory();
       renderHosts();
@@ -1189,7 +1158,6 @@
       device: 'Inventory device added successfully.',
       'device-address': 'Inventory IP updated successfully for all projects.',
       assignment: 'Host assigned successfully. Automatic ping monitoring is configured.',
-      service: 'Service added successfully.',
       retention: 'Retention updated successfully.',
     };
 
@@ -1203,7 +1171,7 @@
         event.preventDefault();
         const action = form.dataset.action;
         let body;
-        try { body = action === 'service' ? servicePayload(form) : Object.fromEntries(new FormData(form)); }
+        try { body = Object.fromEntries(new FormData(form)); }
         catch (error) { feedback.textContent = error.message; report(error); return; }
         if (action === 'assignment') body.project = selectedProject;
         const button = form.querySelector('button');
@@ -1213,11 +1181,6 @@
           await request(action, body);
           // Reset only after a confirmed write; failed requests retain entered data.
           if (action !== 'retention') form.reset();
-          if (action === 'service') {
-            updateProtocolFields(form);
-            updateValueMode(form);
-          }
-          if (action === 'service') updateValueMode(form);
           feedback.textContent = successMessages[action];
           feedback.classList.add('success');
           notify(successMessages[action], true);

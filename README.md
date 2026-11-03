@@ -1,9 +1,15 @@
-# Network Monitor v0.3 · Build 31
+# Network Monitor v0.3 · Build 32
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 32 — v0.3 (UI polish branch)
+
+- Remove the redundant Selected services creation form from Project configuration; create reusable definitions in the library and apply them to hosts.
+- Retain Configured services filters and management actions for existing project services.
+
 
 ### Build 31 — v0.3 (UI polish branch)
 

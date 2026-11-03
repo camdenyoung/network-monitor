@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 31. Show it after the title on both the main and
+Current displayed release is v0.3, Build 32. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -519,3 +519,10 @@ Modbus enables unit ID only; TCP disables both. Do not clear disabled drafts.
 Keep native disabled styling visible. Missing unit on edit preserves the existing
 value in service_details, as missing community already preserves the secret.
 Apply the shared editor rules to services, library definitions and device defaults.
+
+Project configuration no longer contains the inline Selected services creation
+form or its assignment selector. Create definitions in Reusable service library
+and apply them with Add to host. Preserve the separate Configured services
+filter/management section, service feedback and host actions, existing services,
+inventory defaults and history. The shared editor still supports library/default
+creation and editing of existing project services.
