@@ -877,6 +877,36 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('project-logo-remove', {'project': 1})
         self.assertIsNone(server.snapshot()['projects'][0]['logo_url'])
 
+    def test_new_project_can_reuse_uploaded_logo_as_independent_copy(self):
+        self.create_host()
+        image = self.logo_image()
+        self.assertEqual(self.upload_logo(self.admin_token, self.admin['csrf'], image)['status'], 200)
+        response = self.request('/api/project', {'name': 'Reused branding', 'logo_project': '1'},
+                                self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            source = db.execute('SELECT image,mime,digest FROM project_logos WHERE project=1').fetchone()
+            target = db.execute('SELECT image,mime,digest FROM project_logos WHERE project=2').fetchone()
+            self.assertEqual(tuple(source), tuple(target))
+        server.mutate('project-logo-remove', {'project': 1})
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT image FROM project_logos WHERE project=2').fetchone()[0], image)
+        self.assertEqual(self.request('/api/public-logo?project=2')['status'], 404)
+
+    def test_missing_reused_logo_rolls_back_project_creation_and_no_logo_is_optional(self):
+        self.create_host()
+        for choice in ('1', '999', 'invalid'):
+            response = self.request('/api/project', {'name': 'Missing logo', 'logo_project': choice},
+                                    self.admin_token, self.admin['csrf'])
+            self.assertEqual(response['status'], 400)
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM projects').fetchone()[0], 1)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM project_logos').fetchone()[0], 0)
+        response = self.request('/api/project', {'name': 'No branding', 'logo_project': ''},
+                                self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        self.assertIsNone(next(row for row in server.snapshot()['projects'] if row['name'] == 'No branding')['logo_url'])
+
     def test_invalid_logo_does_not_replace_existing_logo(self):
         self.create_host()
         original = self.logo_image()

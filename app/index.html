@@ -107,7 +107,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 7</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 8</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -189,7 +189,14 @@
     </section>
   </div>
   <div data-admin id="project-configuration" hidden>
-    <section><h2>Projects</h2><form data-action="project"><label>Project name<input name="name" required maxlength="100"></label><button>Add project</button></form></section>
+    <section><h2>Projects</h2>
+      <form data-action="project">
+        <label>Project name<input name="name" required maxlength="100"></label>
+        <label>Use uploaded logo (optional)<select name="logo_project" id="new-project-logo"><option value="">No logo</option></select></label>
+        <img id="new-project-logo-preview" class="project-logo" hidden alt="Selected uploaded logo">
+        <button>Add project</button>
+      </form>
+    </section>
     <section class="project-settings">
       <h2>Edit selected project</h2>
       <p id="project-settings-context">Choose a project above to edit its settings.</p>
@@ -728,6 +735,14 @@
       document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
     }
 
+    function previewNewProjectLogo() {
+      const source = state?.projects.find(row => String(row.id) === el('new-project-logo').value);
+      const image = el('new-project-logo-preview');
+      image.hidden = !source?.logo_url;
+      if (source?.logo_url) image.setAttribute('src', source.logo_url);
+    }
+    el('new-project-logo').onchange = previewNewProjectLogo;
+
     async function refresh() {
       const response = await fetch('/api/state');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
@@ -745,6 +760,8 @@
       if (!selectedProject) selectedProject = String(run?.project || state.projects[0]?.id || '');
       el('project').innerHTML = options(state.projects, row => row.name);
       el('project').value = selectedProject;
+      updateOptions('new-project-logo', state.projects.filter(row => row.logo_url), row => row.name, 'No logo');
+      previewNewProjectLogo();
       const project = state.projects.find(row => String(row.id) === selectedProject);
       const image = el('project-logo');
       image.hidden = !project?.logo_url;

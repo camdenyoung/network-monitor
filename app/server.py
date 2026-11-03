@@ -831,7 +831,15 @@ def mutate(action, body, actor=None):
             name = body['name'].strip()
             if not name or len(name) > 100:
                 raise ValueError('Project names must contain 1–100 characters')
-            db.execute('INSERT INTO projects(name) VALUES(?)', (name,))
+            project = db.execute('INSERT INTO projects(name) VALUES(?)', (name,)).lastrowid
+            source_logo = body.get('logo_project')
+            if source_logo not in (None, ''):
+                # Copy image data, not a link to another project's mutable branding.
+                cursor = db.execute('''INSERT INTO project_logos(project,image,mime,digest)
+                    SELECT ?,image,mime,digest FROM project_logos WHERE project=?''',
+                    (project, int(source_logo)))
+                if cursor.rowcount != 1:
+                    raise ValueError('Selected uploaded logo is no longer available')
         elif action == 'project-duplicate':
             duplicate_project(db, int(body['project']), body['name'])
         elif action == 'project-status-settings':

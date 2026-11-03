@@ -1,9 +1,15 @@
-# Network Monitor v0.2 · Build 7
+# Network Monitor v0.2 · Build 8
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 8 — v0.2
+
+- New projects can reuse an already-uploaded project logo, with an optional selection and preview.
+- Logos are copied independently so replacing/removing the original does not affect the new project.
+
 
 ### Build 7 — v0.2
 
