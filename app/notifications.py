@@ -175,7 +175,7 @@ def enqueue_for_channel(db, incident_id, event, channel):
             f"{row['service_name']}: {value} {units}\nIssue #{row['number']} · Deployment #{row['run']}")
     if event.startswith('flap-start:'):
         # Flapping describes an unstable check, not its momentary severity.
-        text = (f"FLAPPING - {row['project_name']}\n"
+        text = (f"⚠️ FLAPPING - {row['project_name']}\n"
                 f"{row['device_name']} - {row['alias']}\n"
                 f"{row['service_name']}: {value} {units}".rstrip() +
                 f"\nIssue #{row['number']} - Deployment #{row['run']}\n"
