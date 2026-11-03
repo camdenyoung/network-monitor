@@ -1153,7 +1153,8 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(len([row for row in outbox if row['event'] == 'flap-start:1']), 1)
             flap_message = next(row['text'] for row in outbox if row['event'] == 'flap-start:1')
             self.assertEqual(flap_message.splitlines(), [
-                'FLAPPING - Festival', 'MW-014 - Stage link', 'RSSI: -60', 'Issue #2 - Deployment #1'])
+                'FLAPPING - Festival', 'MW-014 - Stage link', 'RSSI: -60', 'Issue #2 - Deployment #1',
+                'Notifications for this check are suppressed until it stabilises.'])
 
             self.assertFalse(any(row['state'] == 'pending' and row['event'] in ('opened', 'recovery') for row in outbox))
             self.assertEqual(db.execute('SELECT COUNT(*) FROM samples WHERE service=?', (self.service['id'],)).fetchone()[0], 7)

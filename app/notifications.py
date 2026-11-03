@@ -178,7 +178,8 @@ def enqueue_for_channel(db, incident_id, event, channel):
         text = (f"FLAPPING - {row['project_name']}\n"
                 f"{row['device_name']} - {row['alias']}\n"
                 f"{row['service_name']}: {value} {units}".rstrip() +
-                f"\nIssue #{row['number']} - Deployment #{row['run']}")
+                f"\nIssue #{row['number']} - Deployment #{row['run']}\n"
+                'Notifications for this check are suppressed until it stabilises.')
     # Recovery messages report the current reading only; the opening cause
     # remains recorded on the issue and available in reminder messages.
     if event not in ('opened', 'recovery') and not event.startswith('flap-start:') and row['trigger_timestamp'] is not None:
