@@ -303,3 +303,6 @@ The status dashboard groups live hosts, display controls and filter helper text
 inside a single padded rounded border, matching the Admin dashboard. Card grids
 have 16px spacing below the helper text. Show/Hide hosts hides the entire bordered
 panel; issue lists, their controls and the update timestamp remain outside it.
+
+Both dashboard live host panels have a Live Hosts heading above their controls,
+inside the border, and it hides together with the panel.
