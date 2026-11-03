@@ -99,6 +99,83 @@ class MonitorTests(unittest.TestCase):
         server.mutate('resume', {'project': 1})
         self.assertEqual(server.snapshot()['runs'][-1], before)
 
+    def test_selecting_old_deployment_preserves_history_metadata_and_issue_sequence(self):
+        self.poll(-80)
+        self.poll(-80)
+        server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
+        server.mutate('notification-pause', {'paused': False})
+        self.poll(-70, run=2)
+        self.poll(-70, run=2)
+        with server.connect() as db:
+            before_runs = [tuple(row) for row in db.execute('SELECT * FROM runs ORDER BY id')]
+            before_issues = [tuple(row) for row in db.execute('SELECT * FROM incidents ORDER BY id')]
+            before_samples = [tuple(row) for row in db.execute('SELECT * FROM samples ORDER BY id')]
+            issue_id = db.execute('SELECT id FROM incidents WHERE run=2').fetchone()[0]
+            db.execute("""INSERT INTO notification_outbox
+                (incident,event,channel,text,config_revision,next_attempt,created)
+                VALUES(?,'opened','telegram','Pending old notification',1,0,0)""", (issue_id,))
+        server.mutate('resume-deployment', {'project': 1, 'run': 1, 'expected_active_run': 2})
+        state = server.snapshot()
+        self.assertEqual(state['settings']['active_run'], '1')
+        self.assertEqual(state['settings']['notifications_paused'], '1')
+        self.assertEqual(state['latest'], [])
+        retained = state['incident_lists']['active'] + state['incident_lists']['suppressed']
+        self.assertEqual(retained[0]['number'], 1)
+        with server.connect() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM runs ORDER BY id')], before_runs)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM incidents ORDER BY id')], before_issues)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM samples ORDER BY id')], before_samples)
+            self.assertEqual(db.execute('SELECT state FROM notification_outbox').fetchone()[0], 'cancelled')
+        # Previously captured service objects must not append stale data after switching back.
+        self.poll(-80)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], len(before_samples))
+            self.service = dict(db.execute("""SELECT s.*,d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+                WHERE s.id=?""", (self.service['id'],)).fetchone())
+        self.poll(-70)
+        self.poll(-70)
+        self.assertEqual(server.snapshot()['incident_lists']['active'][0]['number'], 2)
+        self.assertEqual(len(server.snapshot()['runs']), 2)
+
+    def test_selected_deployment_resume_validates_project_and_expected_active_run(self):
+        server.mutate('project', {'name': 'Other project'})
+        before = server.snapshot()
+        for body in (
+                {'project': 1, 'run': 999, 'expected_active_run': 1},
+                {'project': 2, 'run': 1, 'expected_active_run': 1},
+                {'project': 1, 'run': 1, 'expected_active_run': 0},
+                {'project': 1, 'run': 1, 'expected_active_run': 1}):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                server.mutate('resume-deployment', body)
+            self.assertEqual(server.snapshot(), before)
+
+    def test_old_deployment_resume_discards_read_that_spans_switch_away_and_back(self):
+        def read_during_switch(service):
+            server.mutate('activate', {'project': 1, 'description': 'Temporary second run'})
+            server.mutate('resume-deployment', {'project': 1, 'run': 1, 'expected_active_run': 2})
+            return -80
+        with patch.object(server, 'read_metric', side_effect=read_during_switch):
+            server.poll_one(self.service, 1)
+        self.assertEqual(server.snapshot()['latest'], [])
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 0)
+
+    def test_selected_resume_from_pause_preserves_service_flags_and_other_projects(self):
+        server.mutate('service-monitoring', {'service': self.service['id'], 'monitoring': False})
+        server.mutate('project', {'name': 'Other project'})
+        server.mutate('assignment', {'project': 2, 'device': 1, 'alias': 'Other event'})
+        server.mutate('activate', {'project': 2, 'description': 'Other run'})
+        server.mutate('pause', {})
+        with server.connect() as db:
+            other_services = [tuple(row) for row in db.execute('SELECT * FROM services WHERE assignment=2')]
+        server.mutate('resume-deployment', {'project': 1, 'run': 1, 'expected_active_run': 0})
+        self.assertEqual(server.snapshot()['settings']['active_run'], '1')
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '0')
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT monitoring FROM services WHERE id=?', (self.service['id'],)).fetchone()[0], 0)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM services WHERE assignment=2')], other_services)
+
     def test_pause_resume_keeps_deployment_history_and_issues(self):
         self.poll(-80)
         self.poll(-80)

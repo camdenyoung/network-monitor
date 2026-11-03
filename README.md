@@ -1,9 +1,15 @@
-# Network Monitor v0.2.2 · Build 11
+# Network Monitor v0.2.2 · Build 12
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 12 — v0.2.2
+
+- Added project-scoped previous-deployment selection with start times and descriptions.
+- Added confirmed resumption of existing deployments, preserving history and issue numbering while requiring fresh checks and pausing notifications.
+
 
 ### Build 11 — v0.2.2
 
@@ -678,3 +684,21 @@ SNMP communities, so protect the files as credentials. They contain no project
 assignments, readings, user accounts or database IDs. This is a library transfer,
 not a complete database backup. The filename uses the monitoring host's local
 date and time; the JSON format has its own version for compatibility checks.
+
+## Resume a previous deployment
+
+Select the project on the Admin dashboard, choose a run under **Previous
+deployments**, then click **Resume selected deployment**. The list shows each
+run's number, original start date/time and description. Review the confirmation
+and click **Resume deployment** to continue that run rather than create a new one.
+
+Any currently active deployment stops monitoring. All retained readings, issues,
+acknowledgements and issue numbering stay associated with their original runs;
+the resumed deployment continues its existing issue sequence. It uses the
+project's **current** inventory assignments and service definitions, rather than
+restoring a historical configuration. Expired readings cannot be recovered.
+Fresh checks are required, and notifications start paused until explicitly resumed.
+
+The normal Pause/Resume monitoring button still resumes the most recently paused
+run without changing its notification setting. The new selector can instead
+resume any existing run belonging to the selected project. Only Admins can do so.

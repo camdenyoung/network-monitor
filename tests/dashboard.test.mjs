@@ -1145,3 +1145,88 @@ await libraryForm.onsubmit({preventDefault(){},target:libraryForm});
 assert.match(element('library-feedback').textContent, /no larger than 5 MB/);
 assert.match(html, /href="\/api\/library-export" download/);
 console.log('Portable service library import supports reviewed Merge/Replace, cancellation and inline validation errors.');
+
+// Previous-deployment selection is scoped to the project and requires explicit review.
+const deploymentFixture = {...fixture,
+    projects:[{id:1,name:'Project One'},{id:2,name:'Project Two'},{id:3,name:'No runs'}],
+    runs:[{id:1,project:1,started:now-3600,description:'Original setup'},
+          {id:2,project:1,started:now,description:'Second setup'},
+          {id:3,project:2,started:now,description:'Other project setup'}],
+    settings:{...fixture.settings,active_run:'2',paused_run:'0',notifications_paused:'0'},
+    incident_lists:{active:[],acknowledged:[],resolved:[],suppressed:[]},
+};
+const resumeRequests = [];
+let rejectResume = false;
+const resumeContext = vm.createContext({document:context.document,localStorage:context.localStorage,
+    FormData:context.FormData,setInterval(){},confirm:() => true,
+    fetch:async (path, options) => {
+        if (path === '/api/resume-deployment') {
+            const body = JSON.parse(options.body);
+            resumeRequests.push(body);
+            if (rejectResume) return {ok:false,json:async () => ({error:'Cannot resume deployment'})};
+            deploymentFixture.settings.active_run = String(body.run);
+            deploymentFixture.settings.notifications_paused = '1';
+            return {ok:true,json:async () => ({ok:true})};
+        }
+        return {ok:true,json:async () => path === '/api/me'
+            ? {id:1,username:'admin',role:'admin',csrf:'test',must_change_password:0}
+            : path === '/api/users' ? []
+            : path === '/api/telegram' || path === '/api/whatsapp' ? {configuration:{},outbox:[]}
+            : deploymentFixture};
+    },
+});
+new vm.Script(script).runInContext(resumeContext);
+await resumeContext.initializeSession();
+assert.match(element('previous-deployment').innerHTML, /Original setup/);
+assert.doesNotMatch(element('previous-deployment').innerHTML, /Other project setup/);
+element('previous-deployment').value = '2';
+element('previous-deployment').onchange();
+assert.equal(element('resume-selected-deployment').disabled, true);
+element('previous-deployment').value = '1';
+element('previous-deployment').onchange();
+assert.equal(element('resume-selected-deployment').disabled, false);
+await resumeContext.refresh();
+assert.equal(element('previous-deployment').value, '1');
+element('resume-selected-deployment').onclick();
+assert.equal(element('resume-deployment-dialog').open, true);
+assert.match(element('resume-deployment-context').textContent, /Original setup/);
+assert.match(element('resume-deployment-current').textContent, /#2/);
+assert.equal(resumeRequests.length, 0);
+element('cancel-resume-deployment').onclick();
+await element('confirm-resume-deployment').onclick();
+assert.equal(resumeRequests.length, 0);
+element('resume-selected-deployment').onclick();
+rejectResume = true;
+await element('confirm-resume-deployment').onclick();
+assert.equal(element('resume-deployment-dialog').open, true);
+assert.equal(element('resume-deployment-feedback').textContent, 'Cannot resume deployment');
+assert.equal(resumeRequests[0].run, 1);
+assert.equal(resumeRequests[0].project, 1);
+assert.equal(resumeRequests[0].expected_active_run, 2);
+deploymentFixture.settings.active_run = '3';
+await resumeContext.refresh();
+await element('confirm-resume-deployment').onclick();
+assert.equal(resumeRequests.length, 1);
+assert.match(element('resume-deployment-feedback').textContent, /Active deployment changed/);
+element('cancel-resume-deployment').onclick();
+deploymentFixture.settings.active_run = '2';
+await resumeContext.refresh();
+element('resume-selected-deployment').onclick();
+rejectResume = false;
+await element('confirm-resume-deployment').onclick();
+assert.equal(element('resume-deployment-dialog').open, false);
+assert.equal(element('resume-selected-deployment').disabled, true);
+assert.equal(element('notifications-toggle').textContent, 'Resume notifications');
+assert.match(element('deployment-details').textContent, /Original setup/);
+element('project').value = '2';
+element('project').onchange();
+await resumeContext.refresh();
+assert.equal(element('previous-deployment').value, '');
+assert.match(element('previous-deployment').innerHTML, /Other project setup/);
+assert.doesNotMatch(element('previous-deployment').innerHTML, /Original setup/);
+element('project').value = '3';
+element('project').onchange();
+await resumeContext.refresh();
+assert.match(element('previous-deployment').innerHTML, /No previous deployments/);
+assert.equal(element('resume-selected-deployment').disabled, true);
+console.log('Previous deployments can be reviewed and resumed with project filtering, cancellation and stale-state protection.');

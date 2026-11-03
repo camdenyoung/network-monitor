@@ -949,6 +949,21 @@ def mutate(action, body, actor=None):
                 (SELECT id FROM assignments WHERE project=?)""", (time.time(), run['project']))
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(run['id']),))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
+        elif action == 'resume-deployment':
+            active = int(setting(db, 'active_run'))
+            if active != int(body['expected_active_run']):
+                raise ValueError('Active deployment changed; review the selection again')
+            run = db.execute('SELECT id,project FROM runs WHERE id=? AND project=?',
+                             (int(body['run']), int(body['project']))).fetchone()
+            if not run or active == run['id']:
+                raise ValueError('Choose an inactive deployment for the selected project')
+            # Resume with current project configuration; retain original metadata,
+            # issue counters and history, but invalidate stale/in-flight readings.
+            db.execute("""UPDATE services SET monitoring_since=? WHERE assignment IN
+                (SELECT id FROM assignments WHERE project=?)""", (time.time(), run['project']))
+            db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(run['id']),))
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
+            notifications.set_paused(db, True)
         elif action == 'ack':
             record_acknowledgement(db, int(body['id']), actor)
         elif action == 'notification-pause':

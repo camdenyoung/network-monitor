@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.2, Build 11. Show it after the title on both the main and
+Current displayed release is v0.2.2, Build 12. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -411,3 +411,13 @@ contain credentials and must be described as sensitive. app/service_library.py
 owns the portable format; server.service_details remains the config validator.
 
 The Admin dashboard subtitle is Project based network monitoring.
+
+Admins can select previous deployments for the selected project and resume one
+through an in-app confirmation. Show run number, original start time and
+description; clearly disclose stopping any current run, current project config,
+fresh checks and paused notifications. /api/resume-deployment requires Admin/CSRF,
+validates run ownership and an expected_active_run lease before changes, preserves
+run metadata/history/issue counters/service flags, invalidates stale in-flight
+reads via monitoring_since, and pauses notifications/cancels pending messages.
+Never create a run or restore old service configs when resuming an existing run.
+The quick Pause/Resume monitoring toggle keeps its existing behavior.

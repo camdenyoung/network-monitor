@@ -71,6 +71,10 @@
     /* Keep this space even when the image is hidden, preventing selector shifts. */
     .project-toolbar { justify-content: flex-start; align-items: flex-end; }
     .project-toolbar > small { flex: 0 0 100%; }
+    .deployment-controls { display: flex; flex: 0 0 100%; flex-wrap: wrap; align-items: end; gap: 12px; min-width: 0; }
+    .deployment-controls label { flex: 1 1 320px; min-width: 0; max-width: 760px; }
+    .deployment-controls select { width: 100%; box-sizing: border-box; }
+    .deployment-controls small { flex: 0 0 100%; overflow-wrap: anywhere; }
     .project-logo-slot { flex: 0 0 180px; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
     .project-selector { flex: 1 1 240px; max-width: 360px; min-width: 0; }
     .project-selector select { width: 100%; box-sizing: border-box; }
@@ -107,7 +111,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.2 · Build 11</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.2 · Build 12</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -127,6 +131,11 @@
     <button data-admin id="notifications-toggle" aria-pressed="true">Pause notifications</button>
     <small>15-second polling · issue persistence is configurable per service</small>
     <small id="deployment-details"></small>
+    <div data-admin class="deployment-controls">
+      <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
+      <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
+      <small id="previous-deployment-details">Choose a previous deployment for the selected project.</small>
+    </div>
   </section>
   <div class="display-controls" role="group" aria-label="Dashboard section visibility">
     <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false">Show Acknowledged issues</button>
@@ -397,6 +406,18 @@
       <button id="cancel-acknowledgement" autofocus>Cancel</button>
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="resume-deployment-dialog" class="acknowledgement-dialog" aria-labelledby="resume-deployment-title">
+    <h2 id="resume-deployment-title">Resume deployment?</h2>
+    <p id="resume-deployment-context"></p>
+    <p id="resume-deployment-current"></p>
+    <p>This continues the deployment's retained history and issue numbering using the project's current device and service configuration. Fresh checks are required.</p>
+    <p>Notifications start paused. Choose Resume notifications when the deployment is ready.</p>
+    <div class="display-controls">
+      <button id="confirm-resume-deployment" class="primary">Resume deployment</button>
+      <button id="cancel-resume-deployment" autofocus>Cancel</button>
+    </div>
+    <p id="resume-deployment-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="deployment-confirmation" aria-labelledby="deployment-confirmation-title">
     <h2 id="deployment-confirmation-title">Start a new deployment?</h2>
@@ -767,6 +788,16 @@
     }
     el('new-project-logo').onchange = previewNewProjectLogo;
 
+    function updatePreviousDeploymentDetails() {
+      const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
+      const active = Number(state.settings.active_run);
+      el('resume-selected-deployment').disabled = !run || run.id === active;
+      el('previous-deployment-details').textContent = run
+        ? `Deployment #${run.id} · Started ${date(run.started)} · ${run.description || 'No description recorded'}${run.id === active ? ' · Currently active' : ''}`
+        : 'Choose a previous deployment for the selected project.';
+    }
+    el('previous-deployment').onchange = updatePreviousDeploymentDetails;
+
     async function refresh() {
       const response = await fetch('/api/state');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
@@ -784,6 +815,11 @@
       if (!selectedProject) selectedProject = String(run?.project || state.projects[0]?.id || '');
       el('project').innerHTML = options(state.projects, row => row.name);
       el('project').value = selectedProject;
+      const previousRuns = state.runs.filter(row => String(row.project) === selectedProject).sort((a, b) => b.id - a.id);
+      updateOptions('previous-deployment', previousRuns,
+        row => `#${row.id} · ${date(row.started)} · ${row.description || 'No description recorded'}${row.id === Number(state.settings.active_run) ? ' (active)' : ''}`,
+        previousRuns.length ? 'Choose a deployment…' : 'No previous deployments');
+      updatePreviousDeploymentDetails();
       updateOptions('new-project-logo', state.projects.filter(row => row.logo_url), row => row.name, 'No logo');
       previewNewProjectLogo();
       const project = state.projects.find(row => String(row.id) === selectedProject);
@@ -1588,6 +1624,49 @@
     };
 
     el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
+    let pendingDeploymentResume = null;
+    el('resume-selected-deployment').onclick = () => {
+      const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
+      if (!run || run.id === Number(state.settings.active_run)) return;
+      const project = state.projects.find(row => row.id === run.project);
+      pendingDeploymentResume = {run: run.id, project: run.project, expected_active_run: Number(state.settings.active_run)};
+      el('resume-deployment-title').textContent = `Resume deployment #${run.id}?`;
+      el('resume-deployment-context').textContent = `${project.name} · Started ${date(run.started)} · ${run.description || 'No description recorded'}`;
+      el('resume-deployment-current').textContent = pendingDeploymentResume.expected_active_run
+        ? `This will stop monitoring the currently active deployment #${pendingDeploymentResume.expected_active_run}. Its data remains stored.`
+        : 'No other deployment is currently monitoring.';
+      el('resume-deployment-feedback').textContent = '';
+      el('resume-deployment-dialog').showModal();
+    };
+    el('cancel-resume-deployment').onclick = () => {
+      pendingDeploymentResume = null;
+      el('resume-deployment-dialog').close();
+    };
+    el('resume-deployment-dialog').onclose = () => { pendingDeploymentResume = null; };
+    el('resume-deployment-dialog').oncancel = event => {
+      if (el('confirm-resume-deployment').disabled) event.preventDefault();
+    };
+    el('confirm-resume-deployment').onclick = async () => {
+      if (!pendingDeploymentResume || el('confirm-resume-deployment').disabled) return;
+      const button = el('confirm-resume-deployment');
+      const cancel = el('cancel-resume-deployment');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        if (Number(state.settings.active_run) !== pendingDeploymentResume.expected_active_run) {
+          throw new Error('Active deployment changed. Cancel and review the selection again.');
+        }
+        const selection = pendingDeploymentResume;
+        await request('resume-deployment', selection);
+        pendingDeploymentResume = null;
+        selectedProject = String(selection.project);
+        el('resume-deployment-dialog').close();
+        notify(`Deployment #${selection.run} resumed. Notifications are paused.`, true);
+        try { await refresh(); }
+        catch (error) { notify('Deployment resumed. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('resume-deployment-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
     let pendingDeploymentProject = null;
     el('activate').onclick = () => {
       const project = state.projects.find(row => String(row.id) === selectedProject);
