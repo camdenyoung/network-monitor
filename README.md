@@ -1,9 +1,14 @@
-# Network Monitor v0.2.3 · Build 19
+# Network Monitor v0.2.3 · Build 20
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 20 — v0.2.3 (flap-protection branch)
+
+- Match issue typography across both dashboards: body-sized values/states, normal-weight severity labels, and smaller timestamp/acknowledgement details.
+
 
 ### Build 19 — v0.2.3 (flap-protection branch)
 

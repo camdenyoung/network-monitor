@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.3, Build 19. Show it after the title on both the main and
+Current displayed release is v0.2.3, Build 20. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -457,3 +457,7 @@ aria-pressed plus the standard green active button. Data refresh preserves visib
 
 Recovery notifications include only the current reading/state, never the original
 triggering value. Opening evidence remains available in issue records and reminders.
+
+Both dashboards use span.issue-value with identical 16px regular text for saved
+issue readings, outside small metadata. Severity labels use normal-weight spans;
+timestamps, recovery and acknowledgement details use small on both dashboards.

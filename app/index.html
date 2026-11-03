@@ -35,6 +35,8 @@
     button.danger:hover { background: #873344; }
     details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
     table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
+    /* Keep recorded issue readings at body size on both dashboards. */
+    .issue-value { font-size: 16px; font-weight: 400; color: #e8eff8; }
     .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
     .metric-status { display: block; margin-top: 4px; font-size: 13px; }
     .metric-value { font-size: 21px; margin: 8px 0 3px; }
@@ -115,7 +117,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 19</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 20</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -1052,7 +1054,8 @@
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
         return `<div class="metric"><strong>Issue #${escapeHtml(incident.number ?? incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
-          · ${escapeHtml(issueCause(incident))} · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</div>`;
+          · <span class="issue-value">${escapeHtml(issueCause(incident))}</span>
+          <small>· ${date(incident.opened)} · ${recovery} · ${acknowledgement}</small></div>`;
       }).join('');
     }
 
