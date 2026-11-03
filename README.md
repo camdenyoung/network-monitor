@@ -1,9 +1,14 @@
-# Network Monitor v0.3 · Build 32
+# Network Monitor v0.3 · Build 33
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 33 — v0.3 (UI polish branch)
+
+- Assign equipment lists only devices not already assigned to the selected project; removed devices remain available for reassignment.
+
 
 ### Build 32 — v0.3 (UI polish branch)
 

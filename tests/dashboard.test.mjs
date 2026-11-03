@@ -1439,3 +1439,28 @@ for (const [kind, mode] of [['snmp','service-edit'],['modbus','template-create']
   assert.equal(protocolForm.elements.namedItem('unit').disabled,kind !== 'modbus');
 }
 console.log('Service protocol fields initialise correctly and retain drafts while switching SNMP, Modbus and TCP.');
+
+// Assignment choices are project-scoped; paused/hidden still means assigned.
+fixture.projects.push({id:876,name:'Other assignment project'});
+fixture.devices.push({id:877,name:'Elsewhere',address:'10.9.1.1'},
+  {id:878,name:'Paused assigned',address:'10.9.1.2'}, {id:879,name:'Removed available',address:'10.9.1.3'});
+fixture.assignments.push({id:877,project:876,device:877,alias:'Other project',monitoring:1,visible:1},
+  {id:878,project:1,device:878,alias:'Paused',monitoring:0,visible:0},
+  {id:879,project:1,device:879,alias:'Removed',removed:1,monitoring:0,visible:0});
+vm.runInContext("selectedProject = '1'", context);
+await context.refresh();
+assert.match(element('device').innerHTML, /value="877"/);
+assert.doesNotMatch(element('device').innerHTML, /value="878"/);
+assert.match(element('device').innerHTML, /value="879"/);
+element('device').value = '879';
+await context.refresh();
+assert.equal(element('device').value,'879');
+fixture.assignments.find(row => row.id === 879).removed = 0;
+await context.refresh();
+assert.doesNotMatch(element('device').innerHTML, /value="879"/);
+assert.equal(element('device').value,'');
+vm.runInContext("selectedProject = '876'", context);
+await context.refresh();
+assert.doesNotMatch(element('device').innerHTML, /value="877"/);
+assert.match(element('device').innerHTML, /value="878"/);
+console.log('Assign-equipment choices exclude current project assignments and preserve eligible selections across refreshes.');

@@ -152,7 +152,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 32</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 33</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -959,8 +959,13 @@
       el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
         : pausedRun ? 'Paused: ' + state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'Monitoring paused';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
-      updateOptions('device', state.devices, deviceLabel, 'Select device…');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
+      // Pausing/hiding a host does not remove its assignment. Archived hosts may
+      // be added again, and assignments in other projects do not exclude inventory.
+      const assignedDevices = new Set(assignments.map(row => row.device));
+      const availableDevices = selectedProject ? state.devices.filter(row => !assignedDevices.has(row.id)) : [];
+      updateOptions('device', availableDevices, deviceLabel,
+        availableDevices.length ? 'Select device…' : selectedProject ? 'No unassigned devices' : 'Choose a project first…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       renderInventory();
       renderHosts();
