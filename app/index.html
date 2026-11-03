@@ -51,7 +51,7 @@
     .metric-value { font-size: 21px; margin: 8px 0 3px; }
     details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
     .action-menu summary { padding: 5px 9px; border: 1px solid #435b78; border-radius: 5px; font-size: 13px; }
-    .action-menu .menu-buttons { position: absolute; right: 0; top: 34px; z-index: 10; display: grid; gap: 4px; min-width: 170px; padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+    .action-menu .menu-buttons { position: fixed; left: 0; top: 0; z-index: 1000; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; display: grid; gap: 4px; min-width: min(170px, calc(100vw - 16px)); padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
     .action-menu .menu-buttons button { text-align: left; margin: 0; padding: 8px; }
     .delivery-log { border: 1px solid #435b78; border-radius: 10px; padding: 16px; margin-top: 16px; }
     /* Single-line 40px entries show the newest ten before scrolling. */
@@ -95,7 +95,6 @@
     .host-heading h2 { margin: 0; }
     .host-heading > button { flex-shrink: 0; font-size: 13px; padding: 4px 8px; }
     .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
-    .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"], .display-controls button[aria-selected="true"] { background: #176959; }
     .acknowledgement-dialog, .library-import-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
@@ -152,7 +151,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 33</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 34</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -684,9 +683,9 @@
       return reading.status;
     }
 
-    function serviceActions(service) {
+    function serviceActions(service, location = 'hosts') {
       if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History / graph</button>`;
-      return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}">
+      return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}" data-menu-key="${location}:${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
         <div class="menu-buttons">
           <button data-history="${service.id}">History / graph</button>
@@ -697,6 +696,78 @@
         </div>
       </details></div>`;
     }
+
+    let activeActionMenuKey = null;
+
+    function closeActionMenus() {
+      activeActionMenuKey = null;
+      document.querySelectorAll('.action-menu[open]').forEach(menu => { menu.open = false; });
+    }
+
+    function positionActionMenu(menu) {
+      const summary = menu.querySelector('summary');
+      const popup = menu.querySelector('.menu-buttons');
+      const viewport = document.documentElement;
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      // Fixed positioning escapes the host list's scrolling container without
+      // adding menu height to the row. Clamp to the screen and open upward if needed.
+      popup.style.left = '0px';
+      popup.style.top = '0px';
+      popup.style.maxHeight = Math.max(0, height - 16) + 'px';
+      const anchor = summary.getBoundingClientRect();
+      const bounds = popup.getBoundingClientRect();
+      const left = Math.max(8, Math.min(anchor.right - bounds.width, width - bounds.width - 8));
+      const below = anchor.bottom + 6;
+      const top = below + bounds.height <= height - 8 ? below : Math.max(8, anchor.top - bounds.height - 6);
+      popup.style.left = left + 'px';
+      popup.style.top = top + 'px';
+    }
+
+    function restoreActionMenu() {
+      // Polling replaces markup. Restore just the selected occurrence, never
+      // both the live-host menu and catalogue menu for the same service.
+      let restored = false;
+      document.querySelectorAll('.action-menu').forEach(menu => {
+        menu.open = !restored && activeActionMenuKey !== null && menu.dataset.menuKey === activeActionMenuKey;
+        if (menu.open) {
+          restored = true;
+          positionActionMenu(menu);
+        }
+      });
+      if (!restored) activeActionMenuKey = null;
+    }
+
+    function handleActionMenuClick(event) {
+      const menu = event.target.closest?.('.action-menu');
+      const summary = event.target.closest?.('summary');
+      if (menu && summary?.parentElement === menu) {
+        event.preventDefault();
+        const opening = !menu.open;
+        closeActionMenus();
+        if (opening) {
+          activeActionMenuKey = menu.dataset.menuKey;
+          menu.open = true;
+          positionActionMenu(menu);
+        }
+      } else if (!menu || event.target.closest?.('button')) {
+        closeActionMenus();
+      }
+    }
+
+    // Capture clicks before individual controls open dialogs or replace their DOM.
+    document.addEventListener?.('click', handleActionMenuClick, true);
+    document.addEventListener?.('keydown', event => {
+      if (event.key !== 'Escape' || activeActionMenuKey === null) return;
+      const menu = [...document.querySelectorAll('.action-menu[open]')][0];
+      closeActionMenus();
+      menu?.querySelector('summary').focus();
+      event.preventDefault();
+    }, true);
+    document.addEventListener?.('scroll', event => {
+      if (!event.target.closest?.('.menu-buttons')) closeActionMenus();
+    }, true);
+    globalThis.addEventListener?.('resize', closeActionMenus);
 
     // Configuration areas are exclusive tabs. Start closed on each page load.
     const configurationSections = [
@@ -814,7 +885,6 @@
       const visible = state.assignments.filter(row => String(row.project) === selectedProject && row.visible && !row.removed);
       const matches = visible.filter(assignment => !serviceFilter.trim() || state.services.some(service =>
         service.assignment === assignment.id && service.enabled !== 0 && service.kind !== 'ping' && serviceMatches(service)));
-      const openActions = new Set([...document.querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
       const rendered = matches.map(assignment => {
         const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
@@ -868,7 +938,7 @@
       const names = [...new Set(state.services.filter(service => service.kind !== 'ping' && service.enabled !== 0 &&
         visible.some(assignment => assignment.id === service.assignment)).map(service => service.name))].sort();
       el('service-filter-options').innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
-      document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
+      restoreActionMenu();
     }
 
     function previewNewProjectLogo() {
@@ -1032,7 +1102,6 @@
     let catalogueLimit = 20;
     function renderServiceCatalogue() {
       if (!state) return;
-      const openMenus = new Set([...el('service-catalogue').querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
       const hostSelect = el('catalogue-host');
       const previous = hostSelect.value;
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
@@ -1045,6 +1114,7 @@
         el('service-catalogue').innerHTML = '';
         el('catalogue-summary').textContent = 'Choose a host, or All hosts to search across this project.';
         el('catalogue-more').hidden = true;
+        restoreActionMenu();
         return;
       }
       const query = el('catalogue-search').value.trim().toLowerCase();
@@ -1061,10 +1131,10 @@
         const host = assignments.find(row => row.id === service.assignment);
         return `<div class="metric"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
           <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small>
-          ${serviceActions(service)}
+          ${serviceActions(service, 'catalogue')}
         </div>`;
       }).join('') || '<p>No services match these filters.</p>';
-      el('service-catalogue').querySelectorAll('.action-menu').forEach(menu => { menu.open = openMenus.has(menu.dataset.serviceActions); });
+      restoreActionMenu();
       el('catalogue-more').hidden = catalogueLimit >= matches.length;
     }
     for (const id of ['catalogue-host', 'catalogue-protocol', 'catalogue-monitoring']) {
@@ -1918,8 +1988,6 @@
 
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
-      const menu = event.target.closest('.action-menu');
-      if (menu && event.target.tagName === 'BUTTON') menu.open = false;
       try {
         if (data.hostStability) openHostStabilityEditor(data.hostStability);
         if (data.serviceMonitoring) {

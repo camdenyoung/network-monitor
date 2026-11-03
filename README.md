@@ -1,9 +1,15 @@
-# Network Monitor v0.3 · Build 33
+# Network Monitor v0.3 · Build 34
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 34 — v0.3 (UI polish branch)
+
+- Actions menus float over List rows without expanding or being clipped by them.
+- Allow one Actions menu open across the app; close on outside clicks, action selection or Escape, and retain only that menu during polling refreshes.
+
 
 ### Build 33 — v0.3 (UI polish branch)
 

@@ -1464,3 +1464,80 @@ await context.refresh();
 assert.doesNotMatch(element('device').innerHTML, /value="877"/);
 assert.match(element('device').innerHTML, /value="878"/);
 console.log('Assign-equipment choices exclude current project assignments and preserve eligible selections across refreshes.');
+
+// Shared Actions menus float independently of rows and remain globally exclusive.
+const menuEvents = new Map();
+let actionMenus = [];
+function actionMenu(key, anchor) {
+  const menu = {open:false,dataset:{menuKey:key}};
+  const summary = {parentElement:menu,focused:false,focus(){this.focused=true;},
+    getBoundingClientRect(){return anchor;},
+    closest(selector){return selector === '.action-menu' ? menu : selector === 'summary' ? this : null;}};
+  const popup = {style:{},getBoundingClientRect(){return {width:200,height:180};}};
+  menu.querySelector = selector => selector === 'summary' ? summary : popup;
+  return {menu,summary,popup};
+}
+const firstAction = actionMenu('hosts:2',{right:400,top:70,bottom:100});
+const catalogueAction = actionMenu('catalogue:2',{right:980,top:650,bottom:680});
+actionMenus = [firstAction.menu,catalogueAction.menu];
+const menuContext = vm.createContext({document:{...context.document,
+  documentElement:{clientWidth:1000,clientHeight:700},
+  addEventListener(type,handler){menuEvents.set(type,handler);},
+  querySelectorAll(selector){
+    if (selector === '.action-menu') return actionMenus;
+    if (selector === '.action-menu[open]') return actionMenus.filter(menu => menu.open);
+    return [];
+  }},localStorage:context.localStorage,setInterval(){},
+  fetch:async path => ({ok:true,json:async () => path === '/api/me' ? {id:1,username:'admin',role:'admin',csrf:'test'}
+    : path === '/api/users' ? [] : ['/api/telegram','/api/whatsapp'].includes(path) ? {configuration:{},outbox:[]} : fixture})});
+new vm.Script(script).runInContext(menuContext);
+await menuContext.initializeSession();
+function clickAction(target) {
+  let prevented = false;
+  menuEvents.get('click')({target,preventDefault(){prevented=true;}});
+  return prevented;
+}
+assert.equal(clickAction(firstAction.summary),true);
+assert.equal(firstAction.menu.open,true);
+assert.equal(catalogueAction.menu.open,false);
+assert.equal(firstAction.popup.style.left,'200px');
+assert.equal(firstAction.popup.style.top,'106px');
+clickAction(catalogueAction.summary);
+assert.equal(firstAction.menu.open,false);
+assert.equal(catalogueAction.menu.open,true);
+assert.equal(catalogueAction.popup.style.top,'464px');
+assert.equal(catalogueAction.popup.style.left,'780px');
+// Clicking menu whitespace or scrolling its own content keeps it usable.
+const insideMenu = {closest:selector => selector === '.action-menu' ? catalogueAction.menu : null};
+clickAction(insideMenu);
+assert.equal(catalogueAction.menu.open,true);
+menuEvents.get('scroll')({target:{closest:selector => selector === '.menu-buttons' ? catalogueAction.popup : null}});
+assert.equal(catalogueAction.menu.open,true);
+// Clicking an action or anywhere else closes it.
+clickAction({closest:selector => selector === '.action-menu' ? catalogueAction.menu : selector === 'button' ? {} : null});
+assert.equal(catalogueAction.menu.open,false);
+clickAction(firstAction.summary);
+clickAction({closest:() => null});
+assert.equal(firstAction.menu.open,false);
+// A poll may replace the selected occurrence, but never open a second occurrence.
+clickAction(firstAction.summary);
+const replacementAction = actionMenu('hosts:2',{right:400,top:70,bottom:100});
+actionMenus = [replacementAction.menu,catalogueAction.menu];
+menuContext.restoreActionMenu();
+assert.equal(replacementAction.menu.open,true);
+assert.equal(catalogueAction.menu.open,false);
+let escapePrevented = false;
+menuEvents.get('keydown')({key:'Escape',preventDefault(){escapePrevented=true;}});
+assert.equal(replacementAction.menu.open,false);
+assert.equal(replacementAction.summary.focused,true);
+assert.equal(escapePrevented,true);
+clickAction(replacementAction.summary);
+menuEvents.get('scroll')({target:{closest:() => null}});
+assert.equal(replacementAction.menu.open,false);
+clickAction(replacementAction.summary);
+actionMenus = [];
+menuContext.restoreActionMenu();
+actionMenus = [replacementAction.menu];
+menuContext.restoreActionMenu();
+assert.equal(replacementAction.menu.open,false);
+console.log('Actions menus stay exclusive, float within the viewport, survive polling once, and close on outside/action clicks, Escape and page scroll.');

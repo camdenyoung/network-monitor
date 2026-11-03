@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 33. Show it after the title on both the main and
+Current displayed release is v0.3, Build 34. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -531,3 +531,11 @@ Assign-equipment dropdown excludes all non-removed assignments in the selected
 project, including hidden/paused hosts. Devices assigned only elsewhere and
 removed assignments remain eligible. Recompute on project change and refresh;
 preserve eligible selection, clear it after assignment, and explain empty choices.
+
+Actions menus use viewport-fixed floating panels in Cards, List and configured
+services, escaping list scroll clipping without growing rows. One menu may be
+open globally; outside clicks, action selection, Escape, page/list scroll and
+resize close it. Escape restores trigger focus. Internal menu scrolling remains
+usable. Polling restores only a unique location:service key, never both live and
+catalogue occurrences; clear it if the target disappears. Keep popup within the
+viewport, opening upward near the bottom. Other details elements are unaffected.
