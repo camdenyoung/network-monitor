@@ -1,9 +1,13 @@
-# Network Monitor v0.1.3 · Build 1
+# Network Monitor v0.2 · Build 2
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 2 — v0.2
+
+- Merged the status dashboard UI, acknowledgement, reminder and deployment-record improvements into main.
 
 ### Build 1
 
@@ -13,6 +17,17 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.2
+
+- Matched the status dashboard's bordered Live Hosts panel and card spacing to the Admin dashboard; added Live Hosts headings to both.
+- Added consistent issue separator rows and displayed issue numbers on both dashboards.
+- Added styled in-app acknowledgement confirmation dialogs with Cancel and inline errors.
+- Added configurable reminders for active, unacknowledged issues through enabled Telegram/WhatsApp channels, respecting paused and suppressed checks.
+- Added notification icons for recovery, critical/unreachable and warning states.
+- Numbered issues from #1 within each deployment while preserving internal IDs and existing history.
+- Required a description when starting a deployment and displayed its start time and description on the Admin dashboard.
+- Added dashboard build labels and documented build increments for future update commits.
 
 ### v0.1.3
 
