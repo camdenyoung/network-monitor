@@ -48,6 +48,8 @@
     .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"] { background: #176959; }
+    #live-host-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
+    #devices.grid { margin-top: 16px; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     .status-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }
     .status-header h1 { justify-self: start; margin: 0; }
@@ -79,7 +81,7 @@
   <p id="summary" role="status"></p>
   <div class="display-controls" role="group" aria-label="Status section visibility">
     <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false" aria-pressed="false">Show acknowledged issues</button>
-    <button id="toggle-hosts" aria-controls="devices host-controls" aria-expanded="true" aria-pressed="true">Hide host cards</button>
+    <button id="toggle-hosts" aria-controls="live-host-panel" aria-expanded="true" aria-pressed="true">Hide host cards</button>
   </div>
   <section aria-labelledby="incidents-title">
     <h2 id="incidents-title">Active issues</h2>
@@ -91,23 +93,26 @@
     <h2>Acknowledged issues</h2>
     <div id="acknowledged-incidents" aria-live="polite"></div>
   </section>
-  <div id="host-controls">
-    <div class="display-controls" role="group" aria-label="Host display options">
-      <button id="view-cards" aria-pressed="true">Cards</button>
-      <button id="view-list" aria-pressed="false">List</button>
-      <label>Sort hosts<select id="host-sort">
-        <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
-        <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
-        <option value="status-ok">Host status: healthy first</option><option value="severity">Issue severity</option>
-      </select></label>
-      <button id="toggle-services" aria-pressed="true">Hide services</button>
-      <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
-      <datalist id="service-filter-options"></datalist>
-      <button id="clear-service-filter">All services</button>
+  <div id="live-host-panel">
+    <div id="host-controls">
+      <div class="display-controls" role="group" aria-label="Host display options">
+        <button id="view-cards" aria-pressed="true">Cards</button>
+        <button id="view-list" aria-pressed="false">List</button>
+        <label>Sort hosts<select id="host-sort">
+          <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
+          <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
+          <option value="status-ok">Host status: healthy first</option><option value="severity">Issue severity</option>
+        </select></label>
+        <button id="toggle-services" aria-pressed="true">Hide services</button>
+        <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
+        <datalist id="service-filter-options"></datalist>
+        <button id="clear-service-filter">All services</button>
+      </div>
+      <small>Service filters narrow host readings. Issue lists show all active issues.</small>
     </div>
-    <small>Service filters narrow host readings. Issue lists show all active issues.</small>
+    <div id="devices" class="grid"></div>
   </div>
-  <div id="devices" class="grid"></div><p id="updated"></p>
+  <p id="updated"></p>
   <script>
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const formatStatus = value => String(value ?? '').replace(/^./, char => char.toUpperCase());
@@ -145,6 +150,7 @@
     };
     acknowledgedVisibility();
     function hostVisibility() {
+      document.getElementById('live-host-panel').hidden = !showHosts;
       document.getElementById('devices').hidden = !showHosts;
       document.getElementById('host-controls').hidden = !showHosts;
       const button = document.getElementById('toggle-hosts');

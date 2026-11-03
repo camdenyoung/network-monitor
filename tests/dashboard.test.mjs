@@ -224,16 +224,19 @@ assert.match(publicNodes.get('devices').innerHTML, /Critical issue/);
 publicNodes.get('toggle-hosts').onclick();
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('host-controls').hidden, true);
+assert.equal(publicNodes.get('live-host-panel').hidden, true);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host cards');
 assert.equal(publicNodes.get('toggle-hosts').attributes['aria-expanded'], 'false');
 assert.equal(publicStorage.get('field-monitor.status.hide-hosts'), 'true');
 await publicContext.refresh();
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('host-controls').hidden, true);
+assert.equal(publicNodes.get('live-host-panel').hidden, true);
 assert.match(publicNodes.get('incidents').innerHTML, /No active issues/);
 publicNodes.get('toggle-hosts').onclick();
 assert.equal(publicNodes.get('devices').hidden, false);
 assert.equal(publicNodes.get('host-controls').hidden, false);
+assert.equal(publicNodes.get('live-host-panel').hidden, false);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Hide host cards');
 console.log('Operator permissions, capitalised labels, card colours and host visibility smoke tests passed.');
 
@@ -250,6 +253,7 @@ new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(
 await reloadedPublicContext.refresh();
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('host-controls').hidden, true);
+assert.equal(publicNodes.get('live-host-panel').hidden, true);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host cards');
 console.log('Host visibility preference survives a simulated full page reload.');
 
@@ -318,6 +322,7 @@ assert.equal(publicStorage.get('field-monitor.status.host-view'), 'list');
 assert.equal(publicStorage.get('field-monitor.status.service-filter'), 'rssi');
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('host-controls').hidden, true);
+assert.equal(publicNodes.get('live-host-panel').hidden, true);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Show host list');
 const reloadedFilteredPublic = vm.createContext({
     document: publicContext.document, localStorage: publicContext.localStorage,
@@ -330,9 +335,11 @@ assert.doesNotMatch(publicNodes.get('devices').innerHTML, /Temperature|SW002/);
 assert.equal(publicNodes.get('service-filter').value, 'rssi');
 assert.equal(publicNodes.get('devices').hidden, true);
 assert.equal(publicNodes.get('host-controls').hidden, true);
+assert.equal(publicNodes.get('live-host-panel').hidden, true);
 publicNodes.get('toggle-hosts').onclick();
 assert.equal(publicNodes.get('devices').hidden, false);
 assert.equal(publicNodes.get('host-controls').hidden, false);
+assert.equal(publicNodes.get('live-host-panel').hidden, false);
 assert.equal(publicNodes.get('toggle-hosts').textContent, 'Hide host list');
 publicNodes.get('clear-service-filter').onclick();
 assert.match(publicNodes.get('devices').innerHTML, /SW002 - Front/);

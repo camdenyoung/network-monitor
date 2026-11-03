@@ -478,3 +478,8 @@ Admins can set the fixed session duration in User management → Login sessions
 (1–168 whole hours, default 12). Changes apply to new sign-ins, not existing
 sessions; activity does not extend expiry. The database setting controls both
 server session expiry and cookie Max-Age and is included in backups.
+
+The status dashboard groups live hosts, display controls and filter helper text
+inside a single padded rounded border, matching the Admin dashboard. Card grids
+have 16px spacing below the helper text. Show/Hide hosts hides the entire bordered
+panel; issue lists, their controls and the update timestamp remain outside it.
