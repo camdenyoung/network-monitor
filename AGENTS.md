@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 29. Show it after the title on both the main and
+Current displayed release is v0.3, Build 30. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -509,3 +509,6 @@ form has no numeric hysteresis control. Service editing uses a responsive wide
 three-column grid; .flap-settings spans its own row, with side-by-side settings
 that wrap on narrower screens. Use the same horizontal fieldset for library,
 inventory defaults and service creation. Keep Save/Cancel together below settings.
+
+In the service editor, Consecutive readings follows Critical in the same
+Warning / Critical / Consecutive readings row, before the flap settings.

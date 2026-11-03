@@ -151,7 +151,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 29</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 30</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -604,6 +604,7 @@
       </select></label>
       <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
       <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
+      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
       <fieldset class="flap-settings"><legend>Flap protection</legend>
         <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
@@ -611,7 +612,6 @@
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
         <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
       </fieldset>
-      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
       <div class="editor-actions">
         <button class="primary">Save changes</button>
         <button type="button" id="cancel-service-edit">Cancel</button>

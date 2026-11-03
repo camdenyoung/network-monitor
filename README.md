@@ -1,9 +1,14 @@
-# Network Monitor v0.3 · Build 29
+# Network Monitor v0.3 · Build 30
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 30 — v0.3 (UI polish branch)
+
+- Move Consecutive readings immediately to the right of Critical in the service editor.
+
 
 ### Build 29 — v0.3 (UI polish branch)
 
