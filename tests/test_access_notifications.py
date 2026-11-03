@@ -519,6 +519,18 @@ class AccessAndNotificationTests(unittest.TestCase):
         for value in (1, 'true', None):
             self.assertEqual(self.request('/api/notification-pause', {'paused': value}, self.admin_token, self.admin['csrf'])['status'], 400)
 
+    def test_selected_deployment_delete_requires_admin_and_csrf(self):
+        self.create_host()
+        server.mutate('activate', {'project': 1, 'description': 'Keep active deployment'})
+        body = {'project': 1, 'run': 1, 'expected_active_run': 2}
+        token, operator = self.create_operator()
+        for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
+            self.assertEqual(self.request('/api/delete-deployment', body, actor_token, actor['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/delete-deployment', body, self.admin_token)['status'], 403)
+        self.assertEqual(self.request('/api/delete-deployment', body, self.admin_token, self.admin['csrf'])['status'], 200)
+        self.assertEqual([row['id'] for row in server.snapshot()['runs']], [2])
+        self.assertEqual(self.request('/api/delete-deployment', body, self.admin_token, self.admin['csrf'])['status'], 400)
+
     def test_resuming_selected_deployment_requires_admin_and_csrf(self):
         self.create_host()
         server.mutate('activate', {'project': 1, 'description': 'Second deployment'})

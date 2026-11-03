@@ -31,6 +31,8 @@
     #message.success, .form-feedback.success { color: #64dfad; }
     .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
     button:disabled { opacity: 0.5; cursor: wait; }
+    button.danger { background: #6b2834; border-color: #df6578; }
+    button.danger:hover { background: #873344; }
     details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
     table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
     .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
@@ -111,7 +113,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.2 · Build 12</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.2 · Build 13</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -134,6 +136,7 @@
     <div data-admin class="deployment-controls">
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
       <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
+      <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
       <small id="previous-deployment-details">Choose a previous deployment for the selected project.</small>
     </div>
   </section>
@@ -406,6 +409,17 @@
       <button id="cancel-acknowledgement" autofocus>Cancel</button>
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="delete-deployment-dialog" class="acknowledgement-dialog" aria-labelledby="delete-deployment-title">
+    <h2 id="delete-deployment-title">Delete deployment?</h2>
+    <p id="delete-deployment-context"></p>
+    <p>This permanently deletes the deployment and all its readings, issues, acknowledgement records and related notification records from the database.</p>
+    <p>The project, inventory devices, service configuration and other deployments are kept. This cannot be undone without restoring a backup.</p>
+    <div class="display-controls">
+      <button id="confirm-delete-deployment" class="danger">Delete deployment and history</button>
+      <button id="cancel-delete-deployment" autofocus>Cancel</button>
+    </div>
+    <p id="delete-deployment-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="resume-deployment-dialog" class="acknowledgement-dialog" aria-labelledby="resume-deployment-title">
     <h2 id="resume-deployment-title">Resume deployment?</h2>
@@ -792,6 +806,9 @@
       const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
       const active = Number(state.settings.active_run);
       el('resume-selected-deployment').disabled = !run || run.id === active;
+      el('delete-selected-deployment').disabled = !run || run.id === active;
+      el('delete-selected-deployment').title = run?.id === active
+        ? 'Pause monitoring before deleting the active deployment.' : 'Permanently delete this deployment and its history.';
       el('previous-deployment-details').textContent = run
         ? `Deployment #${run.id} · Started ${date(run.started)} · ${run.description || 'No description recorded'}${run.id === active ? ' · Currently active' : ''}`
         : 'Choose a previous deployment for the selected project.';
@@ -1624,6 +1641,45 @@
     };
 
     el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
+    let pendingDeploymentDelete = null;
+    el('delete-selected-deployment').onclick = () => {
+      const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
+      if (!run || run.id === Number(state.settings.active_run)) return;
+      const project = state.projects.find(row => row.id === run.project);
+      pendingDeploymentDelete = {run: run.id, project: run.project, expected_active_run: Number(state.settings.active_run)};
+      el('delete-deployment-title').textContent = `Delete deployment #${run.id}?`;
+      el('delete-deployment-context').textContent = `${project.name} · Started ${date(run.started)} · ${run.description || 'No description recorded'}`;
+      el('delete-deployment-feedback').textContent = '';
+      el('delete-deployment-dialog').showModal();
+    };
+    el('cancel-delete-deployment').onclick = () => {
+      pendingDeploymentDelete = null;
+      el('delete-deployment-dialog').close();
+    };
+    el('delete-deployment-dialog').onclose = () => { pendingDeploymentDelete = null; };
+    el('delete-deployment-dialog').oncancel = event => {
+      if (el('confirm-delete-deployment').disabled) event.preventDefault();
+    };
+    el('confirm-delete-deployment').onclick = async () => {
+      if (!pendingDeploymentDelete || el('confirm-delete-deployment').disabled) return;
+      const button = el('confirm-delete-deployment');
+      const cancel = el('cancel-delete-deployment');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        if (Number(state.settings.active_run) !== pendingDeploymentDelete.expected_active_run) {
+          throw new Error('Active deployment changed. Cancel and review the selection again.');
+        }
+        const selection = pendingDeploymentDelete;
+        await request('delete-deployment', selection);
+        pendingDeploymentDelete = null;
+        el('delete-deployment-dialog').close();
+        notify(`Deployment #${selection.run} and its history deleted.`, true);
+        try { await refresh(); }
+        catch (error) { notify('Deployment deleted. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('delete-deployment-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
     let pendingDeploymentResume = null;
     el('resume-selected-deployment').onclick = () => {
       const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);

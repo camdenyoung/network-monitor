@@ -281,7 +281,7 @@ def migrate_service_lifecycle(db):
     if 'revision' not in sample_columns:
         db.execute('ALTER TABLE samples ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
     # Remember IDs before deletion, so delayed polling cannot attach to a new item.
-    for table in ('devices', 'assignments', 'services'):
+    for table in ('devices', 'assignments', 'services', 'runs', 'incidents'):
         maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
         db.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',
                    ('last_id_' + table, str(maximum)))
@@ -341,7 +341,7 @@ def display_value(service, value):
 
 def next_record_id(db, table):
     """Allocate a durable ID even after the highest existing record is deleted."""
-    if table not in ('devices', 'assignments', 'services'):
+    if table not in ('devices', 'assignments', 'services', 'runs', 'incidents'):
         raise ValueError('Unsupported record type')
     maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
     value = max(maximum, int(setting(db, 'last_id_' + table))) + 1
@@ -552,8 +552,8 @@ def poll_one(service, run):
         if status != 'healthy' and incident is None:
             number = db.execute('UPDATE runs SET issue_counter=issue_counter+1 WHERE id=? RETURNING issue_counter',
                                 (run,)).fetchone()[0]
-            cursor = db.execute('INSERT INTO incidents(run,service,opened,status,number) VALUES(?,?,?,?,?)',
-                                (run, service['id'], time.time(), status, number))
+            cursor = db.execute('INSERT INTO incidents(id,run,service,opened,status,number) VALUES(?,?,?,?,?,?)',
+                                (next_record_id(db, 'incidents'), run, service['id'], time.time(), status, number))
             notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
 
 
@@ -924,8 +924,8 @@ def mutate(action, body, actor=None):
             project = int(body['project'])
             if not db.execute('SELECT id FROM projects WHERE id=?', (project,)).fetchone():
                 raise ValueError('Unknown project')
-            cursor = db.execute('INSERT INTO runs(project,started,description) VALUES(?,?,?)',
-                                (project, time.time(), description.strip()))
+            cursor = db.execute('INSERT INTO runs(id,project,started,description) VALUES(?,?,?,?)',
+                                (next_record_id(db, 'runs'), project, time.time(), description.strip()))
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(cursor.lastrowid),))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
             # Each deployment requires an explicit decision to enable delivery.
@@ -964,6 +964,23 @@ def mutate(action, body, actor=None):
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(run['id']),))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
             notifications.set_paused(db, True)
+        elif action == 'delete-deployment':
+            active = int(setting(db, 'active_run'))
+            target = int(body['run'])
+            if active != int(body['expected_active_run']):
+                raise ValueError('Active deployment changed; review the selection again')
+            if not db.execute('SELECT 1 FROM runs WHERE id=? AND project=?',
+                              (target, int(body['project']))).fetchone():
+                raise ValueError('Unknown deployment for the selected project')
+            if target == active:
+                raise ValueError('Pause monitoring before deleting the active deployment')
+            # Remove only this run's records. Service configs and other runs survive.
+            db.execute('DELETE FROM notification_outbox WHERE incident IN (SELECT id FROM incidents WHERE run=?)', (target,))
+            db.execute('DELETE FROM samples WHERE run=?', (target,))
+            db.execute('DELETE FROM incidents WHERE run=?', (target,))
+            db.execute('DELETE FROM runs WHERE id=?', (target,))
+            if setting(db, 'paused_run') == str(target):
+                db.execute("UPDATE settings SET value='0' WHERE key='paused_run'")
         elif action == 'ack':
             record_acknowledgement(db, int(body['id']), actor)
         elif action == 'notification-pause':

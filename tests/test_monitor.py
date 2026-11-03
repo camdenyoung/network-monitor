@@ -99,6 +99,83 @@ class MonitorTests(unittest.TestCase):
         server.mutate('resume', {'project': 1})
         self.assertEqual(server.snapshot()['runs'][-1], before)
 
+    def test_deleting_deployment_purges_only_its_history_and_notification_records(self):
+        self.poll(-80)
+        self.poll(-80)
+        issue1 = server.snapshot()['incident_lists']['active'][0]['id']
+        server.mutate('ack', {'id': issue1}, actor={'id': 1})
+        server.mutate('activate', {'project': 1, 'description': 'Keep this deployment'})
+        self.poll(-70, run=2)
+        self.poll(-70, run=2)
+        issue2 = server.snapshot()['incident_lists']['active'][0]['id']
+        with server.connect() as db:
+            for issue in (issue1, issue2):
+                db.execute("""INSERT INTO notification_outbox
+                    (incident,event,channel,text,config_revision,next_attempt,created)
+                    VALUES(?,'opened','telegram','Test notification',1,0,0)""", (issue,))
+            configs = {table: [tuple(row) for row in db.execute('SELECT * FROM ' + table)]
+                       for table in ('devices', 'projects', 'assignments', 'services')}
+            other_samples = [tuple(row) for row in db.execute('SELECT * FROM samples WHERE run=2')]
+            other_issue = tuple(db.execute('SELECT * FROM incidents WHERE id=?', (issue2,)).fetchone())
+            other_notification = tuple(db.execute('SELECT * FROM notification_outbox WHERE incident=?', (issue2,)).fetchone())
+        server.mutate('delete-deployment', {'project': 1, 'run': 1, 'expected_active_run': 2})
+        with server.connect() as db:
+            for table in ('runs', 'samples', 'incidents'):
+                key = 'id' if table == 'runs' else 'run'
+                self.assertEqual(db.execute(f'SELECT COUNT(*) FROM {table} WHERE {key}=1').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox WHERE incident=?', (issue1,)).fetchone()[0], 0)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM samples WHERE run=2')], other_samples)
+            self.assertEqual(tuple(db.execute('SELECT * FROM incidents WHERE id=?', (issue2,)).fetchone()), other_issue)
+            self.assertEqual(tuple(db.execute('SELECT * FROM notification_outbox WHERE incident=?', (issue2,)).fetchone()), other_notification)
+            for table, before in configs.items():
+                self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM ' + table)], before)
+        self.assertEqual(server.snapshot()['settings']['active_run'], '2')
+
+    def test_deleting_paused_deployment_clears_resume_pointer_and_never_reuses_ids(self):
+        self.poll(-80)
+        self.poll(-80)
+        server.mutate('activate', {'project': 1, 'description': 'Delete latest deployment'})
+        self.poll(-80, run=2)
+        self.poll(-80, run=2)
+        highest_issue = max(row['id'] for row in server.snapshot()['incidents'])
+        server.mutate('pause', {})
+        server.mutate('delete-deployment', {'project': 1, 'run': 2, 'expected_active_run': 0})
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '0')
+        server.initialize()
+        server.mutate('activate', {'project': 1, 'description': 'New unique deployment'})
+        self.assertEqual(server.snapshot()['settings']['active_run'], '3')
+        self.poll(-80, run=3)
+        self.poll(-80, run=3)
+        current = server.snapshot()['incident_lists']['active'][0]
+        self.assertGreater(current['id'], highest_issue)
+        self.assertEqual(current['number'], 1)
+        self.assertIn(1, [row['id'] for row in server.snapshot()['runs']])
+
+    def test_deployment_delete_rejects_active_stale_and_wrong_project_selections(self):
+        server.mutate('activate', {'project': 1, 'description': 'Active second run'})
+        server.mutate('project', {'name': 'Other project'})
+        before = server.snapshot()
+        for body in (
+                {'project': 1, 'run': 2, 'expected_active_run': 2},
+                {'project': 1, 'run': 1, 'expected_active_run': 0},
+                {'project': 2, 'run': 1, 'expected_active_run': 2},
+                {'project': 1, 'run': 999, 'expected_active_run': 2}):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                server.mutate('delete-deployment', body)
+            self.assertEqual(server.snapshot(), before)
+
+    def test_deployment_delete_rolls_back_if_database_rejects_run_removal(self):
+        self.poll(-80)
+        self.poll(-80)
+        server.mutate('activate', {'project': 1, 'description': 'Keep active run'})
+        before = server.snapshot()
+        with server.connect() as db:
+            db.execute("""CREATE TRIGGER reject_run_delete BEFORE DELETE ON runs
+                WHEN OLD.id=1 BEGIN SELECT RAISE(ABORT,'test failure'); END""")
+        with self.assertRaises(sqlite3.IntegrityError):
+            server.mutate('delete-deployment', {'project': 1, 'run': 1, 'expected_active_run': 2})
+        self.assertEqual(server.snapshot(), before)
+
     def test_selecting_old_deployment_preserves_history_metadata_and_issue_sequence(self):
         self.poll(-80)
         self.poll(-80)

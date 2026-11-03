@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.2, Build 12. Show it after the title on both the main and
+Current displayed release is v0.2.2, Build 13. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -421,3 +421,12 @@ run metadata/history/issue counters/service flags, invalidates stale in-flight
 reads via monitoring_since, and pauses notifications/cancels pending messages.
 Never create a run or restore old service configs when resuming an existing run.
 The quick Pause/Resume monitoring toggle keeps its existing behavior.
+
+Delete selected deployment is Admin/CSRF-protected and requires explicit in-app
+confirmation describing permanent deletion of run/readings/issues/acknowledgements/
+related outbox rows. Require inactive target, project ownership and expected active
+run before changes. Purge only the chosen run, transactionally; preserve configs,
+other runs and inventory. Clear paused_run only when it references the target.
+Durable last_id_runs and last_id_incidents counters prevent ID reuse after deletion,
+protecting delayed polling and stale acknowledgement/resume dialogs. Migrate these
+counters on startup/restore and allocate both IDs through next_record_id.

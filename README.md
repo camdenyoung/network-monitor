@@ -1,9 +1,15 @@
-# Network Monitor v0.2.2 · Build 12
+# Network Monitor v0.2.2 · Build 13
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 13 — v0.2.2
+
+- Added confirmed deletion of an inactive selected deployment and its stored history, issues, acknowledgements and notification records.
+- Preserve project/device/service configuration and other deployments; prevent deleted deployment and internal issue IDs from being reused.
+
 
 ### Build 12 — v0.2.2
 
@@ -702,3 +708,16 @@ Fresh checks are required, and notifications start paused until explicitly resum
 The normal Pause/Resume monitoring button still resumes the most recently paused
 run without changing its notification setting. The new selector can instead
 resume any existing run belonging to the selected project. Only Admins can do so.
+
+## Delete a deployment
+
+Choose a run under **Previous deployments**, then **Delete selected deployment**.
+The in-app confirmation identifies the run and explains what will be removed.
+An active deployment must be paused first. Only Admins can delete deployments.
+
+Deletion permanently removes that run, its metric readings, issues (including
+acknowledgements), and related notification records from SQLite. The project,
+inventory, service definitions, library and other deployments are preserved.
+Deleting the most recently paused deployment clears the quick-resume target.
+A complete backup is required to recover deleted history. Deployment IDs and
+internal issue IDs are never reused after deletion.
