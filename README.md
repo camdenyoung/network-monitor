@@ -1,9 +1,16 @@
-# Network Monitor v0.3.1 · Build 39
+# Network Monitor v0.3.1 · Build 40
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 40 — v0.3.1 (unacknowledgement branch)
+
+- Synchronise acknowledgements between connected dashboards with server-sent invalidations, including separate users, browsers and machines.
+- Match Acknowledge/Unacknowledge button sizing on both dashboards.
+- Refresh through existing permission-checked APIs; keep polling as a fallback and serialize refresh requests to avoid stale response races.
+
 
 ### Build 39 — v0.3.1 (unacknowledgement branch)
 
@@ -929,3 +936,10 @@ rewrite the trail. Deleting the corresponding issue/deployment/device purges its
 related audit events. Older acknowledgements are migrated using their saved actor
 snapshot; missing historical identity remains unknown. Revision checks prevent a
 stale confirmation from removing a later acknowledgement.
+
+
+Dashboard acknowledgement changes are pushed using same-origin `/api/ack-events`
+server-sent events. The stream carries only an opaque change revision; dashboards
+still fetch normal API data with their existing permissions. Reverse proxies must
+allow streaming without buffering this path. Ordinary ten-second refresh remains
+available if streaming is interrupted, and reconnect/tab-focus refresh catches up.

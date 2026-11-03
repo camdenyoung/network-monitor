@@ -1446,6 +1446,69 @@ class AccessAndNotificationTests(unittest.TestCase):
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM incident_acknowledgement_events').fetchone()[0], 0)
 
+    def test_live_ack_updates_publish_after_commit_and_not_for_rejected_or_noop_actions(self):
+        host, issue_id, now = self.reminder_fault()
+        observed = []
+        def observe_commit():
+            with server.connect() as db:
+                row = db.execute('SELECT acknowledged,ack_revision FROM incidents WHERE id=?', (issue_id,)).fetchone()
+                observed.append(tuple(row))
+        with patch.object(server.live_updates, 'publish_acknowledgement_change', side_effect=observe_commit):
+            with patch.object(server, 'record_acknowledgement_event', side_effect=RuntimeError('Rollback')):
+                with self.assertRaises(RuntimeError):
+                    server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            self.assertEqual(observed, [])
+            with server.connect() as db:
+                self.assertIsNone(db.execute('SELECT acknowledged FROM incidents WHERE id=?', (issue_id,)).fetchone()[0])
+            server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            self.assertIsNotNone(observed[0][0])
+            self.assertEqual(observed[0][1], 1)
+            server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            self.assertEqual(len(observed), 1)
+            with self.assertRaises(ValueError):
+                server.mutate('unack', {'id': issue_id, 'expected_revision': 0}, actor=self.admin)
+            self.assertEqual(len(observed), 1)
+            server.mutate('unack', {'id': issue_id, 'expected_revision': 1}, actor=self.admin)
+            self.assertEqual(observed[1], (None, 2))
+
+    def test_multiple_users_racing_ack_and_unack_keep_first_actor_and_single_event(self):
+        import concurrent.futures
+        import threading
+        host, issue_id, now = self.reminder_fault()
+        token, operator = self.create_operator()
+        server.mutate('project-status-settings', {'project': 1, 'enabled': True})
+        barrier = threading.Barrier(2)
+        def acknowledge(actor, action):
+            barrier.wait(timeout=2)
+            server.mutate(action, {'id': issue_id}, actor=actor)
+        with patch.object(server.live_updates, 'publish_acknowledgement_change') as publish:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(acknowledge, self.admin, 'ack')
+                second = pool.submit(acknowledge, operator, 'status-ack')
+                first.result(timeout=5)
+                second.result(timeout=5)
+            self.assertEqual(publish.call_count, 1)
+            with server.connect() as db:
+                events = db.execute('SELECT user_id FROM incident_acknowledgement_events').fetchall()
+                self.assertEqual(len(events), 1)
+                saved = db.execute('SELECT acknowledged_by_user_id,ack_revision FROM incidents WHERE id=?', (issue_id,)).fetchone()
+                self.assertEqual(saved[0], events[0][0])
+                self.assertIn(saved[0], (self.admin['id'], operator['id']))
+            barrier = threading.Barrier(2)
+            def unacknowledge(actor, action):
+                barrier.wait(timeout=2)
+                try:
+                    server.mutate(action, {'id': issue_id, 'expected_revision': 1}, actor=actor)
+                    return 'changed'
+                except ValueError:
+                    return 'stale'
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                jobs = [pool.submit(unacknowledge, self.admin, 'unack'), pool.submit(unacknowledge, operator, 'status-unack')]
+                self.assertEqual(sorted(job.result(timeout=5) for job in jobs), ['changed', 'stale'])
+            self.assertEqual(publish.call_count, 2)
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM incident_acknowledgement_events').fetchone()[0], 2)
+
 
 if __name__ == '__main__':
     unittest.main()

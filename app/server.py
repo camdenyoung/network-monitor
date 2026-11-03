@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability
+from . import auth, notifications, logos, service_library, stability, live_updates
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -251,6 +251,8 @@ def record_acknowledgement(db, incident_id, actor):
         (now, account['id'], account['username'], account['full_name'] or account['username'], incident_id))
     if updated.rowcount:
         record_acknowledgement_event(db, incident_id, 'acknowledged', now, account)
+        return True
+    return False
 
 
 def record_unacknowledgement(db, incident_id, actor, expected_revision):
@@ -272,6 +274,7 @@ def record_unacknowledgement(db, incident_id, actor, expected_revision):
     if not updated.rowcount:
         raise ValueError('Acknowledgement changed. Refresh and review it again.')
     record_acknowledgement_event(db, incident_id, 'unacknowledged', now, account)
+    return True
 
 
 def migrate_project_settings(db):
@@ -949,16 +952,16 @@ def change_status_acknowledgement(db, incident_id, actor, undo=False, expected_r
         if not host_is_up(db, row, row['run']) or not latest or latest[0] in ('blocked','paused','unknown'):
             raise ValueError('Service issue is suppressed')
     if undo:
-        record_unacknowledgement(db, incident_id, actor, expected_revision)
-    else:
-        record_acknowledgement(db, incident_id, actor)
+        return record_unacknowledgement(db, incident_id, actor, expected_revision)
+    return record_acknowledgement(db, incident_id, actor)
 
 
 def acknowledge_status_incident(db, incident_id, actor):
-    change_status_acknowledgement(db, incident_id, actor)
+    return change_status_acknowledgement(db, incident_id, actor)
 
 
 def mutate(action, body, actor=None):
+    acknowledgement_changed = False
     with LOCK, connect() as db:
         if action == 'project':
             name = body['name'].strip()
@@ -983,9 +986,9 @@ def mutate(action, body, actor=None):
             if cursor.rowcount != 1:
                 raise ValueError('Unknown project')
         elif action == 'status-unack':
-            change_status_acknowledgement(db, int(body['id']), actor, undo=True, expected_revision=body.get('expected_revision'))
+            acknowledgement_changed = change_status_acknowledgement(db, int(body['id']), actor, undo=True, expected_revision=body.get('expected_revision'))
         elif action == 'status-ack':
-            acknowledge_status_incident(db, int(body['id']), actor)
+            acknowledgement_changed = acknowledge_status_incident(db, int(body['id']), actor)
         elif action == 'project-edit':
             name = body['name'].strip()
             if not name or len(name) > 100:
@@ -1119,9 +1122,9 @@ def mutate(action, body, actor=None):
             if setting(db, 'paused_run') == str(target):
                 db.execute("UPDATE settings SET value='0' WHERE key='paused_run'")
         elif action == 'ack':
-            record_acknowledgement(db, int(body['id']), actor)
+            acknowledgement_changed = record_acknowledgement(db, int(body['id']), actor)
         elif action == 'unack':
-            record_unacknowledgement(db, int(body['id']), actor, body.get('expected_revision'))
+            acknowledgement_changed = record_unacknowledgement(db, int(body['id']), actor, body.get('expected_revision'))
         elif action == 'notification-pause':
             notifications.set_paused(db, body['paused'])
         elif action == 'reminder-settings':
@@ -1245,6 +1248,10 @@ def mutate(action, body, actor=None):
                        (int(body['id']),))
         else:
             raise ValueError('Unknown action')
+    # All listeners must see committed state, including changes from other users.
+    # Duplicate acknowledgements and rejected/rolled-back actions emit nothing.
+    if acknowledgement_changed:
+        live_updates.publish_acknowledgement_change()
 
 
 def update_card_incidents(data):
@@ -1414,7 +1421,32 @@ class Handler(BaseHTTPRequestHandler):
             pass
         self.send('{"error":"Not found"}', status=404)
 
+    def stream_acknowledgement_changes(self):
+        """Public invalidation stream: no issue IDs, actors, credentials or metrics."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+        revision = live_updates.current_revision()
+        try:
+            # Initial state also refreshes reconnecting clients after missed events.
+            self.wfile.write(('retry: 1000\ndata: ' + json.dumps({'revision': revision}) + '\n\n').encode())
+            self.wfile.flush()
+            while True:
+                updated = live_updates.wait_for_change(revision)
+                payload = (': keepalive\n\n' if updated == revision else
+                           'data: ' + json.dumps({'revision': updated}) + '\n\n')
+                self.wfile.write(payload.encode())
+                self.wfile.flush()
+                revision = updated
+        except OSError:
+            # Disconnections are normal. EventSource reconnects automatically.
+            pass
+
     def do_GET(self):
+        if self.path == '/api/ack-events':
+            return self.stream_acknowledgement_changes()
         if self.path.startswith('/api/public-logo?'):
             return self.send_logo(public=True)
         if self.path == '/api/health':

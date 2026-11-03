@@ -40,6 +40,7 @@
     #service-catalogue .service-controls { flex-shrink: 0; gap: 12px; }
     #service-catalogue .service-controls > button { margin: 0; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
+    .metric .issue-action { font-size: 15px; line-height: 20px; padding: 4px 8px; color: #e8eff8; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
     .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
@@ -156,7 +157,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3.1 · Build 39</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3.1 · Build 40</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -997,7 +998,51 @@
     }
     el('previous-deployment').onchange = updatePreviousDeploymentDetails;
 
-    async function refresh() {
+    let refreshPromise = null;
+    let refreshQueued = false;
+    function refresh() {
+      // Coalesce polling, local actions and live events. If an event arrives
+      // during a fetch, run another fetch afterwards instead of rendering races.
+      refreshQueued = true;
+      if (refreshPromise) return refreshPromise;
+      refreshPromise = Promise.resolve().then(async () => {
+        do {
+          refreshQueued = false;
+          await refreshDashboard();
+        } while (refreshQueued);
+      }).finally(() => {
+        refreshPromise = null;
+        if (refreshQueued) refresh().catch(report);
+      });
+      return refreshPromise;
+    }
+
+    let acknowledgementStream = null;
+    function connectAcknowledgementUpdates() {
+      if (acknowledgementStream || typeof EventSource === 'undefined') return;
+      acknowledgementStream = new EventSource('/api/ack-events');
+      acknowledgementStream.onmessage = () => refresh().catch(report);
+      // EventSource retries broken connections; ordinary polling remains a fallback.
+    }
+    document.addEventListener?.('visibilitychange', () => {
+      if (!document.hidden) {
+        connectAcknowledgementUpdates();
+        refresh().catch(report);
+      }
+    });
+    globalThis.addEventListener?.('focus', () => refresh().catch(report));
+    globalThis.addEventListener?.('pagehide', () => {
+      acknowledgementStream?.close();
+      acknowledgementStream = null;
+    });
+    globalThis.addEventListener?.('pageshow', event => {
+      if (event.persisted) {
+        connectAcknowledgementUpdates();
+        refresh().catch(report);
+      }
+    });
+
+    async function refreshDashboard() {
       const response = await fetch('/api/state');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
@@ -1196,8 +1241,8 @@
         const assignment = state.assignments.find(row => row.id === service?.assignment);
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
-          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${['admin', 'operator'].includes(currentUser?.role) ? `<button data-unack="${incident.id}">Unacknowledge</button>` : ''}`
-          : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
+          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-unack="${incident.id}">Unacknowledge</button>` : ''}`
+          : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
         return `<div class="metric"><strong>Issue #${escapeHtml(incident.number ?? incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
@@ -2481,7 +2526,7 @@
       el('signed-in').textContent = (currentUser.full_name || currentUser.username) + ' · ' + (roleLabels[currentUser.role] || 'Unknown');
       await refresh();
     }
-    initializeSession().catch(report);
+    initializeSession().then(connectAcknowledgementUpdates).catch(report);
     setInterval(() => refresh().catch(report), 10000);
   </script>
 </body>

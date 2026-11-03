@@ -1851,3 +1851,107 @@ assert.equal(publicUndoRequests.at(-1).headers['X-CSRF-Token'],'public-undo-toke
 assert.equal(publicNodes.get('unacknowledgement-dialog').open,false);
 assert.match(publicNodes.get('incidents').innerHTML,/Issue #8/);
 console.log('Public Unacknowledge requires opt-in, confirms the selected revision, preserves errors and sends the status CSRF token.');
+
+// Separate browser contexts update from server invalidations, not browser-local storage.
+let sharedAcknowledged = false;
+let sharedRevision = 0;
+let holdMainRefresh = false;
+let releaseMainRefresh;
+let mainRefreshStarted;
+let mainReads = 0;
+let concurrentMainReads = 0;
+let maximumMainReads = 0;
+const mainLiveSources = [];
+const mainLiveEvents = new Map();
+const mainLiveDocumentEvents = new Map();
+const liveIssue = () => ({...undoIssue,id:701,number:9,closed:null,
+  acknowledged:sharedAcknowledged ? now : null,ack_revision:sharedRevision});
+function liveMainData() {
+  const issue = liveIssue();
+  return {...undoFixture,incidents:[issue],incident_lists:{active:sharedAcknowledged ? [] : [issue],
+    acknowledged:sharedAcknowledged ? [issue] : [],suppressed:[],resolved:[]}};
+}
+const mainLiveContext = vm.createContext({document:{...context.document,
+  addEventListener(type,handler){mainLiveDocumentEvents.set(type,handler);}},localStorage:context.localStorage,
+  setInterval(){},addEventListener(type,handler){mainLiveEvents.set(type,handler);},
+  EventSource:class {constructor(url){this.url=url;this.closed=false;mainLiveSources.push(this);}close(){this.closed=true;}},
+  fetch:async path => {
+    if (path === '/api/me') return {ok:true,json:async () => ({id:3,username:'Alice',role:'operator',csrf:'alice-token'})};
+    const snapshot = liveMainData();
+    mainReads += 1;
+    concurrentMainReads += 1;
+    maximumMainReads = Math.max(maximumMainReads,concurrentMainReads);
+    if (holdMainRefresh) {
+      holdMainRefresh = false;
+      await new Promise(resolve => {releaseMainRefresh=resolve;mainRefreshStarted();});
+    }
+    concurrentMainReads -= 1;
+    return {ok:true,json:async () => snapshot};
+  }});
+new vm.Script(script).runInContext(mainLiveContext);
+await mainLiveContext.initializeSession();
+mainLiveContext.connectAcknowledgementUpdates();
+assert.equal(mainLiveSources.length,1);
+assert.equal(mainLiveSources[0].url,'/api/ack-events');
+sharedAcknowledged = true;
+sharedRevision = 1;
+await mainLiveSources[0].onmessage();
+assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
+
+const statusLiveSources = [];
+const statusLiveContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,
+  setInterval(){},EventSource:class {constructor(url){this.url=url;statusLiveSources.push(this);}close(){}},
+  fetch:async () => {
+    const issue = {...liveIssue(),device:'Switch',alias:'Stage',service:'Port status'};
+    return {ok:true,json:async () => ({project:'Shared project',devices:[],updated:now,
+      incidents:sharedAcknowledged ? [] : [issue],acknowledged_incidents:sharedAcknowledged ? [issue] : [],
+      viewer:{username:'Bob',role:'viewer'},can_acknowledge:false,acknowledge_enabled:true})};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(statusLiveContext);
+await statusLiveContext.refresh();
+statusLiveContext.connectAcknowledgementUpdates();
+assert.equal(statusLiveSources.length,1);
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML,/Issue #9/);
+assert.doesNotMatch(publicNodes.get('acknowledged-incidents').innerHTML,/data-status-unack/);
+sharedAcknowledged = false;
+sharedRevision = 2;
+await Promise.all([mainLiveSources[0].onmessage(),statusLiveSources[0].onmessage()]);
+assert.match(element('incidents').innerHTML,/Issue #9/);
+assert.match(publicNodes.get('incidents').innerHTML,/Issue #9/);
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML,/No acknowledged issues/);
+// A server event arriving during a slow old fetch queues a fresh fetch afterwards.
+holdMainRefresh = true;
+const started = new Promise(resolve => {mainRefreshStarted=resolve;});
+const readsBeforeRace = mainReads;
+const oldRefresh = mainLiveContext.refresh();
+await started;
+sharedAcknowledged = true;
+sharedRevision = 3;
+const latestRefresh = mainLiveSources[0].onmessage();
+releaseMainRefresh();
+await Promise.all([oldRefresh,latestRefresh]);
+assert.equal(mainReads-readsBeforeRace,2);
+assert.equal(maximumMainReads,1);
+assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
+// Navigation suspends the old stream; restoring a cached page reconnects once.
+mainLiveEvents.get('pagehide')();
+assert.equal(mainLiveSources[0].closed,true);
+sharedAcknowledged = false;
+sharedRevision = 4;
+mainLiveEvents.get('pageshow')({persisted:true});
+await mainLiveContext.refresh();
+assert.equal(mainLiveSources.length,2);
+mainLiveEvents.get('pageshow')({persisted:true});
+await mainLiveContext.refresh();
+assert.equal(mainLiveSources.length,2);
+assert.match(element('incidents').innerHTML,/Issue #9/);
+sharedAcknowledged = true;
+sharedRevision = 5;
+mainLiveDocumentEvents.get('visibilitychange')();
+await mainLiveContext.refresh();
+assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
+assert.match(mainLiveContext.renderIncidents([liveIssue()]),/class="issue-action" data-unack/);
+const mainIssueStyle = html.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
+const publicIssueStyle = statusPage.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
+assert.equal(mainIssueStyle,publicIssueStyle);
+console.log('Live updates synchronise separate viewers, preserve permissions, serialize racing refreshes and reconnect after navigation; issue action buttons share styling.');
