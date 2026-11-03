@@ -18,6 +18,7 @@ function element(id) {
             attributes: {},
             setAttribute(key, value) { this.attributes[key] = value; },
             getAttribute(key) { return this.attributes[key]; },
+            focus() { this.focused = true; },
             showModal() { this.open = true; },
             close() { this.open = false; },
             reset() { for (const field of fields.values()) field.value = ''; },
@@ -680,12 +681,20 @@ for (const panel of configurationPanels) {
     assert.equal(element(panel).hidden, true);
     element(`toggle-${panel}`).onclick();
     assert.equal(element(panel).hidden, false);
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-pressed'), 'true');
+    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
+    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
+    for (const other of configurationPanels.filter(id => id !== panel)) assert.equal(element(other).hidden, true);
     element(`toggle-${panel}`).onclick();
-    assert.equal(element(panel).hidden, true);
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-pressed'), 'false');
-    element(`toggle-${panel}`).onclick();
+    assert.equal(element(panel).hidden, false, 'Clicking the current tab keeps it selected');
 }
+element('toggle-permanent-inventory').onclick();
+let navigationPrevented = false;
+element('toggle-permanent-inventory').onkeydown({key:'ArrowRight',preventDefault(){navigationPrevented=true;}});
+assert.equal(navigationPrevented, true);
+assert.equal(element('project-configuration').hidden, false);
+assert.equal(element('permanent-inventory').hidden, true);
+assert.equal(element('toggle-project-configuration').focused, true);
+element('toggle-permanent-inventory').onclick();
 await sectionReload.refresh();
 assert.equal(element('permanent-inventory').hidden, false);
 const namedMain = vm.createContext({document:context.document,localStorage:context.localStorage,
@@ -699,10 +708,10 @@ console.log('Full names and Status Dashboard navigation passed.');
 for (const panel of configurationPanels) {
     assert.equal(element(panel).hidden, true, 'Configuration panel must reset on reload');
     assert.equal(element(`toggle-${panel}`).getAttribute('aria-expanded'), 'false');
-    assert.match(element(`toggle-${panel}`).textContent, /^Show /);
+    assert.doesNotMatch(element(`toggle-${panel}`).textContent, /^(Show|Hide) /);
 }
 assert.doesNotMatch(html, /<details data-admin/);
-console.log('Configuration Show/Hide controls default hidden on every reload.');
+console.log('Exclusive configuration tabs support keyboard navigation and start closed on reload.');
 
 assert.ok(statusPage.indexOf('id="acknowledged-incidents"') < statusPage.indexOf('id="host-controls"'));
 assert.ok(statusPage.indexOf('id="host-controls"') < statusPage.indexOf('id="view-cards"'));
@@ -931,3 +940,117 @@ await namedMain.refresh();
 assert.match(element('deployment-details').textContent, /Event setup/);
 assert.match(element('deployment-details').textContent, /Started/);
 console.log('Per-deployment issue labels preserve acknowledgement IDs; deployment descriptions are displayed.');
+
+// Inventory defaults use the common configuration editor but a separate API target.
+const defaultFixture = {
+    ...fixture, projects:[{id:1,name:'First event'},{id:2,name:'Second event'}],
+    devices:[{id:1,name:'Radio-01',model:'Radio',address:'192.0.2.1'}],
+    assignments:[{id:1,device:1,project:1,alias:'Stage',visible:1,monitoring:1}],
+    services:[{id:1,assignment:1,name:'Host ping',kind:'ping'}, {...stateService,id:2,assignment:1}],
+    device_service_defaults:[{...stateService,id:7,device:1}],
+    service_templates:[{...stateService,id:8,name:'Library RSSI'}],
+    incident_lists:{active:[],acknowledged:[],resolved:[],suppressed:[]},
+};
+let defaultSubmission;
+let rejectDefaultSave = false;
+const defaultsContext = vm.createContext({
+    document:context.document,localStorage:context.localStorage,FormData:context.FormData,
+    confirm:() => true,setInterval(){},
+    fetch:async (path, options) => {
+        if (options) {
+            defaultSubmission = {path,body:JSON.parse(options.body)};
+            return {ok:!rejectDefaultSave,json:async () => rejectDefaultSave ? {error:'Duplicate service name'} : {ok:true}};
+        }
+        return {ok:true,json:async () => path === '/api/me'
+            ? {id:1,username:'admin',role:'admin',csrf:'test',must_change_password:0}
+            : path === '/api/users' ? []
+            : path === '/api/telegram' || path === '/api/whatsapp' ? {configuration:{},outbox:[]}
+            : defaultFixture};
+    },
+});
+new vm.Script(script).runInContext(defaultsContext);
+await defaultsContext.initializeSession();
+defaultsContext.openDeviceDefaults(1);
+assert.equal(element('device-default-manager').open, true);
+assert.match(element('device-default-list').innerHTML, /Port status/);
+assert.match(element('device-default-source').innerHTML, /First event/);
+defaultsContext.openDeviceDefaultEditor(7);
+assert.equal(element('service-editor').open, true);
+const defaultEdit = element('service-edit-form');
+assert.equal(defaultEdit.elements.namedItem('community').value, '');
+defaultEdit.elements.namedItem('name').value = 'Changed device default';
+await defaultsContext.refresh();
+assert.equal(defaultEdit.elements.namedItem('name').value, 'Changed device default');
+rejectDefaultSave = true;
+await defaultEdit.onsubmit({preventDefault(){},target:defaultEdit});
+assert.equal(element('service-editor').open, true);
+assert.equal(element('service-edit-feedback').textContent, 'Duplicate service name');
+rejectDefaultSave = false;
+await defaultEdit.onsubmit({preventDefault(){},target:defaultEdit});
+assert.equal(defaultSubmission.path, '/api/device-default-edit');
+assert.equal(defaultSubmission.body.device, 1);
+assert.equal(String(defaultSubmission.body.default_service), '7');
+assert.equal(defaultSubmission.body.name, 'Changed device default');
+assert.equal(element('service-editor').open, false);
+assert.equal(element('device-default-manager').open, true);
+element('device-default-template').value = '8';
+await element('add-device-default-template').onclick();
+assert.equal(defaultSubmission.path, '/api/device-default-from-template');
+assert.equal(defaultSubmission.body.template, '8');
+element('device-default-source').value = '1';
+await element('adopt-device-defaults').onclick();
+assert.equal(defaultSubmission.path, '/api/device-defaults-from-assignment');
+assert.equal(defaultSubmission.body.assignment, '1');
+assert.match(element('device-default-feedback').textContent, /Existing projects are unchanged/);
+console.log('Inventory service defaults editor, library copy and project adoption preserve project isolation.');
+
+// A fresh active issue attracts attention once; existing/reappearing issues do not.
+const pulseClasses = new Set();
+let pulseStarts = 0;
+let pulseTimerId = 0;
+const pulseTimers = new Map();
+const pulseData = {project:'Attention event',deployment:11,monitoring_paused:false,updated:now,devices:[],
+    incidents:[{id:1,number:1,status:'critical',opened:now}],acknowledged_incidents:[]};
+const pulseContext = vm.createContext({
+    document:{...publicContext.document,documentElement:{offsetWidth:1200,classList:{
+        add(name){pulseClasses.add(name);pulseStarts += 1;},remove(name){pulseClasses.delete(name);},
+    }}},
+    localStorage:publicContext.localStorage,
+    fetch:async () => ({ok:true,json:async () => pulseData}),setInterval(){},
+    setTimeout(callback, delay){assert.equal(delay,2700);pulseTimers.set(++pulseTimerId,callback);return pulseTimerId;},
+    clearTimeout(id){pulseTimers.delete(id);},
+});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(pulseContext);
+await pulseContext.refresh();
+assert.equal(pulseStarts,0);
+pulseData.incidents.push({id:2,number:2,status:'warning',opened:now});
+await pulseContext.refresh();
+assert.equal(pulseStarts,1);
+assert.equal(pulseClasses.has('issue-attention'),true);
+await pulseContext.refresh();
+assert.equal(pulseStarts,1);
+pulseData.incidents = [];
+await pulseContext.refresh();
+pulseData.incidents = [{id:2,number:2,status:'warning',opened:now}];
+await pulseContext.refresh();
+assert.equal(pulseStarts,1);
+pulseTimers.get(pulseTimerId)();
+assert.equal(pulseClasses.has('issue-attention'),false);
+pulseData.monitoring_paused = true;
+pulseData.incidents = [];
+await pulseContext.refresh();
+pulseData.monitoring_paused = false;
+pulseData.incidents = [{id:2,number:2,status:'warning',opened:now}];
+await pulseContext.refresh();
+assert.equal(pulseStarts,1);
+pulseData.incidents.push({id:3,number:3,status:'critical',opened:now});
+await pulseContext.refresh();
+assert.equal(pulseStarts,2);
+pulseData.deployment = 12;
+pulseData.incidents = [{id:4,number:1,status:'critical',opened:now}];
+await pulseContext.refresh();
+assert.equal(pulseStarts,2);
+assert.equal(pulseClasses.has('issue-attention'),false);
+assert.match(statusPage, /new-issue-attention 0\.9s ease-in-out 3/);
+assert.match(statusPage, /prefers-reduced-motion: reduce/);
+console.log('Status attention pulses trigger only for newly observed active issues and stop after three cycles.');

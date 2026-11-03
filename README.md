@@ -1,9 +1,17 @@
-# Network Monitor v0.2 · Build 2
+# Network Monitor v0.2 · Build 3
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 3 — v0.2
+
+- Added permanent per-device service defaults that seed independent services for new project assignments.
+- Added defaults editing, library import and explicit adoption from an existing project configuration.
+- Changed Admin configuration controls into exclusive tabs that preserve unfinished forms.
+- Added three red status-page background pulses for newly appearing active issues, with a reduced-motion alternative.
+
 
 ### Build 2 — v0.2
 
@@ -543,3 +551,23 @@ dialog, validated on the server. runs stores the description and original start
 timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
 preserves them; older runs retain an empty description rather than invented text.
 Deployment descriptions are included in SQLite backups but not public status APIs.
+
+## Device service defaults
+
+In **Permanent inventory**, open the device list and choose **Service defaults**
+for a device. Add/edit/remove definitions, add one from the reusable library, or
+choose an existing project configuration and **Replace defaults from project**.
+This explicit adoption copies credentials on the server and leaves the project
+untouched. Existing projects are not chosen automatically during upgrade.
+
+Assigning that device to a new project copies its defaults into independent
+project services, alongside automatic host ping. Subsequent edits in either place
+do not affect the other. Re-adding a removed assignment restores its old setup;
+duplicating a project copies that project's configuration. Copies start with
+monitoring enabled. Inventory defaults are included in complete backups.
+
+Admin configuration areas now act as tabs: only one is visible at a time, and
+switching tabs preserves unfinished forms. They start closed after a page reload.
+The public status dashboard pulses its background red three times when a new
+active issue appears after the initial load. Existing or reappearing issues do not
+retrigger it; reduced-motion browsers receive a brief static red highlight.

@@ -87,6 +87,7 @@ def initialize():
         migrate_inventory_addresses(db)
         migrate_service_lifecycle(db)
         ensure_service_library(db)
+        ensure_inventory_services(db)
         migrate_value_types(db)
         ensure_host_checks(db)
         migrate_project_settings(db)
@@ -97,6 +98,63 @@ def initialize():
         notifications.ensure_tables(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
+
+
+# Keep inventory defaults independent from project services and shared library entries.
+SERVICE_CONFIGURATION_FIELDS = ('name', 'kind', 'target', 'community', 'unit', 'scale',
+                                'units', 'direction', 'warning', 'critical',
+                                'persistence', 'value_type', 'state_map')
+
+
+def ensure_inventory_services(db):
+    """Legacy devices start without defaults; never pick an arbitrary project's config."""
+    db.execute("""CREATE TABLE IF NOT EXISTS device_service_defaults (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, device INTEGER NOT NULL REFERENCES devices(id),
+        name TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL,
+        community TEXT NOT NULL DEFAULT 'public', unit INTEGER NOT NULL DEFAULT 1,
+        scale REAL NOT NULL DEFAULT 1, units TEXT NOT NULL DEFAULT '',
+        direction TEXT NOT NULL DEFAULT 'below', warning REAL, critical REAL,
+        persistence INTEGER NOT NULL DEFAULT 2, value_type TEXT NOT NULL DEFAULT 'metric',
+        state_map TEXT NOT NULL DEFAULT '{}', UNIQUE(device,name)
+    )""")
+
+
+def require_inventory_device(db, device):
+    if not db.execute('SELECT 1 FROM devices WHERE id=?', (device,)).fetchone():
+        raise ValueError('Unknown inventory device')
+
+
+def save_inventory_default(db, device, details, default_id=None):
+    require_inventory_device(db, device)
+    if default_id is None:
+        columns = ','.join(SERVICE_CONFIGURATION_FIELDS)
+        values = ','.join('?' for _ in SERVICE_CONFIGURATION_FIELDS)
+        db.execute(f'INSERT INTO device_service_defaults(device,{columns}) VALUES(?,{values})',
+                   (device, *details))
+    else:
+        setters = ','.join(field + '=?' for field in SERVICE_CONFIGURATION_FIELDS)
+        cursor = db.execute(f'UPDATE device_service_defaults SET {setters} WHERE id=? AND device=?',
+                            (*details, default_id, device))
+        if cursor.rowcount != 1:
+            raise ValueError('Unknown device service default')
+
+
+def replace_defaults_from_assignment(db, device, assignment):
+    """Explicitly adopt one project's definitions, preserving all project records."""
+    require_inventory_device(db, device)
+    source = db.execute('SELECT id FROM assignments WHERE id=? AND device=? AND removed=0',
+                        (assignment, device)).fetchone()
+    if not source:
+        raise ValueError('Choose an existing project assignment for this device')
+    rows = db.execute("SELECT * FROM services WHERE assignment=? AND enabled=1 AND kind!='ping' ORDER BY id",
+                      (assignment,)).fetchall()
+    if not rows or len({row['name'] for row in rows}) != len(rows):
+        raise ValueError('Source needs at least one service and unique service names')
+    # Validate everything before replacing; blank credentials stay on the server.
+    definitions = [service_details(dict(row)) for row in rows]
+    db.execute('DELETE FROM device_service_defaults WHERE device=?', (device,))
+    for definition in definitions:
+        save_inventory_default(db, device, definition)
 
 
 def migrate_deployment_descriptions(db):
@@ -337,6 +395,7 @@ def delete_device(db, device_id):
         db.execute('DELETE FROM services WHERE id=?', (service_id,))
     db.execute('DELETE FROM legacy_assignment_addresses WHERE device=?', (device_id,))
     db.execute('DELETE FROM assignments WHERE device=?', (device_id,))
+    db.execute('DELETE FROM device_service_defaults WHERE device=?', (device_id,))
     db.execute('DELETE FROM devices WHERE id=?', (device_id,))
 
 
@@ -568,7 +627,11 @@ def snapshot():
             SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence,value_type,state_map
             FROM service_templates ORDER BY name
         ''')]
-        for configuration in result['services'] + result['service_templates']:
+        result['device_service_defaults'] = [dict(row) for row in db.execute('''
+            SELECT id,device,name,kind,target,unit,scale,units,direction,warning,critical,
+                   persistence,value_type,state_map FROM device_service_defaults ORDER BY name,id
+        ''')]
+        for configuration in result['services'] + result['service_templates'] + result['device_service_defaults']:
             configuration['state_map'] = json.loads(configuration['state_map'])
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
         result['latest'] = [dict(row) for row in db.execute('''
@@ -806,6 +869,9 @@ def mutate(action, body, actor=None):
                        (inventory_address(body['address']), int(body['device'])))
         elif action == 'assignment':
             project, device = int(body['project']), int(body['device'])
+            require_inventory_device(db, device)
+            if not db.execute('SELECT 1 FROM projects WHERE id=?', (project,)).fetchone():
+                raise ValueError('Unknown project')
             previous = db.execute('SELECT id FROM assignments WHERE project=? AND device=? AND removed=1',
                                   (project, device)).fetchone()
             if previous:
@@ -815,8 +881,13 @@ def mutate(action, body, actor=None):
                 db.execute('UPDATE services SET monitoring_since=? WHERE assignment=?',
                            (time.time(), previous['id']))
             else:
+                assignment = next_record_id(db, 'assignments')
                 db.execute('INSERT INTO assignments(id,project,device,alias) VALUES(?,?,?,?)',
-                           (next_record_id(db, 'assignments'), project, device, body['alias']))
+                           (assignment, project, device, body['alias']))
+                # Only genuinely new assignments receive defaults. Reassignment and
+                # project duplication retain the event's own existing configuration.
+                for default in db.execute('SELECT * FROM device_service_defaults WHERE device=? ORDER BY id', (device,)):
+                    insert_service(db, assignment, service_details(dict(default)))
             ensure_host_checks(db)
         elif action == 'assignment-remove':
             cursor = db.execute('UPDATE assignments SET removed=1,monitoring=0,visible=0 WHERE id=? AND removed=0',
@@ -889,6 +960,26 @@ def mutate(action, body, actor=None):
             if not 1 <= days <= 3650:
                 raise ValueError('Retention must be 1–3650 days')
             db.execute("UPDATE settings SET value=? WHERE key='retention_days'", (str(days),))
+        elif action in ('device-default-create', 'device-default-edit'):
+            device = int(body['device'])
+            existing = None
+            if action == 'device-default-edit':
+                existing = db.execute('SELECT * FROM device_service_defaults WHERE id=? AND device=?',
+                                      (int(body['default_service']), device)).fetchone()
+                if not existing:
+                    raise ValueError('Unknown device service default')
+            save_inventory_default(db, device, service_details(body, existing),
+                                   existing['id'] if existing else None)
+        elif action == 'device-default-delete':
+            cursor = db.execute('DELETE FROM device_service_defaults WHERE id=? AND device=?',
+                                (int(body['default_service']), int(body['device'])))
+            if cursor.rowcount != 1:
+                raise ValueError('Unknown device service default')
+        elif action == 'device-default-from-template':
+            template = library_template(db, body['template'])
+            save_inventory_default(db, int(body['device']), service_details(dict(template)))
+        elif action == 'device-defaults-from-assignment':
+            replace_defaults_from_assignment(db, int(body['device']), int(body['assignment']))
         elif action == 'service':
             details = service_details(body)
             insert_service(db, int(body['assignment']), details)
@@ -1007,6 +1098,7 @@ def status_overview():
         logo_url = project['logo_url'] if project else None
         return {'project': project['name'] if project else None,
                 'logo_url': logo_url.replace('/api/project-logo?', '/api/public-logo?') if logo_url else None,
+                'deployment': paused['id'] if paused else None,
                 'monitoring_paused': True, 'devices': [], 'incidents': [],
                 'acknowledged_incidents': [], 'acknowledge_enabled': False, 'updated': time.time()}
     project = next(row for row in data['projects'] if row['id'] == run['project'])
@@ -1061,7 +1153,7 @@ def status_overview():
 
     incidents = public_incidents('active')
     acknowledged = public_incidents('acknowledged')
-    return {'project': project['name'], 'monitoring_paused': False,
+    return {'project': project['name'], 'deployment': run['id'], 'monitoring_paused': False,
             'logo_url': project['logo_url'].replace('/api/project-logo?', '/api/public-logo?') if project['logo_url'] else None, 'devices': output,
             'incidents': incidents, 'acknowledged_incidents': acknowledged, 'acknowledge_enabled': bool(project['status_ack_enabled']), 'updated': time.time()}
 
@@ -1261,6 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
                     migrate_inventory_addresses(candidate)
                     migrate_service_lifecycle(candidate)
                     ensure_service_library(candidate)
+                    ensure_inventory_services(candidate)
                     migrate_value_types(candidate)
                     ensure_host_checks(candidate)
                     migrate_project_settings(candidate)

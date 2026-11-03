@@ -64,7 +64,7 @@
     .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
     .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
-    .display-controls button[aria-pressed="true"] { background: #176959; }
+    .display-controls button[aria-pressed="true"], .display-controls button[aria-selected="true"] { background: #176959; }
     .acknowledgement-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
     .acknowledgement-dialog::backdrop { background: #0009; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
@@ -106,7 +106,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 2</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 3</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -154,15 +154,15 @@
     <small>Service filters narrow host readings. Issue lists show all issues.</small>
     <div id="dashboard" class="grid"></div>
   </div>
-  <div data-admin class="display-controls" role="group" aria-label="Configuration sections">
-    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-pressed="false">Show Permanent inventory</button>
-    <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-pressed="false">Show Project configuration</button>
-    <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-pressed="false">Show Reusable service library</button>
-    <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-pressed="false">Show User management</button>
-    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-pressed="false">Show Issue reminders</button>
-    <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-pressed="false">Show Telegram notifications</button>
-    <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-pressed="false">Show WhatsApp Business notifications</button>
-    <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-pressed="false">Show Backup, restore, and retention</button>
+  <div data-admin class="display-controls" role="tablist" aria-label="Configuration sections">
+    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
+    <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-selected="false">Project configuration</button>
+    <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-selected="false">Reusable service library</button>
+    <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-selected="false">User management</button>
+    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Issue reminders</button>
+    <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-selected="false">Telegram notifications</button>
+    <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-selected="false">WhatsApp Business notifications</button>
+    <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-selected="false">Backup, restore, and retention</button>
   </div>
   <div data-admin id="permanent-inventory" hidden>
     <section>
@@ -237,7 +237,7 @@
       </div>
       <p id="project-feedback" class="project-settings-feedback" role="status"></p>
     </section>
-    <section><h2>Assign equipment to selected project</h2><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
+    <section><h2>Assign equipment to selected project</h2><p>New assignments include the device’s service defaults. Existing project configurations remain independent.</p><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
     <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>
       <form data-action="service">
         <label>Assignment<select name="assignment" id="assignment" required></select></label>
@@ -417,6 +417,25 @@
     </form>
     <p id="device-edit-feedback" role="status"></p>
   </dialog>
+  <dialog id="device-default-manager" aria-labelledby="device-default-title">
+    <h2 id="device-default-title">Device service defaults</h2>
+    <p>New project assignments receive independent copies of these services. Existing projects are unchanged.
+      Host ping is added automatically and does not need a default.</p>
+    <button id="new-device-default">Add service default</button>
+    <div class="display-controls">
+      <label>Reusable service<select id="device-default-template"></select></label>
+      <button id="add-device-default-template">Add from library</button>
+    </div>
+    <div class="display-controls">
+      <label>Existing project configuration<select id="device-default-source"></select></label>
+      <button id="adopt-device-defaults">Replace defaults from project</button>
+    </div>
+    <small>Adopting a project copies all its non-removed service definitions, including stored credentials.
+      It replaces this device's defaults only. Copies start enabled for new assignments.</small>
+    <p id="device-default-feedback" class="form-feedback" role="status"></p>
+    <div id="device-default-list"></div>
+    <button id="close-device-defaults">Close</button>
+  </dialog>
   <dialog id="service-editor">
     <h2 id="service-editor-title">Edit monitored service</h2>
     <p id="service-editor-host"></p>
@@ -499,6 +518,8 @@
     let editingProject = '';
     let serviceEditorMode = 'service-edit';
     let serviceEditorSource = null;
+    let serviceEditorDevice = null;
+    let defaultsDevice = null;
     let transferMode = null;
     let transferSource = null;
 
@@ -542,8 +563,8 @@
       </details></div>`;
     }
 
-    // Configuration panels always start hidden; these choices are not persisted.
-    for (const [panelId, label] of [
+    // Configuration areas are exclusive tabs. Start closed on each page load.
+    const configurationSections = [
       ['permanent-inventory', 'Permanent inventory'],
       ['project-configuration', 'Project configuration'],
       ['service-library-panel', 'Reusable service library'],
@@ -552,18 +573,37 @@
       ['telegram-panel', 'Telegram notifications'],
       ['whatsapp-panel', 'WhatsApp Business notifications'],
       ['backup-panel', 'Backup, restore, and retention'],
-    ]) {
-      const button = el(`toggle-${panelId}`);
-      const panel = el(panelId);
-      const apply = visible => {
-        panel.hidden = !visible;
-        button.textContent = `${visible ? 'Hide' : 'Show'} ${label}`;
-        button.setAttribute('aria-expanded', String(visible));
-        button.setAttribute('aria-pressed', String(visible));
-      };
-      apply(false);
-      button.onclick = () => apply(panel.hidden);
+    ];
+    function selectConfiguration(panelId, focus = false) {
+      configurationSections.forEach(([id], index) => {
+        const selected = id === panelId;
+        const button = el(`toggle-${id}`);
+        el(id).hidden = !selected;
+        button.setAttribute('aria-selected', String(selected));
+        button.setAttribute('aria-expanded', String(selected));
+        button.setAttribute('tabindex', selected || (panelId === null && index === 0) ? '0' : '-1');
+      });
+      if (focus) el(`toggle-${panelId}`).focus();
     }
+    configurationSections.forEach(([panelId, label], index) => {
+      const button = el(`toggle-${panelId}`);
+      button.textContent = label;
+      button.setAttribute('role', 'tab');
+      el(panelId).setAttribute('role', 'tabpanel');
+      el(panelId).setAttribute('aria-labelledby', button.id || `toggle-${panelId}`);
+      button.onclick = () => selectConfiguration(panelId);
+      button.onkeydown = event => {
+        let next;
+        if (event.key === 'ArrowRight') next = (index + 1) % configurationSections.length;
+        else if (event.key === 'ArrowLeft') next = (index - 1 + configurationSections.length) % configurationSections.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = configurationSections.length - 1;
+        else return;
+        event.preventDefault();
+        selectConfiguration(configurationSections[next][0], true);
+      };
+    });
+    selectConfiguration(null);
 
     // Section visibility is presentation only; polling and incident tracking continue.
     for (const [key, panelId, label, initiallyVisible] of [
@@ -751,6 +791,7 @@
           <button data-delete-template="${template.id}">Delete</button>
         </article>`).join('') || '<p>No library services yet.</p>';
       if (el('service-transfer').open) updateTransferHosts();
+      if (el('device-default-manager').open) renderDeviceDefaults();
       if (currentUser?.role === 'admin') await loadAdmin();
       const lists = state.incident_lists;
       el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active issues.</p>';
@@ -782,6 +823,7 @@
           <strong>${escapeHtml(device.name)}</strong> · ${escapeHtml(device.model)}
           <p>${escapeHtml(device.address || 'IP required; monitoring paused')}${review}</p>
           <button data-edit-device="${device.id}">Edit</button>
+          <button data-device-defaults="${device.id}">Service defaults (${(state.device_service_defaults || []).filter(row => row.device === device.id).length})</button>
           <button data-delete-device="${device.id}">Delete permanently</button>
         </article>`;
       }).join('') || '<p>No equipment matches this search.</p>';
@@ -1003,6 +1045,67 @@
       }
     };
 
+    function openDeviceDefaults(id) {
+      defaultsDevice = Number(id);
+      if (!state.devices.some(row => row.id === defaultsDevice)) throw new Error('Inventory device no longer exists.');
+      el('device-default-feedback').textContent = '';
+      renderDeviceDefaults();
+      el('device-default-manager').showModal();
+    }
+
+    function renderDeviceDefaults() {
+      const device = state.devices.find(row => row.id === defaultsDevice);
+      if (!device) { el('device-default-manager').close(); return; }
+      el('device-default-title').textContent = 'Service defaults · ' + device.name;
+      const defaults = (state.device_service_defaults || []).filter(row => row.device === defaultsDevice);
+      el('device-default-list').innerHTML = defaults.map(row => `<div class="metric">
+        <strong>${escapeHtml(row.name)}</strong> · ${escapeHtml(row.kind.toUpperCase())} · ${escapeHtml(row.target)}
+        <button data-edit-device-default="${row.id}">Edit</button>
+        <button data-delete-device-default="${row.id}">Remove</button>
+      </div>`).join('') || '<p>No service defaults yet. Add a definition, use the library, or adopt an existing project configuration.</p>';
+      updateOptions('device-default-template', state.service_templates, row => row.name, 'Choose a library service…');
+      const sources = state.assignments.filter(row => row.device === defaultsDevice && !row.removed &&
+        state.services.some(service => service.assignment === row.id && service.kind !== 'ping' && service.enabled !== 0));
+      updateOptions('device-default-source', sources,
+        row => `${state.projects.find(project => project.id === row.project)?.name || 'Project'} · ${row.alias}`,
+        'Choose a project configuration…');
+    }
+
+    function openDeviceDefaultEditor(id = null) {
+      const configuration = id ? (state.device_service_defaults || []).find(row => row.id === Number(id) && row.device === defaultsDevice) : {
+        name: '', kind: 'snmp', target: '', unit: 1, scale: 1, units: '', direction: 'below',
+        warning: '', critical: '', persistence: 2, value_type: 'metric', state_map: {},
+      };
+      if (!configuration) throw new Error('Service default no longer exists.');
+      serviceEditorDevice = defaultsDevice;
+      openConfigurationEditor(configuration, id ? 'device-default-edit' : 'device-default-create', null,
+        id ? 'Edit device service default' : 'Add device service default',
+        'Defaults affect new project assignments only. Existing projects are unchanged. Blank new credentials default to public.');
+    }
+
+    el('close-device-defaults').onclick = () => el('device-default-manager').close();
+    el('new-device-default').onclick = () => openDeviceDefaultEditor();
+    async function changeDeviceDefaults(action, details, button) {
+      button.disabled = true;
+      try {
+        await request(action, {device: defaultsDevice, ...details});
+        el('device-default-feedback').textContent = 'Device service defaults saved. Existing projects are unchanged.';
+        await refresh();
+      } catch (error) { el('device-default-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    }
+    el('add-device-default-template').onclick = () => {
+      const template = el('device-default-template').value;
+      if (!template) { el('device-default-feedback').textContent = 'Choose a library service first.'; return; }
+      return changeDeviceDefaults('device-default-from-template', {template}, el('add-device-default-template'));
+    };
+    el('adopt-device-defaults').onclick = () => {
+      const assignment = el('device-default-source').value;
+      if (!assignment) { el('device-default-feedback').textContent = 'Choose a project configuration first.'; return; }
+      if (!confirm('Replace this device’s defaults with the selected project’s service definitions? Existing projects and history are unchanged.')) return;
+      return changeDeviceDefaults('device-defaults-from-assignment', {assignment}, el('adopt-device-defaults'));
+    };
+
     function openConfigurationEditor(configuration, mode, source, title, context) {
       serviceEditorMode = mode;
       serviceEditorSource = source;
@@ -1055,13 +1158,19 @@
       try {
         const body = servicePayload(form);
         if (serviceEditorMode === 'template-edit') body.template = body.service;
+        if (serviceEditorMode.startsWith('device-default-')) {
+          body.device = serviceEditorDevice;
+          if (serviceEditorMode === 'device-default-edit') body.default_service = body.service;
+        }
         if (serviceEditorSource) body.source = serviceEditorSource;
         await request(serviceEditorMode, body);
         el('service-editor').close();
         form.reset();
         const library = serviceEditorMode.startsWith('template-');
-        const message = library ? 'Library service saved successfully.' : 'Service updated successfully. Awaiting fresh readings.';
-        const feedback = el(library ? 'library-feedback' : 'service-feedback');
+        const inventoryDefault = serviceEditorMode.startsWith('device-default-');
+        const message = inventoryDefault ? 'Device service default saved. Existing projects are unchanged.'
+          : library ? 'Library service saved successfully.' : 'Service updated successfully. Awaiting fresh readings.';
+        const feedback = el(inventoryDefault ? 'device-default-feedback' : library ? 'library-feedback' : 'service-feedback');
         feedback.textContent = message;
         feedback.classList.add('success');
         notify(message, true);
@@ -1468,6 +1577,11 @@
           await refresh();
         }
         if (data.editService) openServiceEditor(data.editService);
+        if (data.deviceDefaults) openDeviceDefaults(data.deviceDefaults);
+        if (data.editDeviceDefault) openDeviceDefaultEditor(data.editDeviceDefault);
+        if (data.deleteDeviceDefault && confirm('Remove this service default? Existing project services are unchanged.')) {
+          await changeDeviceDefaults('device-default-delete', {default_service: data.deleteDeviceDefault}, event.target);
+        }
         if (data.editDevice) openDeviceEditor(data.editDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});

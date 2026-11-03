@@ -226,10 +226,11 @@ Permanent inventory is its own top-level Admin section, separate from Project
 configuration. Keep inventory creation/search/edit/removal there; project assignment
 and service configuration remain under Project configuration.
 
-Main dashboard configuration sections use colour-coded Show/Hide buttons instead
+Main dashboard configuration sections use exclusive colour-coded tabs instead
 of disclosure arrows: Permanent inventory, Project configuration, Reusable service
 library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
-These panels always start hidden on page load and do not persist visibility.
+These panels start hidden on page load. Selecting a tab shows only that configuration
+area, without hiding issue/live host sections; selection is not persisted.
 Issue-list and live-status visibility preferences remain separate.
 
 Older username-only acknowledgements display the account Full Name after it is
@@ -250,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2, Build 2. Show it after the title on both the main and
+Current displayed release is v0.2, Build 3. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -352,3 +353,22 @@ same commit. Keep the small inline format vVERSION · Build N. Build numbers
 increase monotonically across releases; do not reset them when the version changes.
 Do not put version/build numbers in browser tab titles. Build 1 starts this policy;
 earlier commits were not numbered.
+
+Permanent inventory devices have independent standard service definitions in
+`device_service_defaults`. New project assignments materialize copies of these
+configs/credentials with monitoring enabled; never link runtime services back to
+defaults or copy samples/issues. Existing and reactivated archived assignments
+retain their configs. Project duplication copies the project's services, not the
+inventory defaults. Defaults have CRUD, library import, and explicit replacement
+from a selected project assignment of that same device. Do not infer defaults
+from existing projects on migration; offer explicit adoption to avoid conflicts.
+Duplicate names are rejected rather than silently losing definitions. Ping stays
+managed and is never a default. Redact default communities from snapshots, include
+all defaults in backup/restore, and purge only that device's defaults on deletion.
+
+Admin configuration areas are exclusive accessible tabs with arrow/Home/End
+navigation and active colour. Keep unfinished forms intact when switching areas.
+Status background pulses red three times for newly observed active issues, not
+initial load or reappearing previously seen issues. Track internal IDs/labels per
+deployment and preserve the seen set across pause/resume. Honour reduced motion
+with a brief static red highlight instead of animation.

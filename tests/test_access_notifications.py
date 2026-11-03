@@ -417,6 +417,47 @@ class AccessAndNotificationTests(unittest.TestCase):
         finally:
             restored.close()
 
+    def test_inventory_default_mutations_require_admin_and_csrf(self):
+        self.create_host()
+        token, operator = self.create_operator()
+        actions = ('device-default-create', 'device-default-edit', 'device-default-delete',
+                   'device-default-from-template', 'device-defaults-from-assignment')
+        for action in actions:
+            for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
+                self.assertEqual(self.request('/api/' + action, {'device': 1}, actor_token, actor['csrf'])['status'], 403)
+            self.assertEqual(self.request('/api/' + action, {'device': 1}, self.admin_token)['status'], 403)
+
+    def test_inventory_defaults_are_redacted_in_state_and_preserved_by_restore(self):
+        self.create_host()
+        response = self.request('/api/device-default-create', {
+            'device': 1, 'name': 'Inventory RSSI', 'kind': 'snmp', 'target': '.1.2.3',
+            'community': 'DEFAULT_SECRET', 'direction': 'below',
+        }, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        state = json.loads(self.request('/api/state', token=self.admin_token)['content'])
+        default = state['device_service_defaults'][0]
+        self.assertNotIn('community', default)
+        self.assertNotIn('DEFAULT_SECRET', json.dumps(state))
+        self.assertNotIn('device_service_defaults', json.loads(self.request('/api/status')['content']))
+        payload = self.request('/api/backup', token=self.admin_token)['content']
+        server.mutate('device-default-delete', {'device': 1, 'default_service': default['id']})
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/restore'
+        handler.headers = {'Content-Type': 'application/octet-stream',
+            'Content-Length': str(len(payload)), 'Cookie': 'monitor_session=' + self.admin_token,
+            'X-CSRF-Token': self.admin['csrf']}
+        handler.rfile = io.BytesIO(payload)
+        result = {}
+        handler.send = lambda content, mime=None, status=200: result.update(status=status, content=content)
+        handler.do_POST()
+        self.assertEqual(result['status'], 200)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT community FROM device_service_defaults WHERE id=?', (default['id'],)).fetchone()[0], 'DEFAULT_SECRET')
+        server.mutate('project', {'name': 'After restore'})
+        server.mutate('assignment', {'device': 1, 'project': 2, 'alias': 'New event'})
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT s.community FROM services s JOIN assignments a ON a.id=s.assignment WHERE a.project=2 AND s.kind='snmp'").fetchone()[0], 'DEFAULT_SECRET')
+
     def test_login_page_accepts_status_return_parameter_without_authentication(self):
         for path in ('/login', '/login?next=%2Fstatus', '/login?next=%2F'):
             response = self.request(path)
