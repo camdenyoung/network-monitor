@@ -157,6 +157,15 @@ def enqueue_for_channel(db, incident_id, event, channel):
         return
     reading = db.execute('SELECT value,display_value FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 1',
                          (row['service'], row['run'])).fetchone()
+    text = format_issue_message(row, event, reading, runtime)
+    db.execute('''INSERT OR IGNORE INTO notification_outbox
+        (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
+        (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))
+
+
+def format_issue_message(row, event, reading, runtime=None):
+    """One renderer for live alerts and synthetic samples, so previews stay accurate."""
+    flap_event = event.startswith(('flap-start:', 'flap-stable:'))
     value = (reading['display_value'] or str(reading['value'])) if reading and reading['value'] is not None else 'No reading'
     units = row['units'] if row['value_type'] == 'metric' else ''
     if event == 'opened' and (row['trigger_timestamp'] is not None or row['kind'] == 'ping'):
@@ -185,9 +194,7 @@ def enqueue_for_channel(db, incident_id, event, channel):
     if event not in ('opened', 'recovery') and not event.startswith('flap-start:') and row['trigger_timestamp'] is not None:
         cause = recorded_issue_value(row) + ' ' + (row['trigger_units'] or '')
         text += '\n' + cause.strip()
-    db.execute('''INSERT OR IGNORE INTO notification_outbox
-        (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
-        (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))
+    return text
 
 
 def enqueue_flap_event(db, service_id, run, event):
@@ -272,16 +279,45 @@ def enqueue_reminders(db, host_is_up):
                 enqueue_for_channel(db, source['id'], f'reminder:{int(now)}', channel)
 
 
-def enqueue_test(db, channel='telegram'):
+def sample_notification(sample_type):
+    """Render fictitious data only; never create an issue, reading or deployment."""
+    if not isinstance(sample_type, str) or sample_type not in (
+            'test', 'critical', 'warning', 'recovery', 'flapping', 'stable', 'host-unreachable', 'port-down'):
+        raise ValueError('Choose a supported sample notification type')
+    if sample_type == 'test':
+        return 'TEST · Network Monitor\nNotification test\nThis destination is configured for issue alerts.'
+    row = {'project_name': 'Sample Project', 'device_name': 'Sample Host', 'alias': 'Sample Alias',
+           'service_name': 'RSSI', 'kind': 'snmp', 'value_type': 'metric', 'units': 'dBm',
+           'status': 'warning' if sample_type == 'warning' else 'critical',
+           'trigger_value': -70 if sample_type == 'warning' else -80,
+           'trigger_display': '-70' if sample_type == 'warning' else '-80',
+           'trigger_units': 'dBm', 'trigger_timestamp': 1, 'trigger_error': '', 'number': 1, 'run': 1}
+    event = {'recovery': 'recovery', 'flapping': 'flap-start:1', 'stable': 'flap-stable:1'}.get(sample_type, 'opened')
+    value = -60 if sample_type in ('recovery', 'stable') else row['trigger_value']
+    reading = {'value': value, 'display_value': str(value)}
+    runtime = {'confirmed': 'healthy' if sample_type in ('recovery', 'stable') else row['status'],
+               'flapping': sample_type == 'flapping'}
+    if sample_type == 'host-unreachable':
+        row.update(kind='ping', service_name='Host ping', status='unreachable', trigger_value=None,
+                   trigger_display='Host unreachable', trigger_units='', units='', trigger_error='CalledProcessError')
+        reading = {'value': None, 'display_value': None}
+    elif sample_type == 'port-down':
+        row.update(service_name='Port status', value_type='state', trigger_value=2,
+                   trigger_display='Port Down', trigger_units='', units='')
+        reading = {'value': 2, 'display_value': 'Port Down'}
+    return format_issue_message(row, event, reading, runtime)
+
+
+def enqueue_test(db, channel='telegram', sample_type='test'):
     if are_paused(db):
         raise ValueError('Resume notifications before sending a test')
     config = configuration(db, channel)
     if not config['enabled']:
         raise ValueError('Enable the notification channel first')
+    text = sample_notification(sample_type)
     db.execute('''INSERT INTO notification_outbox
         (event,channel,text,config_revision,next_attempt,created) VALUES('test',?,?,?,?,?)''',
-        (channel, 'TEST · Network Monitor\nNotification test\nThis destination is configured for issue alerts.',
-         config['revision'], time.time(), time.time()))
+        (channel, text[:3500], config['revision'], time.time(), time.time()))
 
 
 def retry_failed(db, channel):

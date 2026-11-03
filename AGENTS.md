@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.3, Build 23. Show it after the title on both the main and
+Current displayed release is v0.2.3, Build 24. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -470,3 +470,11 @@ Append Notifications for this check are suppressed until it stabilises. to
 flap-start notifications, making the scope of temporary suppression clear.
 
 Keep the warning icon at the start of flap-start notifications: ⚠️ FLAPPING.
+
+Telegram sample selector sends connectivity, critical, warning, recovery, flapping,
+stable, host-unreachable and port-state examples through the existing Admin/CSRF
+protected test endpoint and durable outbox. Use sample_notification and the same
+format_issue_message renderer as live events; fictitious data never creates issues,
+samples or deployments. Respect saved provider settings and global notification
+pause. Test outbox rows have no incident and bypass real-check suppression. Reject
+unknown sample types before queueing; old callers default to connectivity test.

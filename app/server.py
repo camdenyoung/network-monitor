@@ -1547,7 +1547,8 @@ class Handler(BaseHTTPRequestHandler):
                         elif self.path == '/api/whatsapp-save':
                             notifications.save_whatsapp(db, body)
                         else:
-                            notifications.enqueue_test(db, 'whatsapp' if self.path == '/api/whatsapp-test' else 'telegram')
+                            notifications.enqueue_test(db, 'whatsapp' if self.path == '/api/whatsapp-test' else 'telegram',
+                                                       body.get('sample_type', 'test'))
                 elif self.path.startswith('/api/user-'):
                     if self.path not in ('/api/user-create', '/api/user-edit', '/api/user-delete'):
                         raise ValueError('Unknown action')

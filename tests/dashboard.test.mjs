@@ -1320,3 +1320,19 @@ console.log('Immutable issue causes show metric units, state labels and safe mis
 
 assert.doesNotMatch(context.renderIncidents([evidence]), /Triggered by/i);
 assert.equal(publicContext.issueCause({...evidence,trigger_value:null,trigger_display:'Host unreachable',trigger_error:'CalledProcessError'}), 'Host unreachable');
+
+// The sample selector posts its type and remains reusable after a send.
+const sampleRequests = [];
+const sampleOriginalFetch = resumeContext.fetch;
+resumeContext.fetch = async (path, options) => {
+  if (path === '/api/telegram-test') sampleRequests.push(JSON.parse(options.body));
+  return sampleOriginalFetch(path, options);
+};
+element('telegram-sample-type').value = 'flapping';
+await element('telegram-test').onclick();
+assert.equal(sampleRequests[0].sample_type, 'flapping');
+assert.equal(element('telegram-test').disabled, false);
+assert.match(element('telegram-feedback').textContent, /Sample notification queued/);
+assert.equal(element('telegram-sample-type').value, 'flapping');
+resumeContext.fetch = sampleOriginalFetch;
+console.log('Telegram sample selector queues the selected example without resetting the selection.');

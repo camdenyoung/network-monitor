@@ -1294,6 +1294,45 @@ class AccessAndNotificationTests(unittest.TestCase):
                 self.assertNotIn('CalledProcessError', message[0])
         self.assertEqual(server.status_overview()['incidents'][0]['trigger_display'], 'Host unreachable')
 
+    def test_sample_notifications_queue_without_mutating_monitoring_history(self):
+        self.create_host()
+        self.configure_channels()
+        with server.connect() as db:
+            before = {table: db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0]
+                      for table in ('incidents', 'samples', 'runs', 'check_stability')}
+        types = ('test', 'critical', 'warning', 'recovery', 'flapping', 'stable', 'host-unreachable', 'port-down')
+        for sample_type in types:
+            response = self.request('/api/telegram-test', {'sample_type': sample_type}, self.admin_token, self.admin['csrf'])
+            self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            rows = db.execute('SELECT * FROM notification_outbox ORDER BY id').fetchall()
+            self.assertEqual(len(rows), len(types))
+            self.assertTrue(all(row['incident'] is None and row['event'] == 'test' for row in rows))
+            messages = dict(zip(types, (row['text'] for row in rows)))
+            self.assertTrue(messages['critical'].startswith('❌ CRITICAL'))
+            self.assertIn('RSSI: -80 dBm', messages['critical'])
+            self.assertTrue(messages['warning'].startswith('⚠️ WARNING'))
+            self.assertIn('RSSI: -60 dBm', messages['recovery'])
+            self.assertNotIn('-80', messages['recovery'])
+            self.assertTrue(messages['flapping'].startswith('⚠️ FLAPPING - Sample Project'))
+            self.assertNotIn('HEALTHY', messages['flapping'])
+            self.assertIn('suppressed until it stabilises', messages['flapping'])
+            self.assertEqual(len(messages['flapping'].splitlines()), 5)
+            self.assertIn('STABLE · HEALTHY', messages['stable'])
+            self.assertIn('Host unreachable', messages['host-unreachable'])
+            self.assertNotIn('CalledProcessError', messages['host-unreachable'])
+            self.assertIn('Port status: Port Down', messages['port-down'])
+            after = {table: db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0] for table in before}
+            self.assertEqual(before, after)
+        for value in ('unknown', [], None):
+            self.assertEqual(self.request('/api/telegram-test', {'sample_type': value}, self.admin_token, self.admin['csrf'])['status'], 400)
+        self.assertEqual(self.request('/api/telegram-test', {'sample_type': 'flapping'}, self.viewer_token, self.viewer['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/telegram-test', {'sample_type': 'flapping'}, self.admin_token, 'wrong')['status'], 403)
+        server.mutate('notification-pause', {'paused': True})
+        self.assertEqual(self.request('/api/telegram-test', {'sample_type': 'critical'}, self.admin_token, self.admin['csrf'])['status'], 400)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox').fetchone()[0], len(types))
+
 
 if __name__ == '__main__':
     unittest.main()

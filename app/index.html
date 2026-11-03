@@ -117,7 +117,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 23</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 24</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -372,7 +372,20 @@
       <button>Save settings</button>
     </form>
     <button id="telegram-chats">Discover groups</button><div id="telegram-group-list"></div>
-    <button id="telegram-test">Send test message</button><button id="telegram-retry">Retry failed messages</button>
+    <div class="display-controls">
+      <label>Sample notification<select id="telegram-sample-type">
+        <option value="test">Connectivity test</option>
+        <option value="critical">Critical (RSSI)</option>
+        <option value="warning">Warning (RSSI)</option>
+        <option value="recovery">Recovered (RSSI)</option>
+        <option value="flapping">Flapping</option>
+        <option value="stable">Stable after flapping</option>
+        <option value="host-unreachable">Host unreachable</option>
+        <option value="port-down">Port Down</option>
+      </select></label>
+      <button id="telegram-test">Send sample notification</button>
+    </div>
+    <p>Samples use fictitious hosts, projects and issue numbers. They are sent to the saved Telegram destination without creating real issues.</p><button id="telegram-retry">Retry failed messages</button>
     <p id="telegram-feedback" role="status"></p>
     <button type="button" id="toggle-telegram-log" aria-controls="telegram-log" aria-expanded="false" aria-pressed="false">Show log</button>
     <div id="telegram-log" class="delivery-log" hidden>
@@ -2084,11 +2097,14 @@
       }
     };
     el('telegram-test').onclick = async () => {
+      const button = el('telegram-test');
+      button.disabled = true;
       try {
-        await request('telegram-test', {});
-        el('telegram-feedback').textContent = 'Test message queued. Check its delivery status below.';
+        await request('telegram-test', {sample_type: el('telegram-sample-type').value || 'test'});
+        el('telegram-feedback').textContent = 'Sample notification queued. Show log to check its delivery status.';
         await loadAdmin();
       } catch (error) { el('telegram-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
     };
     el('whatsapp-form').onsubmit = async event => {
       event.preventDefault();

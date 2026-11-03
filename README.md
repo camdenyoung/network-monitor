@@ -1,9 +1,15 @@
-# Network Monitor v0.2.3 · Build 23
+# Network Monitor v0.2.3 · Build 24
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 24 — v0.2.3 (flap-protection branch)
+
+- Telegram settings can send sample Critical, Warning, Recovered, Flapping, Stable, Host unreachable and Port Down notifications alongside the connectivity test.
+- Samples share the live message renderer, use fictitious data, and obey global notification pause without creating real issues or deployments.
+
 
 ### Build 23 — v0.2.3 (flap-protection branch)
 
