@@ -779,7 +779,8 @@ def service_details(body, existing=None):
     if warning is not None and critical is not None:
         if (direction == 'below' and critical > warning) or (direction == 'above' and critical < warning):
             raise ValueError('Critical threshold must be more severe than warning')
-    unit = int(body.get('unit', 1))
+    # Disabled protocol fields are absent from browser FormData on edit.
+    unit = int(body.get('unit', existing['unit'] if existing else 1))
     persistence = int(body.get('persistence', 2))
     if not 1 <= unit <= 247 or not 1 <= persistence <= 120:
         raise ValueError('Invalid unit ID or persistence')

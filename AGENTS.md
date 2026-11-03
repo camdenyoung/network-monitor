@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 30. Show it after the title on both the main and
+Current displayed release is v0.3, Build 31. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -512,3 +512,10 @@ inventory defaults and service creation. Keep Save/Cancel together below setting
 
 In the service editor, Consecutive readings follows Critical in the same
 Warning / Critical / Consecutive readings row, before the flap settings.
+
+Service forms disable irrelevant protocol fields on initial load, editor opening,
+protocol changes and successful add-form reset. SNMP enables community only;
+Modbus enables unit ID only; TCP disables both. Do not clear disabled drafts.
+Keep native disabled styling visible. Missing unit on edit preserves the existing
+value in service_details, as missing community already preserves the secret.
+Apply the shared editor rules to services, library definitions and device defaults.

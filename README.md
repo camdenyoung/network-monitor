@@ -1,9 +1,15 @@
-# Network Monitor v0.3 · Build 30
+# Network Monitor v0.3 · Build 31
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 31 — v0.3 (UI polish branch)
+
+- Service forms disable SNMP community outside SNMP, and Modbus Unit ID outside Modbus, including when opening existing definitions.
+- Switching protocols preserves unfinished input; saving with an irrelevant field disabled preserves its stored value.
+
 
 ### Build 30 — v0.3 (UI polish branch)
 

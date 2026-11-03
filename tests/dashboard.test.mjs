@@ -1418,3 +1418,24 @@ fixture.assignments.find(row => row.id === 988).removed = 1;
 await context.refresh();
 assert.throws(() => context.openHostStabilityEditor(989), /Host no longer exists/);
 console.log('Host flap dialog identifies the correct host, safely displays aliases, refreshes policy fields and rejects removed targets.');
+
+// Protocol changes disable irrelevant inputs without clearing draft values.
+const protocolForm = element('service-edit-form');
+protocolForm.elements.namedItem('community').value = 'unsaved-community';
+protocolForm.elements.namedItem('unit').value = '17';
+for (const [protocol, communityDisabled, unitDisabled] of [
+  ['snmp',false,true],['modbus',true,false],['tcp',true,true],['snmp',false,true],
+]) {
+  protocolForm.elements.namedItem('kind').value = protocol;
+  context.updateProtocolFields(protocolForm);
+  assert.equal(protocolForm.elements.namedItem('community').disabled,communityDisabled);
+  assert.equal(protocolForm.elements.namedItem('unit').disabled,unitDisabled);
+  assert.equal(protocolForm.elements.namedItem('community').value,'unsaved-community');
+  assert.equal(protocolForm.elements.namedItem('unit').value,'17');
+}
+for (const [kind, mode] of [['snmp','service-edit'],['modbus','template-create'],['tcp','device-default-create']]) {
+  context.openConfigurationEditor({...stateService,kind},mode,null,'Protocol test','Sample configuration');
+  assert.equal(protocolForm.elements.namedItem('community').disabled,kind !== 'snmp');
+  assert.equal(protocolForm.elements.namedItem('unit').disabled,kind !== 'modbus');
+}
+console.log('Service protocol fields initialise correctly and retain drafts while switching SNMP, Modbus and TCP.');

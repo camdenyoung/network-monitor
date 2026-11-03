@@ -38,6 +38,7 @@
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
     .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
+    input:disabled, select:disabled, textarea:disabled { opacity: 0.5; cursor: not-allowed; }
     button:disabled { opacity: 0.5; cursor: wait; }
     button.danger { background: #6b2834; border-color: #df6578; }
     button.danger:hover { background: #873344; }
@@ -151,7 +152,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 30</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 31</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -1142,6 +1143,13 @@
       });
     }
 
+    function updateProtocolFields(form) {
+      const protocol = form.elements.namedItem('kind').value;
+      // Disable rather than clear: switching back keeps the user's unfinished input.
+      form.elements.namedItem('community').disabled = protocol !== 'snmp';
+      form.elements.namedItem('unit').disabled = protocol !== 'modbus';
+    }
+
     function servicePayload(form) {
       const body = Object.fromEntries(new FormData(form));
       if (body.value_type === 'state') {
@@ -1169,6 +1177,11 @@
     document.querySelectorAll('select[name="value_type"]').forEach(select => {
       select.onchange = () => updateValueMode(select.form);
       updateValueMode(select.form);
+    });
+
+    document.querySelectorAll('select[name="kind"]').forEach(select => {
+      select.onchange = () => updateProtocolFields(select.form);
+      updateProtocolFields(select.form);
     });
 
     const successMessages = {
@@ -1200,6 +1213,10 @@
           await request(action, body);
           // Reset only after a confirmed write; failed requests retain entered data.
           if (action !== 'retention') form.reset();
+          if (action === 'service') {
+            updateProtocolFields(form);
+            updateValueMode(form);
+          }
           if (action === 'service') updateValueMode(form);
           feedback.textContent = successMessages[action];
           feedback.classList.add('success');
@@ -1349,6 +1366,7 @@
       }
       form.elements.namedItem('flap_enabled').checked = configuration.flap_enabled !== 0;
       form.elements.namedItem('community').value = '';
+      updateProtocolFields(form);
       el('service-editor-title').textContent = title;
       el('service-editor-host').textContent = context;
       el('service-edit-feedback').textContent = '';
