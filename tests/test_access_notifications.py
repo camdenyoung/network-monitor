@@ -124,7 +124,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('project', {'name': 'Deployment'})
         server.mutate('device', {'name': 'Switch-1', 'model': 'Switch', 'address': '192.168.1.1'})
         server.mutate('assignment', {'project': 1, 'device': 1, 'alias': 'Stage switch'})
-        server.mutate('activate', {'project': 1})
+        server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
         with server.connect() as db:
             return dict(db.execute('''SELECT s.*, d.address FROM services s
                 JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device''').fetchone())
@@ -280,6 +280,23 @@ class AccessAndNotificationTests(unittest.TestCase):
             db.execute('UPDATE incidents SET opened=? WHERE id=?', (now - 61, issue))
             db.execute("UPDATE notification_outbox SET state='sent',created=?,next_attempt=?", (now - 61, now - 61))
         return host, issue, now
+
+    def test_notifications_use_deployment_issue_number_with_global_ack_id(self):
+        host, old_issue, now = self.reminder_fault()
+        server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 2)
+            server.poll_one(host, 2)
+        issue = server.snapshot()['incident_lists']['active'][0]
+        self.assertEqual(issue['number'], 1)
+        self.assertNotEqual(issue['id'], old_issue)
+        with server.connect() as db:
+            rows = db.execute('SELECT text FROM notification_outbox WHERE incident=?', (issue['id'],)).fetchall()
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all('Issue #1 · Deployment #2' in row['text'] for row in rows))
+        public = server.status_overview()['incidents'][0]
+        self.assertEqual(public['number'], 1)
+        self.assertEqual(public['id'], issue['id'])
 
     def test_issue_notification_icons_match_status_and_recovery_on_both_channels(self):
         host, issue, now = self.reminder_fault()
@@ -503,14 +520,14 @@ class AccessAndNotificationTests(unittest.TestCase):
         incident = public['incidents'][0]
         self.assertEqual(incident['device'], 'Switch-1')
         self.assertEqual(incident['alias'], 'Stage switch')
-        self.assertEqual(set(incident), {'id', 'device', 'alias', 'service', 'status', 'opened'})
+        self.assertEqual(set(incident), {'id', 'number', 'device', 'alias', 'service', 'status', 'opened'})
         incident_id = server.snapshot()['incident_lists']['active'][0]['id']
         server.mutate('ack', {'id': incident_id}, actor={'id': 1})
         acknowledged = server.status_overview()['acknowledged_incidents']
         self.assertEqual(len(acknowledged), 1)
         self.assertEqual(acknowledged[0]['acknowledged_by_username'], 'admin')
         self.assertEqual(set(acknowledged[0]), {
-            'id', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name'})
+            'id', 'number', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name'})
         with server.connect() as db:
             db.execute('UPDATE assignments SET visible=0 WHERE id=1')
         self.assertEqual(server.status_overview()['acknowledged_incidents'], [])
@@ -526,7 +543,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertEqual(server.status_overview()['incidents'], [])
             server.mutate('toggle', {'id': 1, 'field': field})
         server.mutate('project', {'name': 'Other deployment'})
-        server.mutate('activate', {'project': 2})
+        server.mutate('activate', {'project': 2, 'description': 'Test deployment'})
         self.assertEqual(server.status_overview()['incidents'], [])
         server.mutate('pause', {})
         self.assertEqual(server.status_overview()['incidents'], [])

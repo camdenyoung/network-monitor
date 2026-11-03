@@ -91,10 +91,50 @@ def initialize():
         ensure_host_checks(db)
         migrate_project_settings(db)
         migrate_incident_acknowledgements(db)
+        migrate_issue_numbers(db)
+        migrate_deployment_descriptions(db)
         logos.ensure_table(db)
         notifications.ensure_tables(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
+
+
+def migrate_deployment_descriptions(db):
+    """Keep old deployment records intact without inventing a reason for them."""
+    if 'description' not in {row[1] for row in db.execute('PRAGMA table_info(runs)')}:
+        db.execute("ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+
+
+def migrate_issue_numbers(db):
+    """Assign stable per-deployment labels while preserving internal issue IDs.
+
+    Counters live on runs so deleting a device and its issues cannot reuse an
+    already-issued number. Legacy records are numbered in their creation order.
+    """
+    if 'issue_counter' not in {row[1] for row in db.execute('PRAGMA table_info(runs)')}:
+        db.execute('ALTER TABLE runs ADD COLUMN issue_counter INTEGER NOT NULL DEFAULT 0')
+    if 'number' not in {row[1] for row in db.execute('PRAGMA table_info(incidents)')}:
+        db.execute('ALTER TABLE incidents ADD COLUMN number INTEGER')
+    outbox_exists = db.execute("SELECT 1 FROM sqlite_master WHERE name='notification_outbox'").fetchone()
+    for run_id, old_counter in db.execute('SELECT id,issue_counter FROM runs').fetchall():
+        highest = db.execute('SELECT COALESCE(MAX(number),0) FROM incidents WHERE run=?', (run_id,)).fetchone()[0]
+        counter = max(old_counter, highest)
+        unnumbered = db.execute('SELECT id FROM incidents WHERE run=? AND number IS NULL ORDER BY id',
+                                (run_id,)).fetchall()
+        for (issue_id,) in unnumbered:
+            counter += 1
+            db.execute('UPDATE incidents SET number=? WHERE id=?', (counter, issue_id))
+            if outbox_exists:
+                # Update unsent legacy payloads; previously delivered messages stay intact.
+                rows = db.execute("""SELECT id,text FROM notification_outbox WHERE incident=?
+                    AND state IN ('pending','sending','failed')""", (issue_id,)).fetchall()
+                for message_id, message in rows:
+                    head, separator, footer = message.rpartition('\n')
+                    if separator and footer.startswith('Issue #'):
+                        db.execute('UPDATE notification_outbox SET text=? WHERE id=?',
+                                   (f"{head}\nIssue #{counter} · Deployment #{run_id}", message_id))
+        db.execute('UPDATE runs SET issue_counter=? WHERE id=?', (counter, run_id))
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS deployment_issue_number ON incidents(run,number)')
 
 
 def migrate_incident_acknowledgements(db):
@@ -453,8 +493,10 @@ def poll_one(service, run):
                 notifications.enqueue_incident(db, incident['id'], 'recovery')
             incident = None
         if status != 'healthy' and incident is None:
-            cursor = db.execute('INSERT INTO incidents(run,service,opened,status) VALUES(?,?,?,?)',
-                                (run, service['id'], time.time(), status))
+            number = db.execute('UPDATE runs SET issue_counter=issue_counter+1 WHERE id=? RETURNING issue_counter',
+                                (run,)).fetchone()[0]
+            cursor = db.execute('INSERT INTO incidents(run,service,opened,status,number) VALUES(?,?,?,?,?)',
+                                (run, service['id'], time.time(), status, number))
             notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
 
 
@@ -799,10 +841,14 @@ def mutate(action, body, actor=None):
                 raise ValueError('Invalid control')
             db.execute(f'UPDATE assignments SET {field}=1-{field} WHERE id=? AND removed=0', (int(body['id']),))
         elif action == 'activate':
+            description = body.get('description')
+            if not isinstance(description, str) or not 1 <= len(description.strip()) <= 500:
+                raise ValueError('Enter a deployment description of 1–500 characters')
             project = int(body['project'])
             if not db.execute('SELECT id FROM projects WHERE id=?', (project,)).fetchone():
                 raise ValueError('Unknown project')
-            cursor = db.execute('INSERT INTO runs(project,started) VALUES(?,?)', (project, time.time()))
+            cursor = db.execute('INSERT INTO runs(project,started,description) VALUES(?,?,?)',
+                                (project, time.time(), description.strip()))
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(cursor.lastrowid),))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
         elif action == 'pause':
@@ -1003,7 +1049,7 @@ def status_overview():
             assignment = assignments.get(service['assignment']) if service else None
             if assignment is None or incident.get('suppressed'):
                 continue
-            item = {'id': incident['id'], 'device': devices[assignment['device']]['name'],
+            item = {'id': incident['id'], 'number': incident['number'], 'device': devices[assignment['device']]['name'],
                 'alias': assignment['alias'], 'service': service['name'],
                 'status': incident['status'], 'opened': incident['opened']}
             if category == 'acknowledged':
@@ -1219,6 +1265,8 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_host_checks(candidate)
                     migrate_project_settings(candidate)
                     migrate_incident_acknowledgements(candidate)
+                    migrate_issue_numbers(candidate)
+                    migrate_deployment_descriptions(candidate)
                     logos.ensure_table(candidate)
                     notifications.ensure_tables(candidate)
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")

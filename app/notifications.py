@@ -127,7 +127,7 @@ def enqueue_for_channel(db, incident_id, event, channel):
     icon = '✅' if event == 'recovery' else icons.get(row['status'], 'ℹ️')
     title = f'{icon} {title}'
     text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
-            f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIssue #{incident_id}")
+            f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIssue #{row['number']} · Deployment #{row['run']}")
     db.execute('''INSERT OR IGNORE INTO notification_outbox
         (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
         (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))

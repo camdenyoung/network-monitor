@@ -124,6 +124,7 @@
     <button data-admin id="activate" class="primary">Activate / start new deployment</button>
     <button data-admin id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
     <small>15-second polling · issue persistence is configurable per service</small>
+    <small id="deployment-details"></small>
   </section>
   <div class="display-controls" role="group" aria-label="Dashboard section visibility">
     <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false">Show Acknowledged issues</button>
@@ -367,6 +368,7 @@
   <dialog id="deployment-confirmation" aria-labelledby="deployment-confirmation-title">
     <h2 id="deployment-confirmation-title">Start a new deployment?</h2>
     <p id="deployment-confirmation-project"></p>
+    <label>Deployment description<textarea id="deployment-description" rows="3" maxlength="500" required placeholder="When / why is this deployment being started?"></textarea></label>
     <p>This starts a new deployment with a fresh monitoring history and issue list.
       Previous deployment data remains stored, but is no longer shown in the current dashboard.</p>
     <p>To continue a paused deployment with its existing history, choose Cancel and use Resume all monitoring.</p>
@@ -719,6 +721,9 @@
         el('project-feedback').textContent = '';
       }
       const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
+      const displayedRun = run || pausedRun;
+      el('deployment-details').textContent = displayedRun
+        ? `Deployment #${displayedRun.id} · Started ${date(displayedRun.started)} · ${displayedRun.description || 'No description recorded'}` : '';
       const monitoringButton = el('monitoring-toggle');
       monitoringButton.textContent = run ? 'Pause all monitoring' : 'Resume all monitoring';
       monitoringButton.setAttribute('aria-pressed', String(Boolean(run)));
@@ -848,7 +853,7 @@
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
-        return `<div class="metric"><strong>Issue #${escapeHtml(incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
+        return `<div class="metric"><strong>Issue #${escapeHtml(incident.number ?? incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
           · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</div>`;
       }).join('');
@@ -1365,16 +1370,22 @@
       pendingDeploymentProject = project.id;
       el('deployment-confirmation-project').textContent = 'Project: ' + project.name;
       el('deployment-confirmation-feedback').textContent = '';
+      el('deployment-description').value = '';
       el('deployment-confirmation').showModal();
     };
     el('cancel-deployment').onclick = () => el('deployment-confirmation').close();
     el('deployment-confirmation').onclose = () => { pendingDeploymentProject = null; };
     el('confirm-deployment').onclick = async () => {
       if (pendingDeploymentProject === null || el('confirm-deployment').disabled) return;
+      const description = el('deployment-description').value.trim();
+      if (!description || description.length > 500) {
+        el('deployment-confirmation-feedback').textContent = 'Enter a deployment description of 1–500 characters.';
+        return;
+      }
       el('confirm-deployment').disabled = true;
       el('cancel-deployment').disabled = true;
       try {
-        await performAction('activate', {project: pendingDeploymentProject});
+        await performAction('activate', {project: pendingDeploymentProject, description});
         pendingDeploymentProject = null;
         el('deployment-confirmation').close();
       } catch (error) {
@@ -1395,7 +1406,7 @@
       const service = state.services.find(row => row.id === issue?.service);
       const assignment = state.assignments.find(row => row.id === service?.assignment);
       el('acknowledgement-context').textContent = service
-        ? `Issue #${id} · ${assignment?.alias || 'Host'} / ${service.name}` : `Issue #${id}`;
+        ? `Issue #${issue?.number ?? id} · ${assignment?.alias || 'Host'} / ${service.name}` : `Issue #${issue?.number ?? id}`;
       el('acknowledgement-feedback').textContent = '';
       el('acknowledgement-dialog').showModal();
     }

@@ -270,7 +270,7 @@
         document.getElementById('status-ack-note').hidden = !data.acknowledge_enabled || data.can_acknowledge;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">
-            <strong>Issue #${escape(incident.id)}</strong> ·
+            <strong>Issue #${escape(incident.number ?? incident.id)}</strong> ·
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
@@ -278,7 +278,7 @@
           </div>`).join('') || '<p>No active issues.</p>';
         document.getElementById('acknowledged-incidents').innerHTML = (data.acknowledged_incidents || []).map(incident => `
           <div class="metric">
-            <strong>Issue #${escape(incident.id)}</strong> ·
+            <strong>Issue #${escape(incident.number ?? incident.id)}</strong> ·
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Acknowledged ${escape(new Date(incident.acknowledged * 1000).toLocaleString())}
@@ -298,7 +298,7 @@
       const issue = publicState.incidents.find(row => String(row.id) === String(id));
       if (!issue) return;
       pendingAcknowledgement = id;
-      document.getElementById('acknowledgement-context').textContent = `Issue #${issue.id} · ${issue.device} - ${issue.alias} / ${issue.service}`;
+      document.getElementById('acknowledgement-context').textContent = `Issue #${issue.number ?? issue.id} · ${issue.device} - ${issue.alias} / ${issue.service}`;
       document.getElementById('acknowledgement-feedback').textContent = '';
       document.getElementById('acknowledgement-dialog').showModal();
     };

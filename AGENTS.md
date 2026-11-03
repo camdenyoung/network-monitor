@@ -327,9 +327,21 @@ not window.confirm. Show the target issue, explicit Acknowledge issue and Cancel
 buttons, inline errors, and matching dark panel/backdrop styling. Opening or
 cancelling sends no request; disable repeat submits while saving.
 
-Both dashboards display Issue #ID on issue rows and acknowledgement dialogs,
-matching the stable database ID included in Telegram/WhatsApp notifications.
+Both dashboards display deployment-specific issue numbers on rows and acknowledgement
+dialogs, matching Telegram/WhatsApp notifications. Internal IDs remain API keys.
 
 Telegram and WhatsApp Business issue notifications start with severity icons:
 ✅ recovered, ❌ critical/unreachable, ⚠️ warning. Reminders retain the severity
 icon and explicit REMINDER label; keep the text status for clarity.
+
+Displayed issue numbers start at #1 for every deployment. Keep incidents.id as
+the internal globally unique API/acknowledgement key; use incidents.number for
+UI and notification labels. runs.issue_counter is durable across deletions and
+pause/resume. Startup/restore number legacy issues by ID order within each run,
+without changing their IDs. Notifications include the deployment ID for context.
+
+Starting a deployment requires a 1–500 character description in the confirmation
+dialog, validated on the server. runs stores the description and original start
+timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
+preserves them; older runs retain an empty description rather than invented text.
+Deployment descriptions are included in SQLite backups but not public status APIs.
