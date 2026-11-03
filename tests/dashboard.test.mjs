@@ -1056,3 +1056,26 @@ assert.equal(pulseClasses.has('issue-attention'),false);
 assert.match(statusPage, /new-issue-attention 0\.9s ease-in-out 3/);
 assert.match(statusPage, /prefers-reduced-motion: reduce/);
 console.log('Status attention pulses trigger only for newly observed active issues and stop after three cycles.');
+
+let notificationPauseRequest;
+const beforeNotificationToggle = defaultsContext.fetch;
+defaultsContext.fetch = async (path, options) => {
+    if (path === '/api/notification-pause') {
+        notificationPauseRequest = JSON.parse(options.body);
+        defaultFixture.settings.notifications_paused = notificationPauseRequest.paused ? '1' : '0';
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return beforeNotificationToggle(path, options);
+};
+await defaultsContext.refresh();
+assert.equal(element('notifications-toggle').textContent, 'Pause notifications');
+await element('notifications-toggle').onclick();
+assert.equal(notificationPauseRequest.paused, true);
+assert.equal(element('notifications-toggle').textContent, 'Resume notifications');
+assert.equal(element('notifications-toggle').getAttribute('aria-pressed'), 'false');
+assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
+await element('notifications-toggle').onclick();
+assert.equal(notificationPauseRequest.paused, false);
+assert.equal(element('notifications-toggle').textContent, 'Pause notifications');
+assert.equal(element('notifications-toggle').getAttribute('aria-pressed'), 'true');
+console.log('Notification pause toggle operates independently from monitoring.');

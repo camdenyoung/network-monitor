@@ -1,9 +1,16 @@
-# Network Monitor v0.2 · Build 4
+# Network Monitor v0.2 · Build 5
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 5 — v0.2
+
+- Added a global Pause/Resume notifications toggle beside Pause/Resume monitoring.
+- Continue polling and displaying issues while Telegram and WhatsApp notifications are muted.
+- Discard pending/muted alerts and restart reminder timing on resume to avoid backlog replay.
+
 
 ### Build 4 — v0.2
 
@@ -576,3 +583,16 @@ switching tabs preserves unfinished forms. They start closed after a page reload
 The public status dashboard pulses its background red three times when a new
 active issue appears after the initial load. Existing or reappearing issues do not
 retrigger it; reduced-motion browsers receive a brief static red highlight.
+
+## Temporarily pause notifications
+
+Admins can use **Pause notifications** beside the monitoring toggle. It turns
+amber and becomes **Resume notifications** while muted. Device checks, issue
+creation/recovery, history and dashboard updates continue normally. The mute
+survives restart and applies to both providers, including test sends and retries.
+
+Pending alerts are cancelled and events during the pause are not queued. On
+resume, fresh events can send normally, and enabled reminders wait one full
+configured interval before repeating eligible active issues. Existing provider
+settings and per-host notification flags are preserved. A send already in flight
+when Pause is clicked can still complete.

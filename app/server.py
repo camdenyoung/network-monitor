@@ -943,6 +943,8 @@ def mutate(action, body, actor=None):
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
         elif action == 'ack':
             record_acknowledgement(db, int(body['id']), actor)
+        elif action == 'notification-pause':
+            notifications.set_paused(db, body['paused'])
         elif action == 'reminder-settings':
             minutes = body['minutes']
             if type(minutes) is not int or not 0 <= minutes <= 10080:

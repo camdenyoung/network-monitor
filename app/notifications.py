@@ -35,6 +35,26 @@ def ensure_tables(db):
     ''')
 
     db.execute("INSERT OR IGNORE INTO settings VALUES ('reminder_minutes','0')")
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('notifications_paused','0')")
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('notifications_resumed_at','0')")
+
+
+def are_paused(db):
+    row = db.execute("SELECT value FROM settings WHERE key='notifications_paused'").fetchone()
+    return bool(row and row[0] == '1')
+
+
+def set_paused(db, paused):
+    """Mute delivery independently of polling; discard pending alerts, not issues."""
+    if type(paused) is not bool:
+        raise ValueError('Paused must be true or false')
+    previous = are_paused(db)
+    db.execute("INSERT OR REPLACE INTO settings VALUES ('notifications_paused',?)", (str(int(paused)),))
+    if paused:
+        db.execute("UPDATE notification_outbox SET state='cancelled',error='Notifications paused' WHERE state='pending'")
+    elif previous:
+        # Reminders restart their cadence rather than catching up after a mute.
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('notifications_resumed_at',?)", (str(time.time()),))
 
 
 def configuration(db, channel='telegram'):
@@ -107,6 +127,8 @@ def enqueue_incident(db, incident_id, event):
 
 
 def enqueue_for_channel(db, incident_id, event, channel):
+    if are_paused(db):
+        return
     config = configuration(db, channel)
     if not config['enabled'] or (event == 'recovery' and not config['recoveries']):
         return
@@ -175,9 +197,11 @@ def enqueue_reminders(db, host_is_up):
     reminder. Queue at most one per channel per issue, without catch-up bursts.
     """
     interval = reminder_interval(db)
-    if not interval:
+    if not interval or are_paused(db):
         return
     now = time.time()
+    resumed = db.execute("SELECT value FROM settings WHERE key='notifications_resumed_at'").fetchone()
+    resumed_at = float(resumed[0]) if resumed else 0
     candidates = db.execute("""SELECT id FROM incidents WHERE closed IS NULL AND acknowledged IS NULL
         AND run=CAST((SELECT value FROM settings WHERE key='active_run') AS INTEGER)""").fetchall()
     for candidate in candidates:
@@ -195,11 +219,13 @@ def enqueue_reminders(db, host_is_up):
             last = db.execute("""SELECT MAX(CASE WHEN state='sent' THEN next_attempt ELSE created END)
                 FROM notification_outbox WHERE incident=? AND channel=?
                 AND (event='opened' OR event LIKE 'reminder:%')""", (source['id'], channel)).fetchone()[0]
-            if now - max(source['opened'], last or source['opened']) >= interval:
+            if now - max(source['opened'], last or source['opened'], resumed_at) >= interval:
                 enqueue_for_channel(db, source['id'], f'reminder:{int(now)}', channel)
 
 
 def enqueue_test(db, channel='telegram'):
+    if are_paused(db):
+        raise ValueError('Resume notifications before sending a test')
     config = configuration(db, channel)
     if not config['enabled']:
         raise ValueError('Enable the notification channel first')
@@ -210,6 +236,8 @@ def enqueue_test(db, channel='telegram'):
 
 
 def retry_failed(db, channel):
+    if are_paused(db):
+        raise ValueError('Resume notifications before retrying messages')
     config = configuration(db, channel)
     if not config['enabled']:
         raise ValueError('Enable the notification channel first')
@@ -280,7 +308,7 @@ def deliver_once(connect, lock, host_is_up):
         if row is None:
             return False
         config = configuration(db, row['channel'])
-        reason = ''
+        reason = 'Notifications paused' if are_paused(db) else ''
         if not config['enabled'] or row['config_revision'] != config['revision']:
             reason = 'Notifications disabled or configuration changed'
         if row['incident'] is not None:

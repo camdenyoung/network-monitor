@@ -417,6 +417,74 @@ class AccessAndNotificationTests(unittest.TestCase):
         finally:
             restored.close()
 
+    def test_notification_pause_keeps_monitoring_and_does_not_replay_muted_alerts(self):
+        host, issue, now = self.reminder_fault()
+        with server.connect() as db:
+            db.execute("UPDATE notification_outbox SET state='pending'")
+            before_config = notifications.configuration(db)
+        response = self.request('/api/notification-pause', {'paused': True}, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        self.assertEqual(server.snapshot()['settings']['active_run'], '1')
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+        with server.connect() as db:
+            notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM incidents').fetchone()[0], 2)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox').fetchone()[0], 2)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='cancelled'").fetchone()[0], 2)
+            self.assertEqual(notifications.configuration(db), before_config)
+        server.initialize()
+        with server.connect() as db:
+            self.assertTrue(notifications.are_paused(db))
+        self.assertEqual(self.request('/api/notification-pause', {'paused': False}, self.admin_token, self.admin['csrf'])['status'], 200)
+        with server.connect() as db:
+            notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertFalse(notifications.are_paused(db))
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 0)
+
+    def test_paused_delivery_rechecks_mute_and_blocks_tests_and_retries(self):
+        host, issue, now = self.reminder_fault()
+        server.mutate('notification-pause', {'paused': True})
+        with server.connect() as db:
+            # Simulate a message left pending at a worker boundary/restart.
+            db.execute("UPDATE notification_outbox SET state='pending',next_attempt=0")
+            with self.assertRaises(ValueError):
+                notifications.enqueue_test(db)
+            with self.assertRaises(ValueError):
+                notifications.retry_failed(db, 'telegram')
+        with patch.object(notifications, 'send_message') as telegram, patch.object(notifications, 'send_whatsapp') as whatsapp:
+            notifications.deliver_once(server.connect, server.LOCK, server.host_is_up)
+            notifications.deliver_once(server.connect, server.LOCK, server.host_is_up)
+            telegram.assert_not_called()
+            whatsapp.assert_not_called()
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='cancelled'").fetchone()[0], 2)
+
+    def test_resuming_notifications_restarts_reminder_interval_without_catchup(self):
+        host, issue, now = self.reminder_fault()
+        server.mutate('notification-pause', {'paused': True})
+        with patch.object(notifications.time, 'time', return_value=now + 600):
+            server.mutate('notification-pause', {'paused': False})
+        for elapsed, expected in ((659, 0), (660, 2)):
+            with patch.object(notifications.time, 'time', return_value=now + elapsed), server.connect() as db:
+                db.execute('UPDATE samples SET timestamp=?', (now + elapsed,))
+                notifications.enqueue_reminders(db, server.host_is_up)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], expected)
+
+    def test_notification_pause_requires_admin_csrf_and_boolean(self):
+        token, operator = self.create_operator()
+        for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
+            self.assertEqual(self.request('/api/notification-pause', {'paused': True}, actor_token, actor['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/notification-pause', {'paused': True}, self.admin_token)['status'], 403)
+        for value in (1, 'true', None):
+            self.assertEqual(self.request('/api/notification-pause', {'paused': value}, self.admin_token, self.admin['csrf'])['status'], 400)
+
     def test_inventory_default_mutations_require_admin_and_csrf(self):
         self.create_host()
         token, operator = self.create_operator()
