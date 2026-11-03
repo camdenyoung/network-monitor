@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3.1, Build 40. Show it after the title on both the main and
+Current displayed release is v0.3.1, Build 41. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -588,3 +588,20 @@ flush events immediately and disable reverse-proxy buffering via response header
 
 Row-level acknowledgement controls use class issue-action on both dashboards
 with explicit 15px font, 20px line height and 4px/8px padding, including inside small metadata.
+
+Synthetic capacity tests live in tools/load_test.py and tools/device_simulator.py,
+with compose.loadtest.yaml and LOAD_TESTING.md. Simulator and HTTP users run on a
+separate machine; Pi runs the ordinary monitor against real SNMP/Modbus peers in
+an isolated Compose project/volume. No mocked read_metric, scheduler or SQLite
+settings in performance runs. Seed history before measurement and stop a second
+normal monitor during timing. Seed atomically refuses existing DB paths; probe
+requires benchmark_dataset and benchmark_ready markers. Never seed live data.
+Defaults: 150 hosts + five services + automatic ping; optionally replace some
+SNMP services with Modbus. Profiles include healthy, latency, dropped responses
+and flapping. Same simulator IP means independent ICMP failures are not emulated.
+Reports distinguish PASS/FAIL/INCONCLUSIVE, coverage, actual sample gaps, HTTP
+latency and explicit targets; do not claim Pi capacity from local smoke tests.
+Notifications remain disabled; inspection is read-only and requires the marker.
+
+Docker build context excludes database files, live data, local environment files
+and bytecode caches so generated multi-gigabyte test history is never copied into images.

@@ -1,9 +1,16 @@
-# Network Monitor v0.3.1 · Build 40
+# Network Monitor v0.3.1 · Build 41
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 41 — v0.3.1 (synthetic load-test branch)
+
+- Add isolated synthetic capacity testing for 150 hosts with five services plus ping, real SNMP/Modbus traffic and multiple dashboard users.
+- Run emulators/HTTP load externally; seed week-sized history before timed measurements on the Pi. See [LOAD_TESTING.md](LOAD_TESTING.md).
+- Report measured latency, freshness, polling gaps, actual database size and explicit pass/fail/inconclusive criteria without assuming Pi capacity.
+
 
 ### Build 40 — v0.3.1 (unacknowledgement branch)
 
@@ -507,7 +514,8 @@ CLI recovery command and versioned encrypted archives remain planned.
 - No scheduled/off-site/encrypted backups, pre-upgrade backup automation, schema
   migration tooling, or downgrade support yet.
 - Polling is a cycle, not a precise interval: slow endpoints lengthen the cycle.
-  Load testing against 150 actual or simulated endpoints is still required.
+  Capacity verification on the target hardware is still required; use the separate-machine
+  synthetic harness in [LOAD_TESTING.md](LOAD_TESTING.md).
 
 ## Verification
 
