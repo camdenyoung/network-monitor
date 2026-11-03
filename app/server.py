@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos
+from . import auth, notifications, logos, service_library
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -101,9 +101,7 @@ def initialize():
 
 
 # Keep inventory defaults independent from project services and shared library entries.
-SERVICE_CONFIGURATION_FIELDS = ('name', 'kind', 'target', 'community', 'unit', 'scale',
-                                'units', 'direction', 'warning', 'critical',
-                                'persistence', 'value_type', 'state_map')
+SERVICE_CONFIGURATION_FIELDS = service_library.FIELDS
 
 
 def ensure_inventory_services(db):
@@ -1015,6 +1013,10 @@ def mutate(action, body, actor=None):
             configuration['name'] = body.get('name', source['name'])
             configuration['community'] = body.get('community') or source['community']
             insert_service(db, assignment, service_details(configuration))
+        elif action == 'library-import':
+            if not isinstance(body, dict):
+                raise service_library.LibraryImportError('Choose a library file and Merge or Replace mode.')
+            return service_library.import_document(db, body.get('library'), body.get('mode'), service_details)
         elif action == 'template-create':
             # Saving from a service retains its secret on the server. The browser
             # only sends non-secret fields and an optional replacement community.
@@ -1268,7 +1270,7 @@ class Handler(BaseHTTPRequestHandler):
             if user:
                 return self.send(json.dumps({**auth.public_user(user), 'csrf': user['csrf']}))
             return
-        admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats')
+        admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats', '/api/library-export')
         user = self.require_user(admin=admin)
         if not user:
             return
@@ -1291,6 +1293,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send(json.dumps(users))
         elif self.path == '/api/state':
             self.send(json.dumps(snapshot()))
+        elif self.path == '/api/library-export':
+            with connect() as db:
+                payload = json.dumps(service_library.export_document(db), indent=2, ensure_ascii=False, allow_nan=False)
+            stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+            self.send(payload, 'application/json; charset=utf-8',
+                      filename=f'network-monitor-service-library-{stamp}.json')
         elif self.path == '/api/backup':
             # Exclude live sessions from portable backups.
             with LOCK, connect() as source:
@@ -1336,6 +1344,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             size = int(self.headers.get('Content-Length', '0'))
             limit = (64 * 1024 * 1024 if self.path == '/api/restore' else
+                     service_library.MAX_IMPORT_BYTES if self.path == '/api/library-import' else
                      logos.MAX_BYTES if self.path.startswith('/api/project-logo?') else 65536)
             if not 0 < size <= limit:
                 raise ValueError('Invalid request size')
@@ -1436,8 +1445,12 @@ class Handler(BaseHTTPRequestHandler):
                     with LOCK, connect() as db:
                         auth.manage_user(db, self.path.removeprefix('/api/'), body, user)
                 else:
-                    mutate(self.path.removeprefix('/api/'), body, actor=user)
+                    result = mutate(self.path.removeprefix('/api/'), body, actor=user)
+                    if result is not None:
+                        return self.send(json.dumps({'ok': True, **result}))
             self.send('{"ok":true}')
+        except service_library.LibraryImportError as error:
+            self.send(json.dumps({'error': str(error)}), status=400)
         except (ValueError, KeyError, sqlite3.Error, OverflowError, TypeError):
             self.send('{"error":"Request rejected: check values and referenced records"}', status=400)
 

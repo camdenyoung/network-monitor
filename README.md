@@ -1,9 +1,16 @@
-# Network Monitor v0.2.1 · Build 9
+# Network Monitor v0.2.1 · Build 10
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 10 — v0.2.1
+
+- Added Admin-only reusable service library export/import as portable versioned JSON.
+- Added reviewed Merge and Replace imports with full validation and atomic database updates.
+- Updated the Admin dashboard subtitle to Project based network monitoring.
+
 
 ### Build 9 — v0.2.1
 
@@ -635,3 +642,25 @@ Every new deployment starts with notifications paused, even if delivery was enab
 for the previous deployment. Check the setup, then click **Resume notifications**
 when ready. Pause/Resume monitoring within an existing deployment does not change
 its notification setting.
+
+## Transfer the reusable service library
+
+Open **Reusable service library → Export library** to download a JSON file. On
+another installation, choose that file, select an import mode, click **Review
+import**, then confirm **Import library**:
+
+- **Merge** adds new names and keeps existing services with exactly matching,
+  case-sensitive names. It does not overwrite existing definitions.
+- **Replace** replaces the reusable library only. Project services, inventory
+  device defaults, issues and history remain unchanged.
+
+All definitions are validated before the database is changed. Invalid files are
+rejected as a whole; there are no partial imports. Duplicate service names in one
+file are rejected. Files are limited to 5 MB and 5000 services. An empty Replace
+file intentionally clears the reusable library after confirmation.
+
+Exports include service definitions, units/thresholds/state mappings and stored
+SNMP communities, so protect the files as credentials. They contain no project
+assignments, readings, user accounts or database IDs. This is a library transfer,
+not a complete database backup. The filename uses the monitoring host's local
+date and time; the JSON format has its own version for compatibility checks.

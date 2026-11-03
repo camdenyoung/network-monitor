@@ -1097,3 +1097,51 @@ assert.equal(element('new-project-logo').value, '');
 assert.equal(element('new-project-logo-preview').hidden, true);
 assert.match(html, /name="logo_project"/);
 console.log('New-project logo choices preview existing uploads and survive refreshes.');
+
+// Library import is reviewed in-app before any write, with errors kept in the dialog.
+const libraryFile = {format:'network-monitor-service-library',version:1,
+    services:[{name:'Imported RSSI',kind:'snmp',target:'.1.2.3',direction:'below',community:'TEST_EXPORT_SECRET'}]};
+const libraryForm = element('library-import-form');
+libraryForm.elements.namedItem('library').files = [{size:500,text:async () => JSON.stringify(libraryFile)}];
+libraryForm.elements.namedItem('mode').value = 'merge';
+let libraryImportRequest;
+let rejectLibraryImport = false;
+const previousLibraryFetch = defaultsContext.fetch;
+defaultsContext.fetch = async (path, options) => {
+    if (path === '/api/library-import') {
+        libraryImportRequest = JSON.parse(options.body);
+        return {ok:!rejectLibraryImport,json:async () => rejectLibraryImport
+            ? {error:'Invalid service definition'} : {ok:true,added:1,skipped:0,replaced:1,total:1}};
+    }
+    return previousLibraryFetch(path, options);
+};
+await libraryForm.onsubmit({preventDefault(){},target:libraryForm});
+assert.equal(element('library-import-dialog').open, true);
+assert.equal(libraryImportRequest, undefined);
+assert.match(element('library-import-summary').textContent, /Merge 1 services/);
+element('cancel-library-import').onclick();
+await element('confirm-library-import').onclick();
+assert.equal(libraryImportRequest, undefined);
+assert.equal(element('library-import-dialog').open, false);
+libraryForm.elements.namedItem('mode').value = 'replace';
+await libraryForm.onsubmit({preventDefault(){},target:libraryForm});
+assert.match(element('library-import-summary').textContent, /Replace the current/);
+rejectLibraryImport = true;
+await element('confirm-library-import').onclick();
+assert.equal(element('library-import-dialog').open, true);
+assert.equal(element('library-import-error').textContent, 'Invalid service definition');
+assert.equal(element('confirm-library-import').disabled, false);
+rejectLibraryImport = false;
+await element('confirm-library-import').onclick();
+assert.equal(libraryImportRequest.mode, 'replace');
+assert.equal(libraryImportRequest.library.services[0].community, 'TEST_EXPORT_SECRET');
+assert.equal(element('library-import-dialog').open, false);
+assert.match(element('library-feedback').textContent, /Replaced 1 library services with 1/);
+libraryForm.elements.namedItem('library').files = [{size:10,text:async () => '{invalid-json'}];
+await libraryForm.onsubmit({preventDefault(){},target:libraryForm});
+assert.match(element('library-feedback').textContent, /valid service-library JSON/);
+libraryForm.elements.namedItem('library').files = [{size:6*1024*1024,text:async () => '{}'}];
+await libraryForm.onsubmit({preventDefault(){},target:libraryForm});
+assert.match(element('library-feedback').textContent, /no larger than 5 MB/);
+assert.match(html, /href="\/api\/library-export" download/);
+console.log('Portable service library import supports reviewed Merge/Replace, cancellation and inline validation errors.');

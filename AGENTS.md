@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.1, Build 9. Show it after the title on both the main and
+Current displayed release is v0.2.1, Build 10. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -397,3 +397,17 @@ The new-project form can reuse a logo from any existing project with a preview.
 Copy project_logos image/mime/digest into an independent new-project row in the
 same transaction as project creation. Invalid/deleted choices reject creation
 without leaving a partial project. Blank means no logo; refresh preserves drafts.
+
+Reusable service library import/export is Admin-only. Export versioned JSON of
+service definitions including communities, with a host-local timestamp filename.
+No database IDs, accounts or runtime/history records travel in the file. Merge
+keeps exact case-sensitive name matches; Replace changes only service_templates.
+Fully validate all entries before any mutation; import runs in one transaction,
+rejecting duplicate file names, unsupported schema/types and invalid service
+configs without partial writes. Keep instance services/defaults/history untouched.
+Use in-app confirmation for imports, report added/skipped/replaced totals, and
+keep errors in the dialog. Bound files to 5 MB and 5000 services. Export files
+contain credentials and must be described as sensitive. app/service_library.py
+owns the portable format; server.service_details remains the config validator.
+
+The Admin dashboard subtitle is Project based network monitoring.

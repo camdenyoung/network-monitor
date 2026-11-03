@@ -519,6 +519,50 @@ class AccessAndNotificationTests(unittest.TestCase):
         for value in (1, 'true', None):
             self.assertEqual(self.request('/api/notification-pause', {'paused': value}, self.admin_token, self.admin['csrf'])['status'], 400)
 
+    def test_library_export_and_import_require_admin_and_import_csrf(self):
+        token, operator = self.create_operator()
+        for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
+            self.assertEqual(self.request('/api/library-export', token=actor_token)['status'], 403)
+            self.assertEqual(self.request('/api/library-import', {'mode': 'merge', 'library': {}}, actor_token, actor['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/library-export')['status'], 401)
+        self.assertEqual(self.request('/api/library-import', {'mode': 'replace', 'library': {}}, self.admin_token)['status'], 403)
+
+    def test_library_export_is_portable_and_import_returns_merge_counts(self):
+        server.mutate('template-create', {'name': 'Existing', 'kind': 'snmp', 'target': '.1.2.3',
+            'direction': 'below', 'community': 'SERVICE_EXPORT_SECRET'})
+        exported = self.request('/api/library-export', token=self.admin_token)
+        self.assertEqual(exported['status'], 200)
+        self.assertRegex(exported['filename'], r'^network-monitor-service-library-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.json$')
+        document = json.loads(exported['content'])
+        self.assertEqual(document['format'], 'network-monitor-service-library')
+        self.assertEqual(document['services'][0]['community'], 'SERVICE_EXPORT_SECRET')
+        self.assertNotIn('id', document['services'][0])
+        new = dict(document['services'][0], name='New service')
+        document['services'].append(new)
+        response = self.request('/api/library-import', {'mode': 'merge', 'library': document},
+                                self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        self.assertEqual(json.loads(response['content']), {'ok': True, 'added': 1, 'skipped': 1, 'replaced': 0, 'total': 2})
+        before = server.snapshot()['service_templates']
+        document['services'][1]['kind'] = 'invalid'
+        response = self.request('/api/library-import', {'mode': 'replace', 'library': document},
+                                self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 400)
+        self.assertNotIn('SERVICE_EXPORT_SECRET', response['content'])
+        self.assertEqual(server.snapshot()['service_templates'], before)
+
+    def test_library_import_rejects_oversized_request_before_reading_body(self):
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/library-import'
+        handler.headers = {'Content-Type': 'application/json',
+            'Content-Length': str(5 * 1024 * 1024 + 1),
+            'Cookie': 'monitor_session=' + self.admin_token, 'X-CSRF-Token': self.admin['csrf']}
+        handler.rfile = io.BytesIO(b'')
+        result = {}
+        handler.send = lambda content, mime=None, status=200: result.update(status=status, content=content)
+        handler.do_POST()
+        self.assertEqual(result['status'], 400)
+
     def test_inventory_default_mutations_require_admin_and_csrf(self):
         self.create_host()
         token, operator = self.create_operator()

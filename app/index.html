@@ -65,8 +65,8 @@
     .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"], .display-controls button[aria-selected="true"] { background: #176959; }
-    .acknowledgement-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
-    .acknowledgement-dialog::backdrop { background: #0009; }
+    .acknowledgement-dialog, .library-import-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
+    .acknowledgement-dialog::backdrop, .library-import-dialog::backdrop { background: #0009; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     /* Keep this space even when the image is hidden, preventing selector shifts. */
     .project-toolbar { justify-content: flex-start; align-items: flex-end; }
@@ -107,7 +107,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.1 · Build 9</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.1 · Build 10</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -289,7 +289,21 @@
     <h2>Predefined services</h2>
     <p>Create a service definition or save one from a host. Applying an entry creates
       an independent service; later library edits do not change existing hosts.</p>
-    <button id="new-template">Create library service</button>
+    <div class="display-controls">
+      <button id="new-template">Create library service</button>
+      <a class="button-link" href="/api/library-export" download>Export library</a>
+    </div>
+    <p>Exports include stored SNMP communities. Store and share these files securely.</p>
+    <form id="library-import-form">
+      <label>Library JSON file<input name="library" type="file" accept="application/json,.json" required></label>
+      <label>Import mode<select name="mode">
+        <option value="merge">Merge — keep existing matches</option>
+        <option value="replace">Replace entire library</option>
+      </select></label>
+      <button>Review import</button>
+    </form>
+    <small>Merge keeps exact, case-sensitive name matches and adds new names. Replace removes current library entries.
+      Neither mode changes project services or device defaults. Maximum file size: 5 MB.</small>
     <p id="library-feedback" class="form-feedback" role="status"></p>
     <div id="service-library"></div>
   </section></div>
@@ -364,6 +378,16 @@
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="library-import-dialog" class="library-import-dialog" aria-labelledby="library-import-title">
+    <h2 id="library-import-title">Import service library?</h2>
+    <p id="library-import-summary"></p>
+    <p>Existing project services, device service defaults and monitoring history remain unchanged.</p>
+    <div class="display-controls">
+      <button id="confirm-library-import" class="primary">Import library</button>
+      <button id="cancel-library-import" autofocus>Cancel</button>
+    </div>
+    <p id="library-import-error" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="acknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="acknowledgement-title" aria-describedby="acknowledgement-description">
     <h2 id="acknowledgement-title">Acknowledge issue?</h2>
     <p id="acknowledgement-context"></p>
@@ -1177,6 +1201,69 @@
         id ? 'Edit library service' : 'Create library service',
         'Library changes do not alter existing host services. New entries default to community public.');
     }
+
+    let pendingLibraryImport = null;
+    el('library-import-form').onsubmit = async event => {
+      event.preventDefault();
+      el('library-feedback').classList.remove('success');
+      const form = event.target;
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const file = form.elements.namedItem('library').files[0];
+        const mode = form.elements.namedItem('mode').value;
+        if (!file) throw new Error('Choose a service-library JSON file.');
+        if (file.size > 5 * 1024 * 1024) throw new Error('The library file must be no larger than 5 MB.');
+        let library;
+        try { library = JSON.parse(await file.text()); }
+        catch (error) { throw new Error('Choose a valid service-library JSON file.'); }
+        if (library?.format !== 'network-monitor-service-library' || library.version !== 1 || !Array.isArray(library.services)) {
+          throw new Error('Choose a Network Monitor service-library export with format version 1.');
+        }
+        if (library.services.length > 5000) throw new Error('A library file can contain at most 5000 services.');
+        if (!['merge', 'replace'].includes(mode)) throw new Error('Choose Merge or Replace.');
+        // Capture the file/mode for this review, independent of background refreshes.
+        pendingLibraryImport = {mode, library};
+        const current = state.service_templates.length;
+        const incoming = library.services.length;
+        el('library-import-summary').textContent = mode === 'replace'
+          ? `Replace the current ${current} library services with the ${incoming} services in this file?`
+          : `Merge ${incoming} services into the current library? Existing entries with exactly matching names will be kept.`;
+        el('library-import-error').textContent = '';
+        el('library-import-dialog').showModal();
+      } catch (error) { el('library-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
+    el('cancel-library-import').onclick = () => {
+      pendingLibraryImport = null;
+      el('library-import-dialog').close();
+    };
+    el('library-import-dialog').onclose = () => { pendingLibraryImport = null; };
+    el('library-import-dialog').oncancel = event => {
+      if (el('confirm-library-import').disabled) event.preventDefault();
+    };
+    el('confirm-library-import').onclick = async () => {
+      if (!pendingLibraryImport || el('confirm-library-import').disabled) return;
+      el('confirm-library-import').disabled = true;
+      el('cancel-library-import').disabled = true;
+      try {
+        const mode = pendingLibraryImport.mode;
+        const result = await request('library-import', pendingLibraryImport);
+        pendingLibraryImport = null;
+        el('library-import-dialog').close();
+        el('library-import-form').reset();
+        el('library-feedback').textContent = mode === 'replace'
+          ? `Replaced ${result.replaced} library services with ${result.added}. Library total: ${result.total}.`
+          : `Added ${result.added} services; kept ${result.skipped} existing matches. Library total: ${result.total}.`;
+        el('library-feedback').classList.add('success');
+        try { await refresh(); }
+        catch (error) { notify('Library imported. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('library-import-error').textContent = error.message; }
+      finally {
+        el('confirm-library-import').disabled = false;
+        el('cancel-library-import').disabled = false;
+      }
+    };
 
     el('new-template').onclick = () => openTemplateEditor();
     el('cancel-service-edit').onclick = () => el('service-editor').close();
