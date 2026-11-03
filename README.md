@@ -1,7 +1,16 @@
-# Network Monitor v0.1.3
+# Network Monitor v0.1.3 · Build 1
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
+
+## Build history
+
+### Build 1
+
+- Added a small build number beside the version on both dashboards.
+- Build numbering starts here. Every subsequent update commit increments the build
+  on both dashboards, including updates within the same version. Build numbers
+  continue increasing across version releases.
 
 ## Release notes
 

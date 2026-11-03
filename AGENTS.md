@@ -250,7 +250,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.1.3. Show it after the title on both the main and
+Current displayed release is v0.1.3, Build 1. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -345,3 +345,10 @@ dialog, validated on the server. runs stores the description and original start
 timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
 preserves them; older runs retain an empty description rather than invented text.
 Deployment descriptions are included in SQLite backups but not public status APIs.
+
+Every future update commit must increment the displayed build number on BOTH
+dashboards and update the README current build plus a brief build note in the
+same commit. Keep the small inline format vVERSION · Build N. Build numbers
+increase monotonically across releases; do not reset them when the version changes.
+Do not put version/build numbers in browser tab titles. Build 1 starts this policy;
+earlier commits were not numbered.
