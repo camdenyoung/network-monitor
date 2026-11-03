@@ -104,7 +104,7 @@ class ServiceLibraryTransferTests(unittest.TestCase):
         server.mutate('template-create', self.definition('Keep me'))
         original = self.rows()
         valid = self.document([self.definition('Good first row')])
-        cases = [None, [], {**valid, 'format': 'other'}, {**valid, 'version': 2},
+        cases = [None, [], {**valid, 'format': 'other'}, {**valid, 'version': 3},
                  {**valid, 'version': True}, {**valid, 'services': {}},
                  {**valid, 'services': [self.definition()] * 5001},
                  self.document([self.definition('Repeated'), self.definition(' Repeated ')])]

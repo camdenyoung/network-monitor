@@ -1,9 +1,17 @@
-# Network Monitor v0.2.3 · Build 15
+# Network Monitor v0.2.3 · Build 16
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 16 — v0.2.3 (flap-protection branch)
+
+- Configurable host/service flap protection: default four confirmed changes in five minutes, clearing after five stable minutes. Ordinary alerts/reminders are suppressed during flapping; episode start/end notifications summarise the state.
+- Optional recovery hysteresis in metric units; zero preserves existing thresholds.
+- Issues retain the triggering value/state and units for dashboard display and opening notifications, independently of subsequent readings and retention. Legacy issues are backfilled only from matching retained opening history; otherwise their cause is marked unavailable.
+- Service-library format v2 includes stability settings; v1 imports remain supported.
+
 
 ### Build 15 — v0.2.3
 

@@ -113,7 +113,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 15</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 16</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -267,7 +267,14 @@
         <label>OID / register / port<input name="target" required></label>
         <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
         <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
-        <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" value="2" required></label>
+        <fieldset><legend>Flap protection</legend>
+        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+        <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
+        <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
+        <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
+        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
+      </fieldset>
+      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" value="2" required></label>
       <label>Returned value<select name="value_type">
         <option value="metric">Numeric metric (percent, degrees, etc.)</option>
         <option value="state">Numeric state codes with labels</option>
@@ -536,12 +543,26 @@
       </select></label>
       <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
       <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
+      <fieldset><legend>Flap protection</legend>
+        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+        <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
+        <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
+        <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
+        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
+      </fieldset>
       <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
       <button class="primary">Save changes</button>
       <button type="button" id="cancel-service-edit">Cancel</button>
     </form>
     <p id="service-edit-feedback" role="status"></p>
   </dialog>
+  <dialog id="host-stability"><h2>Host flap protection</h2><form id="host-stability-form"><input name="service" type="hidden"><fieldset><legend>Flap protection</legend>
+        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+        <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
+        <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
+        <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
+        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
+      </fieldset><button>Save</button><button type="button" id="cancel-host-stability">Cancel</button></form><p id="host-stability-feedback" role="status"></p></dialog>
   <dialog id="service-transfer">
     <h2 id="transfer-title">Copy service to host</h2>
     <p>Settings and credentials are copied; history and issues are not.
@@ -743,7 +764,7 @@
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
         const hostReading = state.latest.find(row => row.service === hostCheck?.id);
         const hostStatus = device?.address ? readingStatus(hostReading, assignment, run) : 'unknown';
-        const hostLabel = hostStatus === 'healthy' ? 'Online' : hostStatus === 'unreachable' ? 'Offline' : 'Unknown / paused';
+        const hostLabel = (hostCheck?.flapping ? 'Flapping · ' : '') + (hostStatus === 'healthy' ? 'Online' : hostStatus === 'unreachable' ? 'Offline' : 'Unknown / paused');
         const hostDetails = hostReading ? `Last ping: ${date(hostReading.timestamp)}` : 'Awaiting first ping';
         const services = state.services.filter(row => row.assignment === assignment.id && row.kind !== 'ping' && row.enabled !== 0 && serviceMatches(row));
         const metrics = services.map(service => {
@@ -757,7 +778,7 @@
           const units = service.value_type === 'state' ? '' : service.units;
           return `<div class="metric">
             <div class="metric-header">
-              <div><strong>${escapeHtml(service.name)}</strong>
+              <div><strong>${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
                 <span class="metric-status ${status}">${escapeHtml(statusLabel)}</span>
               </div>
               ${serviceActions(service)}
@@ -772,11 +793,11 @@
               <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>
               <p>${escapeHtml(device?.address || 'IP required')}</p>
               ${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}</td>
-            <td><span class="${hostStatus}">${hostLabel}</span><p><small>${hostDetails}</small></p></td>
+            <td><span class="${hostStatus}">${hostLabel}</span><p><small>${hostDetails}</small></p><button data-admin data-host-stability="${hostCheck?.id}">Host flap protection</button></td>
             ${showServices ? `<td>${metrics || 'No additional services configured.'}</td>` : ''}
           </tr>`;
         }
-        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><div class="host-heading"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping</p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
+        return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><div class="host-heading"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping <button data-admin data-host-stability="${hostCheck?.id}">Host flap protection</button></p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
       }).join('');
       el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
       el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
@@ -978,7 +999,7 @@
       el('catalogue-summary').textContent = `Showing ${Math.min(catalogueLimit, matches.length)} of ${matches.length} matching services`;
       el('service-catalogue').innerHTML = matches.slice(0, catalogueLimit).map(service => {
         const host = assignments.find(row => row.id === service.assignment);
-        return `<div class="metric"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong>
+        return `<div class="metric"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
           <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small>
           ${serviceActions(service)}
         </div>`;
@@ -992,6 +1013,14 @@
     el('catalogue-search').oninput = () => { catalogueLimit = 20; renderServiceCatalogue(); };
     el('catalogue-more').onclick = () => { catalogueLimit += 20; renderServiceCatalogue(); };
 
+
+    // Opening evidence is immutable; never substitute a later live reading.
+    function issueCause(issue) {
+      if (issue.trigger_timestamp == null) return 'Opening value unavailable (legacy issue)';
+      if (issue.trigger_value == null) return 'No usable reading' + (issue.trigger_error ? ' (' + issue.trigger_error + ')' : '');
+      return String(issue.trigger_display ?? issue.trigger_value) + (issue.trigger_units ? ' ' + issue.trigger_units : '');
+    }
+
     function renderIncidents(incidents, allowAcknowledgement = false, suppressed = false) {
       return incidents.map(incident => {
         const service = state.services.find(row => row.id === incident.service);
@@ -1004,7 +1033,7 @@
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
         return `<div class="metric"><strong>Issue #${escapeHtml(incident.number ?? incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
-          · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</div>`;
+          · Triggered by ${escapeHtml(issueCause(incident))} · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</div>`;
       }).join('');
     }
 
@@ -1046,6 +1075,7 @@
       } else {
         body.state_map = {};
       }
+      body.flap_enabled = Boolean(form.elements.namedItem('flap_enabled').checked);
       return body;
     }
 
@@ -1227,6 +1257,10 @@
         .map(([value, entry]) => `${value} | ${entry.label} | ${formatStatus(entry.status)}`).join('\n');
       updateValueMode(form);
       // Credentials are never fetched or prefilled. Blank keeps the source secret.
+      for (const [field, fallback] of Object.entries({flap_changes: 4, flap_window: 5, flap_stable: 5, hysteresis: 0})) {
+        form.elements.namedItem(field).value = configuration[field] ?? fallback;
+      }
+      form.elements.namedItem('flap_enabled').checked = configuration.flap_enabled !== 0;
       form.elements.namedItem('community').value = '';
       el('service-editor-title').textContent = title;
       el('service-editor-host').textContent = context;
@@ -1270,8 +1304,8 @@
         let library;
         try { library = JSON.parse(await file.text()); }
         catch (error) { throw new Error('Choose a valid service-library JSON file.'); }
-        if (library?.format !== 'network-monitor-service-library' || library.version !== 1 || !Array.isArray(library.services)) {
-          throw new Error('Choose a Network Monitor service-library export with format version 1.');
+        if (library?.format !== 'network-monitor-service-library' || ![1, 2].includes(library.version) || !Array.isArray(library.services)) {
+          throw new Error('Choose a Network Monitor service-library export with format version 1 or 2.');
         }
         if (library.services.length > 5000) throw new Error('A library file can contain at most 5000 services.');
         if (!['merge', 'replace'].includes(mode)) throw new Error('Choose Merge or Replace.');
@@ -1814,6 +1848,16 @@
       const menu = event.target.closest('.action-menu');
       if (menu && event.target.tagName === 'BUTTON') menu.open = false;
       try {
+        if (data.hostStability) {
+          const service = state.services.find(row => row.id === Number(data.hostStability));
+          const form = el('host-stability-form');
+          form.elements.namedItem('service').value = service.id;
+          for (const field of ['flap_changes', 'flap_window', 'flap_stable']) form.elements.namedItem(field).value = service[field];
+          form.elements.namedItem('flap_enabled').checked = Boolean(service.flap_enabled);
+          form.elements.namedItem('hysteresis').closest('label').hidden = true;
+          el('host-stability-feedback').textContent = '';
+          el('host-stability').showModal();
+        }
         if (data.serviceMonitoring) {
           const button = event.target;
           button.disabled = true;
@@ -1857,6 +1901,22 @@
         else report(error);
       }
     });
+    el('cancel-host-stability').onclick = () => el('host-stability').close();
+    el('host-stability-form').onsubmit = async event => {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const body = Object.fromEntries(new FormData(form));
+        body.flap_enabled = form.elements.namedItem('flap_enabled').checked;
+        await request('host-stability', body);
+        el('host-stability').close();
+        notify('Host flap protection saved.', true);
+        await refresh();
+      } catch (error) { el('host-stability-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
     el('close-history').onclick = () => el('history').close();
     el('restore').onsubmit = async event => {
       event.preventDefault();

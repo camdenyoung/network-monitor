@@ -731,14 +731,14 @@ class AccessAndNotificationTests(unittest.TestCase):
         incident = public['incidents'][0]
         self.assertEqual(incident['device'], 'Switch-1')
         self.assertEqual(incident['alias'], 'Stage switch')
-        self.assertEqual(set(incident), {'id', 'number', 'device', 'alias', 'service', 'status', 'opened'})
+        self.assertEqual(set(incident), {'id', 'number', 'device', 'alias', 'service', 'status', 'opened', 'trigger_value', 'trigger_display', 'trigger_units', 'trigger_timestamp', 'trigger_error'})
         incident_id = server.snapshot()['incident_lists']['active'][0]['id']
         server.mutate('ack', {'id': incident_id}, actor={'id': 1})
         acknowledged = server.status_overview()['acknowledged_incidents']
         self.assertEqual(len(acknowledged), 1)
         self.assertEqual(acknowledged[0]['acknowledged_by_username'], 'admin')
         self.assertEqual(set(acknowledged[0]), {
-            'id', 'number', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name'})
+            'id', 'number', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name', 'trigger_value', 'trigger_display', 'trigger_units', 'trigger_timestamp', 'trigger_error'})
         with server.connect() as db:
             db.execute('UPDATE assignments SET visible=0 WHERE id=1')
         self.assertEqual(server.status_overview()['acknowledged_incidents'], [])

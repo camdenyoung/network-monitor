@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library
+from . import auth, notifications, logos, service_library, stability
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -89,6 +89,8 @@ def initialize():
         ensure_service_library(db)
         ensure_inventory_services(db)
         migrate_value_types(db)
+        stability.ensure_tables(db)
+        migrate_issue_evidence(db)
         ensure_host_checks(db)
         migrate_project_settings(db)
         migrate_incident_acknowledgements(db)
@@ -316,6 +318,38 @@ def migrate_value_types(db):
         db.execute('ALTER TABLE samples ADD COLUMN display_value TEXT')
 
 
+def migrate_issue_evidence(db):
+    """Preserve opening evidence independently of history retention and later edits.
+
+    Legacy issues cannot safely use the latest reading: it may describe recovery.
+    Backfill only a matching pre-opening sample; otherwise leave evidence unknown.
+    """
+    columns = {row[1] for row in db.execute('PRAGMA table_info(incidents)')}
+    for name, kind in (('trigger_value', 'REAL'), ('trigger_display', 'TEXT'),
+                       ('trigger_units', 'TEXT'), ('trigger_timestamp', 'REAL'),
+                       ('trigger_error', 'TEXT')):
+        if name not in columns:
+            db.execute(f'ALTER TABLE incidents ADD COLUMN {name} {kind}')
+
+    if 'trigger_timestamp' not in columns:
+        # Only run on schema upgrade. Never re-label old readings using today's
+        # state map; units are defensible only when the service revision matches.
+        for issue_id, run, service_id, opened, status in db.execute(
+                'SELECT id,run,service,opened,status FROM incidents').fetchall():
+            sample = db.execute("""SELECT p.value,p.display_value,p.timestamp,p.error,
+                CASE WHEN p.revision=s.revision AND s.value_type='metric' THEN s.units ELSE '' END
+                FROM samples p JOIN services s ON s.id=p.service
+                WHERE p.run=? AND p.service=? AND p.status=? AND p.timestamp<=?
+                AND p.timestamp>=? ORDER BY p.timestamp DESC,p.id DESC LIMIT 1""",
+                (run, service_id, status, opened, opened - 60)).fetchone()
+            if sample:
+                value, display, timestamp, error, units = sample
+                db.execute("""UPDATE incidents SET trigger_value=?,trigger_display=?,trigger_timestamp=?,
+                    trigger_error=?,trigger_units=? WHERE id=?""",
+                    (value, display if display is not None else str(value) if value is not None else None,
+                     timestamp, error, units, issue_id))
+
+
 def state_key(value):
     number = float(value)
     if not math.isfinite(number):
@@ -401,19 +435,29 @@ def setting(db, key):
     return db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()[0]
 
 
-def classify(value, service):
+def classify(value, service, previous_status=None):
     """Critical takes precedence; null thresholds mean that check is disabled."""
     if service['value_type'] == 'state':
         definition = state_definition(service, value)
         return definition['status'] if definition else 'warning'
+    nominal = 'healthy'
     for level in ('critical', 'warning'):
         limit = service[level]
-        if limit is not None:
-            if service['direction'] == 'below' and value < limit:
+        if limit is not None and ((service['direction'] == 'below' and value < limit)
+                                  or (service['direction'] == 'above' and value > limit)):
+            nominal = level
+            break
+    margin = dict(service).get('hysteresis', 0)
+    ranks = {'healthy': 0, 'warning': 1, 'critical': 2}
+    # Escalation uses original limits; only recovery needs to clear the margin.
+    for level in ('critical', 'warning'):
+        limit = service[level]
+        if (margin and previous_status in ranks and ranks[previous_status] >= ranks[level]
+                and ranks[nominal] < ranks[level] and limit is not None):
+            held = value < limit + margin if service['direction'] == 'below' else value > limit - margin
+            if held:
                 return level
-            if service['direction'] == 'above' and value > limit:
-                return level
-    return 'healthy'
+    return nominal
 
 
 def receive_exact(sock, length):
@@ -498,12 +542,14 @@ def poll_one(service, run):
                 or current['monitoring_since'] != service['monitoring_since']):
             return
         blocked = service['kind'] != 'ping' and not host_is_up(db, service, run)
+        prior = stability.state_for(db, run, service['id'], service['revision'], service['monitoring_since'])
+        previous_status = prior['confirmed'] if prior else None
     try:
         if blocked:
             value, status, error = None, 'blocked', 'Host unavailable'
         else:
             value = read_metric(service)
-            status, error = classify(value, service), ''
+            status, error = classify(value, service, previous_status), ''
     except Exception as exc:
         value, status = None, 'unreachable'
         # subprocess exceptions include command-line credentials; never persist them.
@@ -528,33 +574,44 @@ def poll_one(service, run):
         # a child incident from a reading that completed after the failed ping.
         if service['kind'] != 'ping' and not host_is_up(db, service, run):
             value, status, error = None, 'blocked', 'Host unavailable'
+        observed_at = time.time()
         db.execute('''INSERT INTO samples
             (run,service,timestamp,value,status,error,revision,display_value)
             VALUES(?,?,?,?,?,?,?,?)''',
-            (run, service['id'], time.time(), value, status, error,
+            (run, service['id'], observed_at, value, status, error,
              service['revision'], display_value(service, value)))
         if status == 'blocked':
+            stability.observe(db, service, run, status, False, observed_at)
             # Preserve existing incidents without claiming recovery; blocked samples
             # break persistence streaks before services resume after host recovery.
             return
         recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? AND timestamp>=? ORDER BY id DESC LIMIT ?',
                             (service['id'], run, service['revision'], service['monitoring_since'], service['persistence'])).fetchall()
         confirmed = len(recent) == service['persistence'] and all(row[0] == status for row in recent)
+        flap_event = stability.observe(db, service, run, status, confirmed, observed_at)
         if not confirmed:
             return
         incident = db.execute('SELECT * FROM incidents WHERE service=? AND run=? AND closed IS NULL',
                               (service['id'], run)).fetchone()
         if incident and (status == 'healthy' or incident['status'] != status):
             db.execute('UPDATE incidents SET closed=? WHERE id=?', (time.time(), incident['id']))
-            if status == 'healthy':
+            if status == 'healthy' and not flap_event:
                 notifications.enqueue_incident(db, incident['id'], 'recovery')
             incident = None
         if status != 'healthy' and incident is None:
             number = db.execute('UPDATE runs SET issue_counter=issue_counter+1 WHERE id=? RETURNING issue_counter',
                                 (run,)).fetchone()[0]
-            cursor = db.execute('INSERT INTO incidents(id,run,service,opened,status,number) VALUES(?,?,?,?,?,?)',
-                                (next_record_id(db, 'incidents'), run, service['id'], time.time(), status, number))
-            notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
+            cursor = db.execute('''INSERT INTO incidents
+                (id,run,service,opened,status,number,trigger_value,trigger_display,
+                 trigger_units,trigger_timestamp,trigger_error) VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+                (next_record_id(db, 'incidents'), run, service['id'], observed_at, status, number,
+                 value, display_value(service, value), service['units'] if service['value_type'] == 'metric' else '',
+                 observed_at, error))
+            if not flap_event:
+                notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
+
+        if flap_event:
+            notifications.enqueue_flap_event(db, service['id'], run, flap_event)
 
 
 def poll_host(services, run):
@@ -619,15 +676,19 @@ def snapshot():
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map,monitoring,monitoring_since
+            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map,monitoring,monitoring_since,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
             FROM services''')]
+        for service in result['services']:
+            runtime = stability.state_for(db, int(setting(db, 'active_run')), service['id'],
+                                          service['revision'], service['monitoring_since'])
+            service['flapping'] = bool(runtime and runtime['flapping'])
         result['service_templates'] = [dict(row) for row in db.execute('''
-            SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence,value_type,state_map
+            SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence,value_type,state_map,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
             FROM service_templates ORDER BY name
         ''')]
         result['device_service_defaults'] = [dict(row) for row in db.execute('''
             SELECT id,device,name,kind,target,unit,scale,units,direction,warning,critical,
-                   persistence,value_type,state_map FROM device_service_defaults ORDER BY name,id
+                   persistence,value_type,state_map,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis FROM device_service_defaults ORDER BY name,id
         ''')]
         for configuration in result['services'] + result['service_templates'] + result['device_service_defaults']:
             configuration['state_map'] = json.loads(configuration['state_map'])
@@ -746,7 +807,8 @@ def service_details(body, existing=None):
         # State codes are interpreted before scaling and have no numeric thresholds.
         scale, warning, critical = 1, None, None
     return (name, kind, target, community, unit, scale, body.get('units', ''),
-            direction, warning, critical, persistence, value_type, json.dumps(normalized))
+            direction, warning, critical, persistence, value_type, json.dumps(normalized),
+            *stability.policy_details({**body, 'value_type': value_type}, existing))
 
 
 def reusable_service(db, service_id):
@@ -770,10 +832,10 @@ def insert_service(db, assignment_id, details):
     """Materialize a new independent service; never copy history or incident state."""
     if not db.execute('SELECT id FROM assignments WHERE id=? AND removed=0', (assignment_id,)).fetchone():
         raise ValueError('Unknown target host')
-    db.execute("""INSERT INTO services
-        (id,assignment,name,kind,target,community,unit,scale,units,direction,
-         warning,critical,persistence,value_type,state_map) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (next_record_id(db, 'services'), assignment_id, *details))
+    columns = ','.join(SERVICE_CONFIGURATION_FIELDS)
+    values = ','.join('?' for _ in SERVICE_CONFIGURATION_FIELDS)
+    db.execute(f'INSERT INTO services(id,assignment,{columns}) VALUES(?,?,{values})',
+               (next_record_id(db, 'services'), assignment_id, *details))
 
 
 def duplicate_project(db, source_id, name):
@@ -794,8 +856,7 @@ def duplicate_project(db, source_id, name):
             (id,project,device,alias,monitoring,visible,notifications) VALUES(?,?,?,?,?,?,?)""",
             (target, project, assignment['device'], assignment['alias'], assignment['monitoring'],
              assignment['visible'], assignment['notifications']))
-        fields = ('name','kind','target','community','unit','scale','units','direction',
-                  'warning','critical','persistence','value_type','state_map','monitoring')
+        fields = (*SERVICE_CONFIGURATION_FIELDS, 'monitoring')
         for service in db.execute('SELECT * FROM services WHERE assignment=? AND enabled=1', (assignment['id'],)).fetchall():
             values = (next_record_id(db, 'services'), target, *(service[field] for field in fields))
             db.execute('INSERT INTO services(id,assignment,' + ','.join(fields) + ') VALUES(' +
@@ -1033,9 +1094,8 @@ def mutate(action, body, actor=None):
                 raise ValueError('Unknown service or managed host check')
             details = service_details(body, existing)
             # Retain identity/history but start persistence counting for the new config.
-            db.execute("""UPDATE services SET name=?,kind=?,target=?,community=?,unit=?,
-                scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,value_type=?,state_map=?,
-                revision=revision+1 WHERE id=?""", (*details, service_id))
+            setters = ','.join(field + '=?' for field in SERVICE_CONFIGURATION_FIELDS)
+            db.execute(f'UPDATE services SET {setters},revision=revision+1 WHERE id=?', (*details, service_id))
         elif action == 'service-copy':
             source = reusable_service(db, body['service'])
             assignment = int(body['assignment'])
@@ -1054,15 +1114,14 @@ def mutate(action, body, actor=None):
             # only sends non-secret fields and an optional replacement community.
             source = reusable_service(db, body['source']) if body.get('source') else None
             details = service_details(body, source)
-            db.execute("""INSERT INTO service_templates
-                (name,kind,target,community,unit,scale,units,direction,warning,critical,persistence,value_type,state_map)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", details)
+            columns = ','.join(SERVICE_CONFIGURATION_FIELDS)
+            values = ','.join('?' for _ in SERVICE_CONFIGURATION_FIELDS)
+            db.execute(f'INSERT INTO service_templates({columns}) VALUES({values})', details)
         elif action == 'template-edit':
             source = library_template(db, body['template'])
             details = service_details(body, source)
-            db.execute("""UPDATE service_templates SET name=?,kind=?,target=?,community=?,
-                unit=?,scale=?,units=?,direction=?,warning=?,critical=?,persistence=?,value_type=?,state_map=?
-                WHERE id=?""", (*details, source['id']))
+            setters = ','.join(field + '=?' for field in SERVICE_CONFIGURATION_FIELDS)
+            db.execute(f'UPDATE service_templates SET {setters} WHERE id=?', (*details, source['id']))
         elif action == 'template-delete':
             source = library_template(db, body['template'])
             db.execute('DELETE FROM service_templates WHERE id=?', (source['id'],))
@@ -1072,6 +1131,14 @@ def mutate(action, body, actor=None):
             configuration['name'] = body.get('name', source['name'])
             configuration['community'] = body.get('community') or source['community']
             insert_service(db, int(body['assignment']), service_details(configuration))
+        elif action == 'host-stability':
+            host = db.execute("""SELECT s.* FROM services s JOIN assignments a ON a.id=s.assignment
+                WHERE s.id=? AND s.kind='ping' AND s.enabled=1 AND a.removed=0""", (int(body['service']),)).fetchone()
+            if not host:
+                raise ValueError('Unknown managed host check')
+            policy = stability.policy_details({**body, 'hysteresis': 0}, host)
+            db.execute("""UPDATE services SET flap_enabled=?,flap_changes=?,flap_window=?,flap_stable=?,hysteresis=?,
+                revision=revision+1 WHERE id=?""", (*policy, host['id']))
         elif action == 'service-monitoring':
             service = reusable_service(db, body['service'])
             enabled = body['monitoring']
@@ -1169,9 +1236,10 @@ def status_overview():
             status = 'paused' if not service['monitoring'] else sample['status'] if usable else 'blocked'
             children.append({'name': service['name'], 'status': status,
                 'value': sample['display_value'] if usable and status not in ('blocked','paused') else None,
-                'units': service['units'] if service['value_type'] == 'metric' else ''})
+                'units': service['units'] if service['value_type'] == 'metric' else '',
+                'flapping': service['flapping']})
         output.append({'name': device['name'], 'alias': assignment['alias'],
-                       'status': host_status, 'services': children,
+                       'status': host_status, 'services': children, 'flapping': bool(ping and ping['flapping']),
                        'incident_status': assignment['incident_status']})
     # Both public lists use the same visibility rules. Only the recorded actor
     # display name and username are public; account IDs and other account details remain private.
@@ -1190,6 +1258,8 @@ def status_overview():
             item = {'id': incident['id'], 'number': incident['number'], 'device': devices[assignment['device']]['name'],
                 'alias': assignment['alias'], 'service': service['name'],
                 'status': incident['status'], 'opened': incident['opened']}
+            item.update({key: incident.get(key) for key in ('trigger_value', 'trigger_display',
+                         'trigger_units', 'trigger_timestamp', 'trigger_error')})
             if category == 'acknowledged':
                 item.update(acknowledged=incident['acknowledged'], closed=incident['closed'],
                             acknowledged_by_username=incident['acknowledged_by_username'],
@@ -1408,6 +1478,8 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_service_library(candidate)
                     ensure_inventory_services(candidate)
                     migrate_value_types(candidate)
+                    stability.ensure_tables(candidate)
+                    migrate_issue_evidence(candidate)
                     ensure_host_checks(candidate)
                     migrate_project_settings(candidate)
                     migrate_incident_acknowledgements(candidate)
