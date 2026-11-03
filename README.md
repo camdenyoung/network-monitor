@@ -1,9 +1,15 @@
-# Network Monitor v0.2.2 · Build 13
+# Network Monitor v0.2.2 · Build 14
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 14 — v0.2.2
+
+- Status-page attention pulses are yellow for Warning issues and red for Critical/Unreachable issues.
+- Critical takes priority for mixed arrivals; visuals remain active while notifications are globally paused.
+
 
 ### Build 13 — v0.2.2
 
@@ -647,8 +653,8 @@ monitoring enabled. Inventory defaults are included in complete backups.
 
 Admin configuration areas now act as tabs: only one is visible at a time, and
 switching tabs preserves unfinished forms. They start closed after a page reload.
-The public status dashboard pulses its background red three times when a new
-active issue appears after the initial load. Existing or reappearing issues do not
+The public status dashboard pulses its background three times when a new active
+issue appears after the initial load: red for Critical/Unreachable, yellow for Warning. Existing or reappearing issues do not
 retrigger it; reduced-motion browsers receive a brief static red highlight.
 
 ## Temporarily pause notifications
@@ -721,3 +727,8 @@ inventory, service definitions, library and other deployments are preserved.
 Deleting the most recently paused deployment clears the quick-resume target.
 A complete backup is required to recover deleted history. Deployment IDs and
 internal issue IDs are never reused after deletion.
+
+Status attention pulses reflect severity: three yellow pulses for new Warning
+issues, three red pulses for new Critical/Unreachable issues. Red takes priority
+if both arrive together or while a critical alert is already pulsing. These
+visual alerts do not depend on Telegram/WhatsApp notification settings.

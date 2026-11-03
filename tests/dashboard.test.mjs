@@ -1015,7 +1015,8 @@ const pulseData = {project:'Attention event',deployment:11,monitoring_paused:fal
     incidents:[{id:1,number:1,status:'critical',opened:now}],acknowledged_incidents:[]};
 const pulseContext = vm.createContext({
     document:{...publicContext.document,documentElement:{offsetWidth:1200,classList:{
-        add(name){pulseClasses.add(name);pulseStarts += 1;},remove(name){pulseClasses.delete(name);},
+        add(...names){names.forEach(name => {pulseClasses.add(name);if(name === 'issue-attention')pulseStarts += 1;});},
+        remove(...names){names.forEach(name => pulseClasses.delete(name));},
     }}},
     localStorage:publicContext.localStorage,
     fetch:async () => ({ok:true,json:async () => pulseData}),setInterval(){},
@@ -1029,6 +1030,7 @@ pulseData.incidents.push({id:2,number:2,status:'warning',opened:now});
 await pulseContext.refresh();
 assert.equal(pulseStarts,1);
 assert.equal(pulseClasses.has('issue-attention'),true);
+assert.equal(pulseClasses.has('issue-attention-warning'),true);
 await pulseContext.refresh();
 assert.equal(pulseStarts,1);
 pulseData.incidents = [];
@@ -1048,6 +1050,8 @@ assert.equal(pulseStarts,1);
 pulseData.incidents.push({id:3,number:3,status:'critical',opened:now});
 await pulseContext.refresh();
 assert.equal(pulseStarts,2);
+assert.equal(pulseClasses.has('issue-attention-critical'),true);
+assert.equal(pulseClasses.has('issue-attention-warning'),false);
 pulseData.deployment = 12;
 pulseData.incidents = [{id:4,number:1,status:'critical',opened:now}];
 await pulseContext.refresh();
@@ -1284,3 +1288,22 @@ assert.equal(element('delete-selected-deployment').disabled,true);
 assert.doesNotMatch(element('previous-deployment').innerHTML,/Second setup/);
 assert.match(html,/permanently deletes the deployment and all its readings, issues, acknowledgement records/);
 console.log('Deployment deletion requires explicit review, protects active runs and removes deleted selector entries.');
+
+// Mixed arrivals use critical red; global notification pause never gates visual alerts.
+pulseData.notifications_paused = true;
+pulseData.incidents.push({id:5,number:2,status:'warning',opened:now});
+await pulseContext.refresh();
+assert.equal(pulseClasses.has('issue-attention-warning'),true);
+pulseData.incidents.push({id:6,number:3,status:'warning',opened:now},{id:7,number:4,status:'unreachable',opened:now});
+await pulseContext.refresh();
+assert.equal(pulseClasses.has('issue-attention-critical'),true);
+assert.equal(pulseClasses.has('issue-attention-warning'),false);
+const criticalPulseStarts = pulseStarts;
+pulseData.incidents.push({id:8,number:5,status:'warning',opened:now});
+await pulseContext.refresh();
+assert.equal(pulseStarts,criticalPulseStarts);
+assert.equal(pulseClasses.has('issue-attention-critical'),true);
+pulseTimers.get(pulseTimerId)();
+assert.equal(pulseClasses.has('issue-attention'),false);
+assert.equal(pulseClasses.has('issue-attention-critical'),false);
+console.log('Status attention uses yellow for warnings and red for critical/unreachable issues, independent of notifications.');

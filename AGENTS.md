@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.2, Build 13. Show it after the title on both the main and
+Current displayed release is v0.2.2, Build 14. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -368,7 +368,7 @@ all defaults in backup/restore, and purge only that device's defaults on deletio
 
 Admin configuration areas are exclusive accessible tabs with arrow/Home/End
 navigation and active colour. Keep unfinished forms intact when switching areas.
-Status background pulses red three times for newly observed active issues, not
+Status background pulses three times (red Critical/Unreachable, yellow Warning) for new active issues, not
 initial load or reappearing previously seen issues. Track internal IDs/labels per
 deployment and preserve the seen set across pause/resume. Honour reduced motion
 with a brief static red highlight instead of animation.
@@ -430,3 +430,8 @@ other runs and inventory. Clear paused_run only when it references the target.
 Durable last_id_runs and last_id_incidents counters prevent ID reuse after deletion,
 protecting delayed polling and stale acknowledgement/resume dialogs. Migrate these
 counters on startup/restore and allocate both IDs through next_record_id.
+
+Status attention pulses use yellow for new Warning issues and red for new
+Critical/Unreachable issues, three cycles. Critical wins mixed arrivals and is
+not downgraded by a warning arriving mid-pulse. Both visuals remain independent
+of global notification pause; reduced-motion highlights use the same severity colour.
