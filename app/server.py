@@ -922,6 +922,8 @@ def mutate(action, body, actor=None):
                                 (project, time.time(), description.strip()))
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(cursor.lastrowid),))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
+            # Each deployment requires an explicit decision to enable delivery.
+            notifications.set_paused(db, True)
         elif action == 'pause':
             run = setting(db, 'active_run')
             # Repeated Pause clicks must not discard the resumable deployment.

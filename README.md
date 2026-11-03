@@ -1,9 +1,15 @@
-# Network Monitor v0.2 · Build 5
+# Network Monitor v0.2 · Build 6
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 6 — v0.2
+
+- New deployments start with global notifications paused, requiring an explicit Resume notifications action.
+- Added this behavior to the deployment confirmation dialog; ordinary monitoring Resume preserves the notification setting.
+
 
 ### Build 5 — v0.2
 
@@ -596,3 +602,8 @@ resume, fresh events can send normally, and enabled reminders wait one full
 configured interval before repeating eligible active issues. Existing provider
 settings and per-host notification flags are preserved. A send already in flight
 when Pause is clicked can still complete.
+
+Every new deployment starts with notifications paused, even if delivery was enabled
+for the previous deployment. Check the setup, then click **Resume notifications**
+when ready. Pause/Resume monitoring within an existing deployment does not change
+its notification setting.

@@ -107,7 +107,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 5</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 6</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -373,6 +373,7 @@
     <label>Deployment description<textarea id="deployment-description" rows="3" maxlength="500" required placeholder="When / why is this deployment being started?"></textarea></label>
     <p>This starts a new deployment with a fresh monitoring history and issue list.
       Previous deployment data remains stored, but is no longer shown in the current dashboard.</p>
+    <p>Notifications start paused. Once the deployment is ready, explicitly choose Resume notifications to enable Telegram and WhatsApp delivery.</p>
     <p>To continue a paused deployment with its existing history, choose Cancel and use Resume all monitoring.</p>
     <div class="display-controls">
       <button id="confirm-deployment" class="primary">Continue</button>

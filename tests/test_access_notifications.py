@@ -125,6 +125,8 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('device', {'name': 'Switch-1', 'model': 'Switch', 'address': '192.168.1.1'})
         server.mutate('assignment', {'project': 1, 'device': 1, 'alias': 'Stage switch'})
         server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
+        # Most tests exercise normal opted-in notification delivery.
+        server.mutate('notification-pause', {'paused': False})
         with server.connect() as db:
             return dict(db.execute('''SELECT s.*, d.address FROM services s
                 JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device''').fetchone())
@@ -278,12 +280,14 @@ class AccessAndNotificationTests(unittest.TestCase):
         issue = server.snapshot()['incident_lists']['active'][0]['id']
         with server.connect() as db:
             db.execute('UPDATE incidents SET opened=? WHERE id=?', (now - 61, issue))
+            db.execute("UPDATE settings SET value=? WHERE key='notifications_resumed_at'", (str(now - 61),))
             db.execute("UPDATE notification_outbox SET state='sent',created=?,next_attempt=?", (now - 61, now - 61))
         return host, issue, now
 
     def test_notifications_use_deployment_issue_number_with_global_ack_id(self):
         host, old_issue, now = self.reminder_fault()
         server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
+        server.mutate('notification-pause', {'paused': False})
         with patch.object(server, 'read_metric', side_effect=TimeoutError):
             server.poll_one(host, 2)
             server.poll_one(host, 2)
@@ -476,6 +480,36 @@ class AccessAndNotificationTests(unittest.TestCase):
                 db.execute('UPDATE samples SET timestamp=?', (now + elapsed,))
                 notifications.enqueue_reminders(db, server.host_is_up)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], expected)
+
+    def test_each_new_deployment_pauses_notifications_until_explicitly_resumed(self):
+        host = self.create_host()
+        self.configure_channels()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        with server.connect() as db:
+            config = notifications.configuration(db)
+            self.assertFalse(notifications.are_paused(db))
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 2)
+        server.mutate('activate', {'project': 1, 'description': 'New event setup'})
+        state = server.snapshot()
+        self.assertEqual(state['settings']['active_run'], '2')
+        self.assertEqual(state['settings']['notifications_paused'], '1')
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 2)
+            server.poll_one(host, 2)
+        self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
+        with server.connect() as db:
+            self.assertEqual(notifications.configuration(db), config)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='cancelled'").fetchone()[0], 2)
+        server.mutate('pause', {})
+        server.mutate('resume', {'project': 1})
+        self.assertEqual(server.snapshot()['settings']['notifications_paused'], '1')
+        server.mutate('notification-pause', {'paused': False})
+        server.mutate('pause', {})
+        server.mutate('resume', {'project': 1})
+        self.assertEqual(server.snapshot()['settings']['notifications_paused'], '0')
 
     def test_notification_pause_requires_admin_csrf_and_boolean(self):
         token, operator = self.create_operator()
