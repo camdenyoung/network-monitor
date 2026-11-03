@@ -1,9 +1,15 @@
-# Network Monitor v0.3 · Build 28
+# Network Monitor v0.3 · Build 29
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 29 — v0.3 (UI polish branch)
+
+- Identify the host being edited in the flap-protection dialog by device ID and project alias.
+- Rework service editing into a responsive grid with horizontal flap settings and grouped action buttons.
+
 
 ### Build 28 — v0.3 (UI polish branch)
 

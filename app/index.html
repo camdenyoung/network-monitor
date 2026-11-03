@@ -57,6 +57,21 @@
     #telegram-queue { max-height: 400px; overflow: auto; }
     #telegram-queue > p { margin: 0; padding: 10px 8px; line-height: 20px; white-space: nowrap; min-width: max-content; box-sizing: border-box; }
     #toggle-telegram-log[aria-pressed="true"] { background: #176959; }
+    /* Keep flap settings in their own horizontal row rather than one tall form item. */
+    .flap-settings { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; flex: 1 1 100%; width: 100%; min-width: 0; margin: 0; padding: 14px; box-sizing: border-box; border: 1px solid #435b78; border-radius: 8px; }
+    .flap-settings legend { padding: 0 6px; }
+    .flap-settings > label { flex: 1 1 150px; min-width: 0; }
+    .flap-settings > .checkbox-inline { flex: 1 1 100%; }
+    .flap-settings input:not([type="checkbox"]) { width: 100%; min-width: 0; box-sizing: border-box; }
+    #service-editor, #host-stability { width: 1040px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; box-sizing: border-box; border-radius: 10px; }
+    #host-stability { width: 800px; }
+    #service-edit-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 14px; }
+    #service-edit-form > label { min-width: 0; }
+    #service-edit-form > label > input, #service-edit-form > label > select, #service-edit-form > label > textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+    #service-edit-form > [data-state], #service-edit-form > .flap-settings, .editor-actions { grid-column: 1 / -1; }
+    .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    @media (max-width: 760px) { #service-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 480px) { #service-edit-form { grid-template-columns: minmax(0, 1fr); } }
     #history { width: 880px; box-sizing: border-box; }
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
@@ -136,7 +151,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 28</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 29</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -294,7 +309,7 @@
         <label>OID / register / port<input name="target" required></label>
         <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
         <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
-        <fieldset><legend>Flap protection</legend>
+        <fieldset class="flap-settings"><legend>Flap protection</legend>
         <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
@@ -558,7 +573,7 @@
     <div id="device-default-list"></div>
     <button id="close-device-defaults">Close</button>
   </dialog>
-  <dialog id="service-editor">
+  <dialog id="service-editor" aria-labelledby="service-editor-title" aria-describedby="service-editor-host">
     <h2 id="service-editor-title">Edit monitored service</h2>
     <p id="service-editor-host"></p>
     <form id="service-edit-form">
@@ -589,7 +604,7 @@
       </select></label>
       <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
       <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
-      <fieldset><legend>Flap protection</legend>
+      <fieldset class="flap-settings"><legend>Flap protection</legend>
         <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
@@ -597,18 +612,31 @@
         <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
       </fieldset>
       <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
-      <button class="primary">Save changes</button>
-      <button type="button" id="cancel-service-edit">Cancel</button>
+      <div class="editor-actions">
+        <button class="primary">Save changes</button>
+        <button type="button" id="cancel-service-edit">Cancel</button>
+      </div>
     </form>
     <p id="service-edit-feedback" role="status"></p>
   </dialog>
-  <dialog id="host-stability"><h2>Host flap protection</h2><form id="host-stability-form"><input name="service" type="hidden"><fieldset><legend>Flap protection</legend>
+  <dialog id="host-stability" aria-labelledby="host-stability-title" aria-describedby="host-stability-host">
+    <h2 id="host-stability-title">Host flap protection</h2>
+    <p id="host-stability-host"></p>
+    <form id="host-stability-form">
+      <input name="service" type="hidden">
+      <fieldset class="flap-settings"><legend>Flap protection</legend>
         <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
-        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
-      </fieldset><button>Save</button><button type="button" id="cancel-host-stability">Cancel</button></form><p id="host-stability-feedback" role="status"></p></dialog>
+      </fieldset>
+      <div class="editor-actions">
+        <button>Save</button>
+        <button type="button" id="cancel-host-stability">Cancel</button>
+      </div>
+    </form>
+    <p id="host-stability-feedback" role="status"></p>
+  </dialog>
   <dialog id="service-transfer">
     <h2 id="transfer-title">Copy service to host</h2>
     <p>Settings and credentials are copied; history and issues are not.
@@ -1907,16 +1935,7 @@
       const menu = event.target.closest('.action-menu');
       if (menu && event.target.tagName === 'BUTTON') menu.open = false;
       try {
-        if (data.hostStability) {
-          const service = state.services.find(row => row.id === Number(data.hostStability));
-          const form = el('host-stability-form');
-          form.elements.namedItem('service').value = service.id;
-          for (const field of ['flap_changes', 'flap_window', 'flap_stable']) form.elements.namedItem(field).value = service[field];
-          form.elements.namedItem('flap_enabled').checked = Boolean(service.flap_enabled);
-          form.elements.namedItem('hysteresis').closest('label').hidden = true;
-          el('host-stability-feedback').textContent = '';
-          el('host-stability').showModal();
-        }
+        if (data.hostStability) openHostStabilityEditor(data.hostStability);
         if (data.serviceMonitoring) {
           const button = event.target;
           button.disabled = true;
@@ -1960,6 +1979,23 @@
         else report(error);
       }
     });
+    function openHostStabilityEditor(id) {
+      const service = state.services.find(row => row.id === Number(id) && row.kind === 'ping');
+      const assignment = state.assignments.find(row => row.id === service?.assignment && !row.removed);
+      const device = state.devices.find(row => row.id === assignment?.device);
+      if (!service || !assignment || !device) throw new Error('Host no longer exists. Refresh the dashboard.');
+      const form = el('host-stability-form');
+      form.elements.namedItem('service').value = service.id;
+      for (const field of ['flap_changes', 'flap_window', 'flap_stable']) {
+        form.elements.namedItem(field).value = service[field];
+      }
+      form.elements.namedItem('flap_enabled').checked = Boolean(service.flap_enabled);
+      // textContent preserves literal names without treating device or alias text as HTML.
+      el('host-stability-host').textContent = `${device.name} - ${assignment.alias}`;
+      el('host-stability-feedback').textContent = '';
+      el('host-stability').showModal();
+    }
+
     el('cancel-host-stability').onclick = () => el('host-stability').close();
     el('host-stability-form').onsubmit = async event => {
       event.preventDefault();
