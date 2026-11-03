@@ -1,4 +1,6 @@
 """Durable outbound Telegram and WhatsApp Business delivery, isolated from the monitoring workers."""
+from . import stability
+
 import json
 import re
 import time
@@ -126,6 +128,15 @@ def enqueue_incident(db, incident_id, event):
         enqueue_for_channel(db, incident_id, event, channel)
 
 
+def recorded_issue_value(row):
+    """Translate ping failures without exposing subprocess implementation details."""
+    if row['kind'] == 'ping' and row['status'] == 'unreachable':
+        return 'Host unreachable'
+    if row['trigger_value'] is not None:
+        return str(row['trigger_display'] if row['trigger_display'] is not None else row['trigger_value'])
+    return row['trigger_display'] or 'No usable reading (' + (row['trigger_error'] or 'Unavailable') + ')'
+
+
 def enqueue_for_channel(db, incident_id, event, channel):
     if are_paused(db):
         return
@@ -139,20 +150,59 @@ def enqueue_for_channel(db, incident_id, event, channel):
         JOIN projects p ON p.id=a.project WHERE i.id=?''', (incident_id,)).fetchone()
     if not row or not row['notifications']:
         return
+    runtime = db.execute('SELECT * FROM check_stability WHERE run=? AND service=?',
+                         (row['run'], row['service'])).fetchone()
+    flap_event = event.startswith(('flap-start:', 'flap-stable:'))
+    if runtime and runtime['flapping'] and not flap_event:
+        return
     reading = db.execute('SELECT value,display_value FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 1',
                          (row['service'], row['run'])).fetchone()
+    text = format_issue_message(row, event, reading, runtime)
+    db.execute('''INSERT OR IGNORE INTO notification_outbox
+        (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
+        (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))
+
+
+def format_issue_message(row, event, reading, runtime=None):
+    """One renderer for live alerts and synthetic samples, so previews stay accurate."""
+    flap_event = event.startswith(('flap-start:', 'flap-stable:'))
     value = (reading['display_value'] or str(reading['value'])) if reading and reading['value'] is not None else 'No reading'
+    units = row['units'] if row['value_type'] == 'metric' else ''
+    if event == 'opened' and (row['trigger_timestamp'] is not None or row['kind'] == 'ping'):
+        value = recorded_issue_value(row)
+        units = row['trigger_units'] or ''
     title = 'RECOVERED' if event == 'recovery' else row['status'].upper()
     if event.startswith('reminder:'):
         title = 'REMINDER · ' + title
     icons = {'warning': '⚠️', 'critical': '❌', 'unreachable': '❌'}
     icon = '✅' if event == 'recovery' else icons.get(row['status'], 'ℹ️')
+    if flap_event:
+        title = 'FLAPPING' if event.startswith('flap-start:') else 'STABLE'
+        icon = '⚠️' if runtime['flapping'] else '✅' if runtime['confirmed'] == 'healthy' else icons.get(runtime['confirmed'], 'ℹ️')
     title = f'{icon} {title}'
-    text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
-            f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIssue #{row['number']} · Deployment #{row['run']}")
-    db.execute('''INSERT OR IGNORE INTO notification_outbox
-        (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
-        (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))
+    separator = ' - ' if flap_event else ' · '
+    text = (f"{title}{separator}{row['project_name']}\n{row['device_name']} - {row['alias']}\n"
+            f"{row['service_name']}: {value} {units}".rstrip() +
+            f"\nIssue #{row['number']}{separator}Deployment #{row['run']}")
+    if event.startswith('flap-start:'):
+        text += '\nNotifications for this check are suppressed until it stabilises.'
+    # Recovery messages report the current reading only; the opening cause
+    # remains recorded on the issue and available in reminder messages.
+    if event not in ('opened', 'recovery') and not flap_event and row['trigger_timestamp'] is not None:
+        cause = recorded_issue_value(row) + ' ' + (row['trigger_units'] or '')
+        text += '\n' + cause.strip()
+    return text
+
+
+def enqueue_flap_event(db, service_id, run, event):
+    """Use the latest issue as a durable outbox anchor for this check episode."""
+    db.execute("""UPDATE notification_outbox SET state='cancelled',error='Check is flapping'
+        WHERE state='pending' AND incident IN (SELECT id FROM incidents WHERE service=? AND run=?)""",
+        (service_id, run))
+    issue = db.execute('SELECT id FROM incidents WHERE service=? AND run=? ORDER BY id DESC LIMIT 1',
+                       (service_id, run)).fetchone()
+    if issue:
+        enqueue_incident(db, issue['id'], event)
 
 
 def reminder_interval(db):
@@ -180,6 +230,9 @@ def reminder_eligible(db, source, host_is_up):
             or source['acknowledged'] is not None or source['removed']
             or not source['notifications'] or not source['monitoring']
             or not source['enabled'] or not source['service_monitoring']):
+        return False
+    runtime = stability.state_for(db, run, source['service'], source['revision'], source['monitoring_since'])
+    if runtime and runtime['flapping']:
         return False
     reading = db.execute("""SELECT status,timestamp FROM samples WHERE service=? AND run=?
         AND revision=? AND timestamp>=? ORDER BY id DESC LIMIT 1""",
@@ -212,27 +265,56 @@ def enqueue_reminders(db, host_is_up):
             if not configuration(db, channel)['enabled']:
                 continue
             pending = db.execute("""SELECT 1 FROM notification_outbox WHERE incident=? AND channel=?
-                AND state IN ('pending','sending') AND (event='opened' OR event LIKE 'reminder:%')""",
+                AND state IN ('pending','sending') AND (event='opened' OR event LIKE 'reminder:%' OR event LIKE 'flap-stable:%')""",
                 (source['id'], channel)).fetchone()
             if pending:
                 continue
             last = db.execute("""SELECT MAX(CASE WHEN state='sent' THEN next_attempt ELSE created END)
                 FROM notification_outbox WHERE incident=? AND channel=?
-                AND (event='opened' OR event LIKE 'reminder:%')""", (source['id'], channel)).fetchone()[0]
+                AND (event='opened' OR event LIKE 'reminder:%' OR event LIKE 'flap-stable:%')""", (source['id'], channel)).fetchone()[0]
             if now - max(source['opened'], last or source['opened'], resumed_at) >= interval:
                 enqueue_for_channel(db, source['id'], f'reminder:{int(now)}', channel)
 
 
-def enqueue_test(db, channel='telegram'):
+def sample_notification(sample_type):
+    """Render fictitious data only; never create an issue, reading or deployment."""
+    if not isinstance(sample_type, str) or sample_type not in (
+            'test', 'critical', 'warning', 'recovery', 'flapping', 'stable', 'host-unreachable', 'port-down'):
+        raise ValueError('Choose a supported sample notification type')
+    if sample_type == 'test':
+        return 'TEST · Network Monitor\nNotification test\nThis destination is configured for issue alerts.'
+    row = {'project_name': 'Sample Project', 'device_name': 'Sample Host', 'alias': 'Sample Alias',
+           'service_name': 'RSSI', 'kind': 'snmp', 'value_type': 'metric', 'units': 'dBm',
+           'status': 'warning' if sample_type == 'warning' else 'critical',
+           'trigger_value': -70 if sample_type == 'warning' else -80,
+           'trigger_display': '-70' if sample_type == 'warning' else '-80',
+           'trigger_units': 'dBm', 'trigger_timestamp': 1, 'trigger_error': '', 'number': 1, 'run': 1}
+    event = {'recovery': 'recovery', 'flapping': 'flap-start:1', 'stable': 'flap-stable:1'}.get(sample_type, 'opened')
+    value = -60 if sample_type in ('recovery', 'stable') else row['trigger_value']
+    reading = {'value': value, 'display_value': str(value)}
+    runtime = {'confirmed': 'healthy' if sample_type in ('recovery', 'stable') else row['status'],
+               'flapping': sample_type == 'flapping'}
+    if sample_type == 'host-unreachable':
+        row.update(kind='ping', service_name='Host ping', status='unreachable', trigger_value=None,
+                   trigger_display='Host unreachable', trigger_units='', units='', trigger_error='CalledProcessError')
+        reading = {'value': None, 'display_value': None}
+    elif sample_type == 'port-down':
+        row.update(service_name='Port status', value_type='state', trigger_value=2,
+                   trigger_display='Port Down', trigger_units='', units='')
+        reading = {'value': 2, 'display_value': 'Port Down'}
+    return format_issue_message(row, event, reading, runtime)
+
+
+def enqueue_test(db, channel='telegram', sample_type='test'):
     if are_paused(db):
         raise ValueError('Resume notifications before sending a test')
     config = configuration(db, channel)
     if not config['enabled']:
         raise ValueError('Enable the notification channel first')
+    text = sample_notification(sample_type)
     db.execute('''INSERT INTO notification_outbox
         (event,channel,text,config_revision,next_attempt,created) VALUES('test',?,?,?,?,?)''',
-        (channel, 'TEST · Network Monitor\nNotification test\nThis destination is configured for issue alerts.',
-         config['revision'], time.time(), time.time()))
+        (channel, text[:3500], config['revision'], time.time(), time.time()))
 
 
 def retry_failed(db, channel):
@@ -312,7 +394,7 @@ def deliver_once(connect, lock, host_is_up):
         if not config['enabled'] or row['config_revision'] != config['revision']:
             reason = 'Notifications disabled or configuration changed'
         if row['incident'] is not None:
-            source = db.execute('''SELECT i.*,s.kind,s.assignment,s.enabled,s.monitoring service_monitoring,d.address,a.monitoring,a.notifications
+            source = db.execute('''SELECT i.*,s.kind,s.assignment,s.enabled,s.monitoring service_monitoring,s.revision,s.monitoring_since,d.address,a.monitoring,a.notifications
                 FROM incidents i JOIN services s ON s.id=i.service
                 JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
                 WHERE i.id=?''', (row['incident'],)).fetchone()
@@ -323,6 +405,13 @@ def deliver_once(connect, lock, host_is_up):
                 reason = 'Issue already resolved'
             elif source['kind'] != 'ping' and not host_is_up(db, source, run):
                 reason = 'Suppressed by host dependency'
+            if source:
+                runtime = stability.state_for(db, source['run'], source['service'], source['revision'], source['monitoring_since'])
+                if row['event'].startswith(('flap-start:', 'flap-stable:')):
+                    if not stability.event_is_current(runtime, row['event'], time.time()):
+                        reason = 'Flap episode is no longer current'
+                elif runtime and runtime['flapping']:
+                    reason = 'Check is flapping'
         if row['event'].startswith('reminder:') and (
                 not reminder_interval(db) or not reminder_eligible(db, reminder_source(db, row['incident']), host_is_up)):
             reason = 'Reminder disabled, acknowledged, recovered, paused, or suppressed'

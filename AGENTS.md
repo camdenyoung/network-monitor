@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.3, Build 15. Show it after the title on both the main and
+Current displayed release is v0.3, Build 26. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -435,3 +435,50 @@ Status attention pulses use yellow for new Warning issues and red for new
 Critical/Unreachable issues, three cycles. Critical wins mixed arrivals and is
 not downgraded by a warning arriving mid-pulse. Both visuals remain independent
 of global notification pause; reduced-motion highlights use the same severity colour.
+
+
+Flap protection lives in app/stability.py. Per-check settings travel through library,
+inventory defaults, copies and project duplication. Defaults: enabled, four confirmed
+changes within five minutes, five continuous stable minutes to clear; hysteresis zero.
+Runtime is durable and scoped to run/service/revision/monitoring_since. Gaps and blocked
+reads cannot count as stable. Suppress ordinary alerts/reminders while flapping;
+unique episode start/end events use the durable outbox and obey global notification pause.
+Opening issues store immutable trigger_value/display/units/timestamp/error. Show these
+on both dashboards and use them in opening notifications. Never replace historical
+cause with a later sample or edited state mapping. Legacy missing evidence stays unknown.
+
+Display recorded issue values without a Triggered by prefix. Ping failures display
+Host unreachable on both dashboards and notifications, including older saved issues;
+retain internal exception classes for diagnostics, not the host-facing state.
+
+Telegram delivery log is wrapped in its own bordered section. Show/Hide log
+starts hidden on every page load; reflect visibility with aria-expanded and
+aria-pressed plus the standard green active button. Data refresh preserves visibility.
+
+Recovery notifications include only the current reading/state, never the original
+triggering value. Opening evidence remains available in issue records and reminders.
+
+Both dashboards use span.issue-value with identical 16px regular text for saved
+issue readings, outside small metadata. Severity labels use normal-weight spans;
+timestamps, recovery and acknowledgement details use small on both dashboards.
+
+Flap-start notifications begin with four lines: ⚠️ FLAPPING - project; host - alias;
+service: current value/units; Issue #n - Deployment #n. Omit the momentary severity
+and historical opening value from that notification.
+
+Append Notifications for this check are suppressed until it stabilises. to
+flap-start notifications, making the scope of temporary suppression clear.
+
+Keep the warning icon at the start of flap-start notifications: ⚠️ FLAPPING.
+
+Telegram sample selector sends connectivity, critical, warning, recovery, flapping,
+stable, host-unreachable and port-state examples through the existing Admin/CSRF
+protected test endpoint and durable outbox. Use sample_notification and the same
+format_issue_message renderer as live events; fictitious data never creates issues,
+samples or deployments. Respect saved provider settings and global notification
+pause. Test outbox rows have no incident and bypass real-check suppression. Reject
+unknown sample types before queueing; old callers default to connectivity test.
+
+STABLE notifications match the four-line flapping layout with icon, project,
+host/alias, current service reading and issue/deployment numbers. Do not append
+HEALTHY or other severity to the heading, or the historical opening value.

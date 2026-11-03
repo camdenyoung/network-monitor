@@ -1,9 +1,69 @@
-# Network Monitor v0.2.3 · Build 15
+# Network Monitor v0.3 · Build 26
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 26 — v0.3
+
+- Merged flap protection, recovery hysteresis, immutable issue readings, notification formatting and Telegram sample notifications into main.
+
+
+### Build 25 — v0.2.3 (flap-protection branch)
+
+- STABLE notifications match the flapping layout, showing the icon and current reading without a repeated severity or historical opening value.
+
+
+### Build 24 — v0.2.3 (flap-protection branch)
+
+- Telegram settings can send sample Critical, Warning, Recovered, Flapping, Stable, Host unreachable and Port Down notifications alongside the connectivity test.
+- Samples share the live message renderer, use fictitious data, and obey global notification pause without creating real issues or deployments.
+
+
+### Build 23 — v0.2.3 (flap-protection branch)
+
+- Restore the warning icon at the start of flapping notifications.
+
+
+### Build 22 — v0.2.3 (flap-protection branch)
+
+- Flapping notifications explain that notifications for the affected check are suppressed until it stabilises.
+
+
+### Build 21 — v0.2.3 (flap-protection branch)
+
+- Flap-start notifications use four lines for project, host/alias, service/current reading, and issue/deployment numbers, without momentary severity or opening evidence.
+
+
+### Build 20 — v0.2.3 (flap-protection branch)
+
+- Match issue typography across both dashboards: body-sized values/states, normal-weight severity labels, and smaller timestamp/acknowledgement details.
+
+
+### Build 19 — v0.2.3 (flap-protection branch)
+
+- Recovery notifications show only the current value/state, omitting the original triggering value.
+
+
+### Build 18 — v0.2.3 (flap-protection branch)
+
+- Telegram delivery log has its own bordered section with a Show/Hide log button. It starts hidden on each page load and highlights the button while visible.
+
+
+### Build 17 — v0.2.3 (flap-protection branch)
+
+- Display issue values without the Triggered by prefix.
+- Show Host unreachable for failed ping checks, including older issues, instead of internal exception names.
+
+
+### Build 16 — v0.2.3 (flap-protection branch)
+
+- Configurable host/service flap protection: default four confirmed changes in five minutes, clearing after five stable minutes. Ordinary alerts/reminders are suppressed during flapping; episode start/end notifications summarise the state.
+- Optional recovery hysteresis in metric units; zero preserves existing thresholds.
+- Issues retain the triggering value/state and units for dashboard display and opening notifications, independently of subsequent readings and retention. Legacy issues are backfilled only from matching retained opening history; otherwise their cause is marked unavailable.
+- Service-library format v2 includes stability settings; v1 imports remain supported.
+
 
 ### Build 15 — v0.2.3
 
@@ -95,6 +155,16 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.3
+
+- Added configurable host/service flap protection with durable detection, suppression of repeated alerts while flapping, and start/stable notifications.
+- Added optional numeric recovery hysteresis, including negative readings such as RSSI. Stability settings travel with service libraries, inventory defaults and copied projects.
+- Save the value/state that opened an issue independently of later readings or history retention, and display it consistently on both dashboards.
+- Use readable Host unreachable messages. Recovery and stable notifications show current readings without the old trigger value; flapping alerts explain notification suppression.
+- Added a bordered Show/Hide Telegram delivery log and selectable sample notifications for testing message layouts without creating real issues.
+- Service-library exports use format v2; existing v1 library imports remain supported. Database upgrades preserve existing data.
+
 
 ### v0.2.3
 

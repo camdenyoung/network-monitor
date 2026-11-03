@@ -1072,6 +1072,162 @@ class MonitorTests(unittest.TestCase):
             server.poll_one(self.service, 1)
         self.assertEqual(server.snapshot()['latest'][0]['error'], 'RuntimeError')
 
+    def test_opening_evidence_survives_readings_edits_and_retention(self):
+        self.poll(-80)
+        self.poll(-81)
+        issue = server.snapshot()['incidents'][0]
+        self.assertEqual(issue['trigger_value'], -81)
+        self.assertEqual(issue['trigger_display'], '-81')
+        self.poll(-60)
+        self.poll(-60)
+        with server.connect() as db:
+            db.execute('DELETE FROM samples')
+            db.execute("UPDATE services SET units='changed',name='Renamed' WHERE id=?", (self.service['id'],))
+        saved = server.snapshot()['incidents'][0]
+        self.assertEqual(saved['trigger_value'], -81)
+        self.assertEqual(saved['trigger_units'], '')
+        self.assertIsNotNone(saved['closed'])
+
+    def test_state_and_unreachable_opening_evidence(self):
+        with server.connect() as db:
+            db.execute("""UPDATE services SET value_type='state',state_map=? WHERE id=?""",
+                       ('{"1":{"label":"Port Up","status":"healthy"},"2":{"label":"Port Down","status":"critical"}}', self.service['id']))
+            self.service = dict(db.execute('SELECT s.*,? address FROM services s WHERE id=?',
+                                          (self.service['address'], self.service['id'])).fetchone())
+        self.poll(2)
+        self.poll(2)
+        self.assertEqual(server.snapshot()['incidents'][0]['trigger_display'], 'Port Down')
+        with patch.object(server, 'read_metric', side_effect=TimeoutError('private credential')):
+            server.poll_one(self.service, 1)
+            server.poll_one(self.service, 1)
+        issue = server.snapshot()['incidents'][0]
+        self.assertEqual(issue['trigger_error'], 'TimeoutError')
+        self.assertIsNone(issue['trigger_value'])
+
+    def test_negative_metric_recovery_hysteresis_and_escalation(self):
+        service = {**self.service, 'hysteresis': 3}
+        self.assertEqual(server.classify(-64, service, 'warning'), 'warning')
+        self.assertEqual(server.classify(-62, service, 'warning'), 'healthy')
+        self.assertEqual(server.classify(-74, service, 'critical'), 'critical')
+        self.assertEqual(server.classify(-72, service, 'critical'), 'warning')
+        self.assertEqual(server.classify(-80, service, 'healthy'), 'critical')
+        self.assertEqual(server.classify(-64, {**service, 'hysteresis': 0}, 'warning'), 'healthy')
+        service.update(direction='above', warning=50, critical=70)
+        self.assertEqual(server.classify(49, service, 'warning'), 'warning')
+        self.assertEqual(server.classify(47, service, 'warning'), 'healthy')
+
+    def test_flap_episodes_are_persistent_and_require_continuous_stability(self):
+        from app import stability
+        service = {**self.service, 'flap_stable': 1}
+        with server.connect() as db:
+            events = [stability.observe(db, service, 1, status, True, 1000 + index * 15)
+                      for index, status in enumerate(('healthy', 'critical', 'healthy', 'critical', 'healthy'))]
+        self.assertEqual(events[-1], 'flap-start:1')
+        with server.connect() as db:
+            # Reopening the DB must retain the episode, and gaps cannot clear it.
+            self.assertEqual(stability.observe(db, service, 1, 'healthy', True, 1200), None)
+            for stamp in (1215, 1230, 1245):
+                self.assertIsNone(stability.observe(db, service, 1, 'healthy', True, stamp))
+            self.assertEqual(stability.observe(db, service, 1, 'healthy', True, 1260), 'flap-stable:1')
+            runtime = stability.state_for(db, 1, service['id'], service['revision'], service['monitoring_since'])
+            self.assertFalse(runtime['flapping'])
+            self.assertTrue(stability.event_is_current(runtime, 'flap-stable:1', 1260))
+            self.assertFalse(stability.event_is_current(runtime, 'flap-start:1', 1260))
+            self.assertFalse(stability.event_is_current(runtime, 'flap-stable:1', 1400))
+
+    def test_flapping_suppresses_ordinary_notifications_but_keeps_issues(self):
+        from app import notifications
+        server.mutate('notification-pause', {'paused': False})
+        with server.connect() as db:
+            notifications.save_configuration(db, {'enabled': True, 'bot_token': '123:test', 'chat_id': '-123',
+                                                  'recoveries': True})
+        self.service['persistence'] = 1
+        with server.connect() as db:
+            db.execute('UPDATE services SET persistence=1 WHERE id=?', (self.service['id'],))
+        clock = self.service['monitoring_since'] + 1
+        for index, value in enumerate((-60, -80, -60, -80, -60, -80, -60)):
+            with patch('time.time', return_value=clock + index * 15):
+                self.poll(value)
+        with server.connect() as db:
+            outbox = [dict(row) for row in db.execute('SELECT * FROM notification_outbox')]
+            self.assertEqual(len([row for row in outbox if row['event'] == 'flap-start:1']), 1)
+            flap_message = next(row['text'] for row in outbox if row['event'] == 'flap-start:1')
+            self.assertEqual(flap_message.splitlines(), [
+                '⚠️ FLAPPING - Festival', 'MW-014 - Stage link', 'RSSI: -60', 'Issue #2 - Deployment #1',
+                'Notifications for this check are suppressed until it stabilises.'])
+
+            self.assertFalse(any(row['state'] == 'pending' and row['event'] in ('opened', 'recovery') for row in outbox))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples WHERE service=?', (self.service['id'],)).fetchone()[0], 7)
+        self.assertTrue(next(row for row in server.snapshot()['services'] if row['id'] == self.service['id'])['flapping'])
+        for index in range(7, 27):
+            with patch('time.time', return_value=clock + index * 15):
+                self.poll(-60)
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event='flap-stable:1'").fetchone()[0], 1)
+        with patch('time.time', return_value=clock + 390), patch.object(notifications, 'send_message', return_value='test-id') as send:
+            while notifications.deliver_once(server.connect, server.LOCK, server.host_is_up):
+                pass
+            self.assertEqual(send.call_count, 1)
+            self.assertTrue(send.call_args.args[1].startswith('✅ STABLE - Festival\n'))
+            self.assertNotIn('HEALTHY', send.call_args.args[1])
+            self.assertEqual(len(send.call_args.args[1].splitlines()), 4)
+        self.assertFalse(next(row for row in server.snapshot()['services'] if row['id'] == self.service['id'])['flapping'])
+
+    def test_notification_opening_uses_saved_cause_after_later_reading(self):
+        from app import notifications
+        self.poll(-80)
+        self.poll(-81)
+        issue = server.snapshot()['incidents'][0]
+        self.poll(-60)
+        server.mutate('notification-pause', {'paused': False})
+        with server.connect() as db:
+            notifications.save_configuration(db, {'enabled': True, 'bot_token': '123:test', 'chat_id': '-123'})
+            notifications.enqueue_incident(db, issue['id'], 'opened')
+            message = db.execute('SELECT text FROM notification_outbox').fetchone()[0]
+            self.assertIn('RSSI: -81', message)
+            self.assertNotIn('RSSI: -60', message)
+            notifications.enqueue_incident(db, issue['id'], 'reminder:1')
+            message = db.execute("SELECT text FROM notification_outbox WHERE event='reminder:1'").fetchone()[0]
+            self.assertIn('\n-81', message)
+            self.assertNotIn('Triggered by', message)
+            notifications.enqueue_incident(db, issue['id'], 'recovery')
+            recovered = db.execute("SELECT text FROM notification_outbox WHERE event='recovery'").fetchone()[0]
+            self.assertIn('RSSI: -60', recovered)
+            self.assertNotIn('-81', recovered)
+
+
+    def test_policy_export_roundtrip_and_disabled_detector(self):
+        from app import stability, service_library
+        definition = {**self.service, 'name': 'Reusable RSSI', 'flap_enabled': False,
+                      'flap_changes': 6, 'flap_window': 7, 'flap_stable': 8, 'hysteresis': 3}
+        server.mutate('template-create', definition)
+        with server.connect() as db:
+            exported = service_library.export_document(db)
+            self.assertEqual(exported['version'], 2)
+            self.assertEqual(exported['services'][0]['hysteresis'], 3)
+            service_library.import_document(db, exported, 'replace', server.service_details)
+            template = db.execute('SELECT * FROM service_templates').fetchone()
+            self.assertEqual(template['flap_changes'], 6)
+            self.assertEqual(template['flap_enabled'], 0)
+            for index in range(20):
+                self.assertIsNone(stability.observe(db, definition, 1,
+                    'healthy' if index % 2 else 'critical', True, 1000 + index * 15))
+
+
+    def test_legacy_evidence_backfill_uses_opening_sample_not_recovery(self):
+        self.poll(-80)
+        self.poll(-81)
+        self.poll(-60)
+        self.poll(-60)
+        with server.connect() as db:
+            for field in ('trigger_value', 'trigger_display', 'trigger_units', 'trigger_timestamp', 'trigger_error'):
+                db.execute(f'ALTER TABLE incidents DROP COLUMN {field}')
+        server.initialize()
+        issue = server.snapshot()['incidents'][0]
+        self.assertEqual(issue['trigger_value'], -81)
+        self.assertEqual(issue['trigger_display'], '-81')
+
+
 
 if __name__ == '__main__':
     unittest.main()
