@@ -1,9 +1,17 @@
-# Network Monitor v0.3 · Build 26
+# Network Monitor v0.3 · Build 27
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 27 — v0.3 (UI polish branch)
+
+- Give each listed user a separate rounded border.
+- Enlarge checkboxes to 24px across the app and align stacked checkbox headings with other form labels.
+- Align project and previous-deployment selectors, with their action groups starting in the same column.
+- Restore Sign out beside Admin Dashboard on public status for every signed-in role.
+
 
 ### Build 26 — v0.3
 

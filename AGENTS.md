@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 26. Show it after the title on both the main and
+Current displayed release is v0.3, Build 27. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -482,3 +482,15 @@ unknown sample types before queueing; old callers default to connectivity test.
 STABLE notifications match the four-line flapping layout with icon, project,
 host/alias, current service reading and issue/deployment numbers. Do not append
 HEALTHY or other severity to the heading, or the historical opening value.
+
+UI polish: user-management entries have independent rounded borders. All app
+checkboxes use 24px native controls; stacked checkbox fields reserve the same
+35px control height as other fields so Enabled/Send recoveries labels align.
+Keep inline checkbox labels and project settings at the same 24px size.
+Project and previous-deployment selectors share grid columns and right edges;
+primary and previous-deployment action groups start in the same next column.
+Collapse to a single column on narrow screens and reserve the logo slot.
+Status navigation groups Admin Dashboard and Sign out at the right. Sign out is
+visible to all signed-in roles (including temporary-password users), uses the
+CSRF token from /api/me with /api/logout, and stays on public status afterwards.
+Do not expose additional account information or widen acknowledgement permissions.

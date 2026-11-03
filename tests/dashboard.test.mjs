@@ -1336,3 +1336,58 @@ assert.match(element('telegram-feedback').textContent, /Sample notification queu
 assert.equal(element('telegram-sample-type').value, 'flapping');
 resumeContext.fetch = sampleOriginalFetch;
 console.log('Telegram sample selector queues the selected example without resetting the selection.');
+
+// Public status must let every signed-in role log out even without acknowledgement CSRF.
+const signOutData = {project:'Logout test',devices:[],incidents:[],acknowledged_incidents:[],updated:now,
+  acknowledge_enabled:false,can_acknowledge:false,viewer:null};
+const signOutRequests = [];
+let signOutDenied = false;
+let signOutExpired = false;
+const signOutContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,
+  setInterval(){},fetch:async (path, options) => {
+    if (path === '/api/me') {
+      if (signOutExpired) {
+        signOutData.viewer = null;
+        return {ok:false,status:401,json:async () => ({error:'Login required'})};
+      }
+      return {ok:true,status:200,json:async () => ({...signOutData.viewer,csrf:'logout-session-token'})};
+    }
+    if (path === '/api/logout') {
+      signOutRequests.push(options);
+      if (signOutDenied) return {ok:false,status:403,json:async () => ({error:'Sign out rejected'})};
+      signOutData.viewer = null;
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => signOutData};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(signOutContext);
+await signOutContext.refresh();
+assert.equal(publicNodes.get('status-logout').hidden,true);
+for (const role of ['admin','operator','viewer']) {
+  for (const mustChangePassword of [false,true]) {
+    signOutData.viewer = {username:role,role,must_change_password:mustChangePassword};
+    await signOutContext.refresh();
+    assert.equal(publicNodes.get('status-logout').hidden,false);
+    await publicNodes.get('status-logout').onclick();
+    const posted = signOutRequests.at(-1);
+    assert.equal(posted.headers['X-CSRF-Token'],'logout-session-token');
+    assert.equal(posted.method,'POST');
+    assert.equal(publicNodes.get('status-logout').hidden,true);
+    assert.equal(publicNodes.get('status-session').textContent,'Not signed in');
+    assert.equal(publicNodes.get('status-session-link').textContent,'Sign in');
+    assert.equal(publicNodes.get('status-logout').disabled,false);
+  }
+}
+signOutData.viewer = {username:'viewer',role:'viewer'};
+signOutDenied = true;
+await signOutContext.refresh();
+await publicNodes.get('status-logout').onclick();
+assert.equal(publicNodes.get('status-logout').hidden,false);
+assert.equal(publicNodes.get('status-logout').disabled,false);
+assert.equal(publicNodes.get('status-ack-feedback').textContent,'Sign out rejected');
+const callsBeforeExpiry = signOutRequests.length;
+signOutExpired = true;
+await publicNodes.get('status-logout').onclick();
+assert.equal(signOutRequests.length,callsBeforeExpiry);
+assert.equal(publicNodes.get('status-logout').hidden,true);
+console.log('Status sign-out works for all roles and temporary passwords, uses session CSRF, and handles rejection/expiry.');

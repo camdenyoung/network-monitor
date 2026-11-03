@@ -22,6 +22,14 @@
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
     input, select, textarea, button, .button-link { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    /* Give every checkbox a visible control and keep stacked field labels aligned. */
+    input[type="checkbox"] { width: 24px; height: 24px; min-width: 24px; max-width: 24px; padding: 0; margin: 0; box-sizing: border-box; accent-color: #176959; cursor: pointer; flex: 0 0 24px; }
+    .checkbox-field { grid-template-rows: auto 35px; }
+    .checkbox-field input { align-self: center; }
+    .checkbox-inline { display: flex; align-items: center; gap: 10px; min-height: 35px; }
+    .user-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #435b78; border-radius: 8px; padding: 14px; margin-top: 12px; }
+    .user-details { flex: 1 1 320px; overflow-wrap: anywhere; }
+    .user-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
@@ -74,16 +82,20 @@
     .acknowledgement-dialog, .library-import-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
     .acknowledgement-dialog::backdrop, .library-import-dialog::backdrop { background: #0009; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
-    /* Keep this space even when the image is hidden, preventing selector shifts. */
-    .project-toolbar { justify-content: flex-start; align-items: flex-end; }
-    .project-toolbar > small { flex: 0 0 100%; }
-    .deployment-controls { display: flex; flex: 0 0 100%; flex-wrap: wrap; align-items: end; gap: 12px; min-width: 0; }
-    .deployment-controls label { flex: 1 1 320px; min-width: 0; max-width: 760px; }
-    .deployment-controls select { width: 100%; box-sizing: border-box; }
-    .deployment-controls small { flex: 0 0 100%; overflow-wrap: anywhere; }
-    .project-logo-slot { flex: 0 0 180px; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
-    .project-selector { flex: 1 1 240px; max-width: 360px; min-width: 0; }
-    .project-selector select { width: 100%; box-sizing: border-box; }
+    /* Reserve the logo column even when hidden; both selector/action rows align. */
+    .project-toolbar { display: grid; grid-template-columns: 180px minmax(0, 360px) minmax(0, 1fr); align-items: start; }
+    .project-toolbar > small { grid-column: 1 / -1; }
+    /* Reserve one label line so the first action still aligns if buttons wrap. */
+    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: wrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
+    .project-actions > button, .deployment-actions > button { min-height: 38px; }
+    .project-selector, .deployment-controls label { grid-template-rows: 16px auto; gap: 5px; line-height: 16px; }
+    .project-selector select, .deployment-controls select { height: 38px; font-size: 15px; }
+    .deployment-controls { display: contents; }
+    .deployment-controls label { grid-column: 2; min-width: 0; }
+    .deployment-controls select, .project-selector select { width: 100%; box-sizing: border-box; min-width: 0; }
+    .deployment-controls small { grid-column: 2 / -1; overflow-wrap: anywhere; }
+    .project-logo-slot { grid-column: 1; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
+    .project-selector { grid-column: 2; min-width: 0; }
     .project-settings > h2 { margin-bottom: 6px; }
     .project-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .project-settings-panel { display: flex; flex-direction: column; padding: 18px; border: 1px solid #314257; border-radius: 8px; background: #101b29; min-width: 0; }
@@ -93,7 +105,7 @@
     .project-settings-panel input { box-sizing: border-box; width: 100%; min-width: 0; }
     .project-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
     .project-settings-panel .project-check { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
-    .project-settings-panel .project-check input { width: 18px; height: 18px; flex: 0 0 18px; margin: 3px 0 0; }
+    .project-settings-panel .project-check input { width: 24px; height: 24px; flex: 0 0 24px; margin: 0; }
     .project-logo-preview { height: 88px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; border: 1px dashed #435b78; border-radius: 6px; color: #a9bad0; }
     .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
     #monitoring-toggle[aria-pressed="true"], #notifications-toggle[aria-pressed="true"] { background: #176959; }
@@ -106,7 +118,11 @@
     @media (prefers-reduced-motion: reduce) {
       #monitoring-toggle.monitoring-paused { animation: none; }
     }
-    @media (max-width: 760px) { .project-settings-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) {
+      .project-settings-grid, .project-toolbar { grid-template-columns: minmax(0, 1fr); }
+      .project-selector, .project-actions, .deployment-controls label, .deployment-actions, .deployment-controls small { grid-column: 1; }
+      .project-actions, .deployment-actions { padding-top: 0; }
+    }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .account-nav { justify-content: flex-start; }
     .account-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
@@ -117,7 +133,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 26</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 27</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -132,15 +148,19 @@
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
-    <button data-admin id="activate" class="primary">Activate / start new deployment</button>
-    <button data-admin id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
-    <button data-admin id="notifications-toggle" aria-pressed="true">Pause notifications</button>
+    <div data-admin class="project-actions">
+      <button id="activate" class="primary">Activate / start new deployment</button>
+      <button id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
+      <button id="notifications-toggle" aria-pressed="true">Pause notifications</button>
+    </div>
     <small>15-second polling · issue persistence is configurable per service</small>
     <small id="deployment-details"></small>
     <div data-admin class="deployment-controls">
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
-      <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
-      <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
+      <div class="deployment-actions">
+        <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
+        <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
+      </div>
       <small id="previous-deployment-details">Choose a previous deployment for the selected project.</small>
     </div>
   </section>
@@ -272,7 +292,7 @@
         <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
         <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
         <fieldset><legend>Flap protection</legend>
-        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+        <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
@@ -338,7 +358,7 @@
       <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
       <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
       <label>Password<input name="password" required type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
-      <label>Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
+      <label class="checkbox-field">Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
       <button>Add user</button><button id="clear-new-user" type="button">Clear</button>
     </form><p id="user-feedback" role="status"></p><div id="users"></div>
     <h3>Login sessions</h3>
@@ -364,11 +384,11 @@
     <h2>Telegram group</h2>
     <p>Create a bot with BotFather, add it to your group with permission to send messages, and enter the numeric chat ID. No inbound port or public server is required for outbound notifications.</p>
     <form id="telegram-form">
-      <label>Enabled<input name="enabled" type="checkbox"></label>
+      <label class="checkbox-field">Enabled<input name="enabled" type="checkbox"></label>
       <label>Bot token (blank keeps stored token)<input name="bot_token" type="password" autocomplete="new-password"></label>
       <label>Chat ID<input name="chat_id" placeholder="-100…"></label>
       <label>Topic ID (optional)<input name="thread_id" type="number" min="1"></label>
-      <label>Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <label class="checkbox-field">Send recoveries<input name="recoveries" type="checkbox" checked></label>
       <button>Save settings</button>
     </form>
     <button id="telegram-chats">Discover groups</button><div id="telegram-group-list"></div>
@@ -399,7 +419,7 @@
       parameters: device, status/project, and details. This does not connect to an
       ordinary WhatsApp app group. Group mode requires an eligible Business API group.</p>
     <form id="whatsapp-form">
-      <label>Enabled<input name="enabled" type="checkbox"></label>
+      <label class="checkbox-field">Enabled<input name="enabled" type="checkbox"></label>
       <label>Access token (blank keeps stored token)<input name="bot_token" type="password" autocomplete="new-password"></label>
       <label>Sender phone number ID<input name="phone_number_id"></label>
       <label>Graph API version<input name="api_version" placeholder="Version from your Meta app"></label>
@@ -407,7 +427,7 @@
       <label>Recipient phone (country code, no +) / Business group ID<input name="chat_id"></label>
       <label>Approved template name<input name="template_name"></label>
       <label>Template language<input name="language" value="en_US"></label>
-      <label>Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <label class="checkbox-field">Send recoveries<input name="recoveries" type="checkbox" checked></label>
       <button>Save settings</button>
     </form>
     <button id="whatsapp-test">Send test message</button><button id="whatsapp-retry">Retry failed messages</button>
@@ -496,7 +516,7 @@
       <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
       <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
       <label>Password (blank keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
-      <label>Require password change on next login<input name="must_change_password" type="checkbox"></label>
+      <label class="checkbox-field">Require password change on next login<input name="must_change_password" type="checkbox"></label>
       <button class="primary">Save changes</button>
       <button id="cancel-user-edit" type="button">Cancel</button>
     </form>
@@ -566,7 +586,7 @@
       <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
       <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
       <fieldset><legend>Flap protection</legend>
-        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+        <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
@@ -579,7 +599,7 @@
     <p id="service-edit-feedback" role="status"></p>
   </dialog>
   <dialog id="host-stability"><h2>Host flap protection</h2><form id="host-stability-form"><input name="service" type="hidden"><fieldset><legend>Flap protection</legend>
-        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+        <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
@@ -1969,9 +1989,9 @@
       const responses = await Promise.all([fetch('/api/users'), fetch('/api/telegram'), fetch('/api/whatsapp')]);
       if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
       users = await responses[0].json();
-      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}
-        <button data-edit-user="${user.id}">Edit</button>
-        ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</p>`).join('');
+      el('users').innerHTML = users.map(user => `<div class="user-entry"><span class="user-details">${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}</span>
+        <div class="user-actions"><button data-edit-user="${user.id}">Edit</button>
+        ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</div></div>`).join('');
       const telegram = await responses[1].json();
       if (!telegramLoaded) {
         const form = el('telegram-form');
