@@ -819,9 +819,9 @@
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
-        return `<p><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
+        return `<div class="metric"><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
-          · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</p>`;
+          · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</div>`;
       }).join('');
     }
 

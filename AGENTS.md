@@ -306,3 +306,6 @@ panel; issue lists, their controls and the update timestamp remain outside it.
 
 Both dashboard live host panels have a Live Hosts heading above their controls,
 inside the border, and it hides together with the panel.
+
+Admin issue lists use the shared metric row spacing and top separator border,
+matching public status for active, acknowledged, suppressed and resolved issues.
