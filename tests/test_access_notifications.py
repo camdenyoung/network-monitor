@@ -281,6 +281,24 @@ class AccessAndNotificationTests(unittest.TestCase):
             db.execute("UPDATE notification_outbox SET state='sent',created=?,next_attempt=?", (now - 61, now - 61))
         return host, issue, now
 
+    def test_issue_notification_icons_match_status_and_recovery_on_both_channels(self):
+        host, issue, now = self.reminder_fault()
+        for status, event, heading in (
+                ('critical', 'opened', '❌ CRITICAL'),
+                ('unreachable', 'opened', '❌ UNREACHABLE'),
+                ('warning', 'opened', '⚠️ WARNING'),
+                ('critical', 'recovery', '✅ RECOVERED'),
+                ('warning', 'reminder:1', '⚠️ REMINDER · WARNING'),
+                ('critical', 'reminder:2', '❌ REMINDER · CRITICAL')):
+            with self.subTest(status=status, event=event), server.connect() as db:
+                db.execute('DELETE FROM notification_outbox')
+                db.execute('UPDATE incidents SET status=? WHERE id=?', (status, issue))
+                notifications.enqueue_incident(db, issue, event)
+                rows = db.execute('SELECT channel,text FROM notification_outbox').fetchall()
+                self.assertEqual({row['channel'] for row in rows}, {'telegram', 'whatsapp'})
+                self.assertTrue(all(row['text'].startswith(heading + ' · ') for row in rows))
+                self.assertTrue(all(f'Issue #{issue}' in row['text'] for row in rows))
+
     def test_reminders_repeat_per_channel_without_pending_or_restart_bursts(self):
         host, issue, now = self.reminder_fault()
         with patch.object(notifications.time, 'time', return_value=now), server.connect() as db:

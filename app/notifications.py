@@ -123,6 +123,9 @@ def enqueue_for_channel(db, incident_id, event, channel):
     title = 'RECOVERED' if event == 'recovery' else row['status'].upper()
     if event.startswith('reminder:'):
         title = 'REMINDER · ' + title
+    icons = {'warning': '⚠️', 'critical': '❌', 'unreachable': '❌'}
+    icon = '✅' if event == 'recovery' else icons.get(row['status'], 'ℹ️')
+    title = f'{icon} {title}'
     text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
             f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIssue #{incident_id}")
     db.execute('''INSERT OR IGNORE INTO notification_outbox

@@ -503,3 +503,7 @@ cancelling sends no request; disable repeat submits while saving.
 
 Both dashboards display Issue #ID on issue rows and acknowledgement dialogs,
 matching the stable database ID included in Telegram/WhatsApp notifications.
+
+Telegram and WhatsApp Business issue notifications start with severity icons:
+✅ recovered, ❌ critical/unreachable, ⚠️ warning. Reminders retain the severity
+icon and explicit REMINDER label; keep the text status for clarity.
