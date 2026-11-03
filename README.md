@@ -1,9 +1,14 @@
-# Network Monitor v0.2.2 · Build 14
+# Network Monitor v0.2.3 · Build 15
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 15 — v0.2.3
+
+- Merged previous-deployment selection/resumption, safe deployment deletion and severity-coloured visual alerts into main.
+
 
 ### Build 14 — v0.2.2
 
@@ -90,6 +95,15 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.2.3
+
+- Added project-scoped deployment selection with start dates and descriptions, plus confirmed resumption of older runs.
+- Preserve retained history and issue numbering when resuming; use current project configuration, require fresh checks and pause notifications.
+- Added confirmed deletion of inactive deployments and their readings, issues, acknowledgements and related notification records while preserving other runs and configuration.
+- Prevent reuse of deleted deployment/internal issue IDs to protect stale browser actions and in-flight polling.
+- Status-page visual alerts pulse red for Critical/Unreachable issues and yellow for Warning issues, with critical priority and reduced-motion support.
+
 
 ### v0.2.2
 
