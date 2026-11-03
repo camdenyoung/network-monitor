@@ -1,9 +1,14 @@
-# Network Monitor v0.2.3 · Build 20
+# Network Monitor v0.2.3 · Build 21
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 21 — v0.2.3 (flap-protection branch)
+
+- Flap-start notifications use four lines for project, host/alias, service/current reading, and issue/deployment numbers, without momentary severity or opening evidence.
+
 
 ### Build 20 — v0.2.3 (flap-protection branch)
 
