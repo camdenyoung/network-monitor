@@ -605,7 +605,7 @@ def poll_one(service, run):
                 (id,run,service,opened,status,number,trigger_value,trigger_display,
                  trigger_units,trigger_timestamp,trigger_error) VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
                 (next_record_id(db, 'incidents'), run, service['id'], observed_at, status, number,
-                 value, display_value(service, value), service['units'] if service['value_type'] == 'metric' else '',
+                 value, 'Host unreachable' if service['kind'] == 'ping' and value is None else display_value(service, value), service['units'] if service['value_type'] == 'metric' else '',
                  observed_at, error))
             if not flap_event:
                 notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
@@ -748,6 +748,11 @@ def snapshot():
         for incidents in [result['incidents'], *result['incident_lists'].values()]:
             for incident in incidents:
                 incident['acknowledged_by_full_name'] = acknowledgement_display_name(incident, accounts)
+                service = configurations.get(incident['service'])
+                # Older saved ping failures contain only an internal exception name.
+                # Their recorded Unreachable status still gives a clear host state.
+                if service and service['kind'] == 'ping' and incident['status'] == 'unreachable' and incident['trigger_value'] is None:
+                    incident['trigger_display'] = 'Host unreachable'
         update_card_incidents(result)
         return result
 

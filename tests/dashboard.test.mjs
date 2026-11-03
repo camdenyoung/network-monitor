@@ -1311,9 +1311,12 @@ console.log('Status attention uses yellow for warnings and red for critical/unre
 // Opening evidence stays explicit, labelled and escaped on both dashboards.
 const evidence = {id:1,number:1,status:'critical',opened:now,trigger_timestamp:now,
   trigger_value:-78,trigger_display:'-78',trigger_units:'dBm'};
-assert.match(context.renderIncidents([evidence]), /Triggered by -78 dBm/);
+assert.match(context.renderIncidents([evidence]), /· -78 dBm/);
 assert.equal(publicContext.issueCause(evidence), '-78 dBm');
 assert.match(context.renderIncidents([{...evidence,trigger_value:2,trigger_display:'<Port Down>',trigger_units:''}]), /&lt;Port Down&gt;/);
-assert.equal(publicContext.issueCause({...evidence,trigger_value:null,trigger_error:'TimeoutError'}), 'No usable reading (TimeoutError)');
+assert.equal(publicContext.issueCause({...evidence,trigger_value:null,trigger_display:null,trigger_error:'TimeoutError'}), 'No usable reading (TimeoutError)');
 assert.match(context.renderIncidents([{id:1,status:'critical',opened:now}]), /Opening value unavailable/);
 console.log('Immutable issue causes show metric units, state labels and safe missing-reading details on both dashboards.');
+
+assert.doesNotMatch(context.renderIncidents([evidence]), /Triggered by/i);
+assert.equal(publicContext.issueCause({...evidence,trigger_value:null,trigger_display:'Host unreachable',trigger_error:'CalledProcessError'}), 'Host unreachable');

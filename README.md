@@ -1,9 +1,15 @@
-# Network Monitor v0.2.3 · Build 16
+# Network Monitor v0.2.3 · Build 17
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 17 — v0.2.3 (flap-protection branch)
+
+- Display issue values without the Triggered by prefix.
+- Show Host unreachable for failed ping checks, including older issues, instead of internal exception names.
+
 
 ### Build 16 — v0.2.3 (flap-protection branch)
 

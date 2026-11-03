@@ -128,6 +128,15 @@ def enqueue_incident(db, incident_id, event):
         enqueue_for_channel(db, incident_id, event, channel)
 
 
+def recorded_issue_value(row):
+    """Translate ping failures without exposing subprocess implementation details."""
+    if row['kind'] == 'ping' and row['status'] == 'unreachable':
+        return 'Host unreachable'
+    if row['trigger_value'] is not None:
+        return str(row['trigger_display'] if row['trigger_display'] is not None else row['trigger_value'])
+    return row['trigger_display'] or 'No usable reading (' + (row['trigger_error'] or 'Unavailable') + ')'
+
+
 def enqueue_for_channel(db, incident_id, event, channel):
     if are_paused(db):
         return
@@ -150,8 +159,8 @@ def enqueue_for_channel(db, incident_id, event, channel):
                          (row['service'], row['run'])).fetchone()
     value = (reading['display_value'] or str(reading['value'])) if reading and reading['value'] is not None else 'No reading'
     units = row['units'] if row['value_type'] == 'metric' else ''
-    if event == 'opened' and row['trigger_timestamp'] is not None:
-        value = row['trigger_display'] if row['trigger_value'] is not None else 'No usable reading (' + (row['trigger_error'] or 'Unavailable') + ')'
+    if event == 'opened' and (row['trigger_timestamp'] is not None or row['kind'] == 'ping'):
+        value = recorded_issue_value(row)
         units = row['trigger_units'] or ''
     title = 'RECOVERED' if event == 'recovery' else row['status'].upper()
     if event.startswith('reminder:'):
@@ -165,9 +174,8 @@ def enqueue_for_channel(db, incident_id, event, channel):
     text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
             f"{row['service_name']}: {value} {units}\nIssue #{row['number']} · Deployment #{row['run']}")
     if event != 'opened' and row['trigger_timestamp'] is not None:
-        cause = (str(row['trigger_display'] or row['trigger_value']) + ' ' + (row['trigger_units'] or '')
-                 if row['trigger_value'] is not None else 'No usable reading (' + (row['trigger_error'] or 'Unavailable') + ')')
-        text += '\nTriggered by: ' + cause.strip()
+        cause = recorded_issue_value(row) + ' ' + (row['trigger_units'] or '')
+        text += '\n' + cause.strip()
     db.execute('''INSERT OR IGNORE INTO notification_outbox
         (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
         (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))

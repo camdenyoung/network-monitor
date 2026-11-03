@@ -1262,6 +1262,33 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(len(whatsapp['template']['components'][0]['parameters']), 3)
         self.assertEqual(whatsapp['recipient_type'], 'individual')
 
+    def test_host_unreachable_is_readable_in_saved_and_legacy_issue_displays(self):
+        import subprocess
+        host = self.create_host()
+        self.configure_channels()
+        with patch.object(server, 'read_metric', side_effect=subprocess.CalledProcessError(1, ['ping'])):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        issue = server.snapshot()['incident_lists']['active'][0]
+        self.assertEqual(issue['trigger_display'], 'Host unreachable')
+        self.assertEqual(issue['trigger_error'], 'CalledProcessError')
+        self.assertEqual(server.status_overview()['incidents'][0]['trigger_display'], 'Host unreachable')
+        with server.connect() as db:
+            messages = db.execute('SELECT text FROM notification_outbox').fetchall()
+            self.assertEqual(len(messages), 2)
+            for message in messages:
+                self.assertIn('Host unreachable', message[0])
+                self.assertNotIn('CalledProcessError', message[0])
+                self.assertNotIn('Triggered by', message[0])
+            # Existing build-16 issues also get the friendly label without
+            # rewriting their original diagnostic evidence.
+            db.execute('UPDATE incidents SET trigger_display=NULL WHERE id=?', (issue['id'],))
+            notifications.enqueue_incident(db, issue['id'], 'reminder:test')
+            for message in db.execute("SELECT text FROM notification_outbox WHERE event='reminder:test'"):
+                self.assertIn('Host unreachable', message[0])
+                self.assertNotIn('CalledProcessError', message[0])
+        self.assertEqual(server.status_overview()['incidents'][0]['trigger_display'], 'Host unreachable')
+
 
 if __name__ == '__main__':
     unittest.main()
