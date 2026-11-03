@@ -1,9 +1,15 @@
-# Network Monitor v0.3 · Build 36
+# Network Monitor v0.3 · Build 37
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 37 — v0.3 (UI polish branch)
+
+- Separate Configured Services details from Pause/Actions controls with more spacing and responsive alignment.
+- Show Device ID alongside alias and address in Project Assignments.
+
 
 ### Build 36 — v0.3 (UI polish branch)
 

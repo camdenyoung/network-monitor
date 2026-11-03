@@ -77,6 +77,8 @@ const context = vm.createContext({
 new vm.Script(script).runInContext(context);
 await context.refresh();
 assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
+assert.match(element('assignments').innerHTML, /Device ID - Alias \/ Address/);
+assert.match(element('assignments').innerHTML, /SW001 - Stage \/ 127\.0\.0\.1/);
 assert.match(element('dashboard').innerHTML, /class="action-menu"/);
 assert.match(element('dashboard').innerHTML, />Up /);
 context.openAliasEditor(1);

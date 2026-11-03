@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 36. Show it after the title on both the main and
+Current displayed release is v0.3, Build 37. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -554,3 +554,8 @@ errors inline. Success refresh failures must not imply the mutation failed.
 Covers device deletion, project removal, library deletion, default deletion/adoption,
 user deletion and backup restore. Preserve server-side Admin/CSRF/last-admin checks.
 Restore invalidates sessions; after success return to login, not authenticated refresh.
+
+Configured Services rows separate name/protocol details from right-aligned
+Pause/Actions controls with a 24px gap, wrapping safely on small screens.
+Project Assignments identifies equipment as Device ID - Alias / Address;
+resolve Device ID and IP from permanent inventory and escape all displayed text.

@@ -34,6 +34,11 @@
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
     .service-controls { display: flex; align-items: start; gap: 6px; }
+    #service-catalogue .metric { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; }
+    .catalogue-details { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+    .catalogue-details small { display: block; margin-top: 4px; }
+    #service-catalogue .service-controls { flex-shrink: 0; gap: 12px; }
+    #service-catalogue .service-controls > button { margin: 0; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
@@ -151,7 +156,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 36</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 37</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -1059,7 +1064,10 @@
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       renderInventory();
       renderHosts();
-      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`).join('') + '</table>';
+      el('assignments').innerHTML = '<table><tr><th>Device ID - Alias / Address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => {
+        const device = state.devices.find(device => device.id === row.device);
+        return `<tr><td>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(row.alias)} / ${escapeHtml(device?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`;
+      }).join('') + '</table>';
       renderServiceCatalogue();
       el('service-library').innerHTML = state.service_templates.map(template => `
         <article><strong>${escapeHtml(template.name)}</strong>
@@ -1149,8 +1157,8 @@
       el('catalogue-summary').textContent = `Showing ${Math.min(catalogueLimit, matches.length)} of ${matches.length} matching services`;
       el('service-catalogue').innerHTML = matches.slice(0, catalogueLimit).map(service => {
         const host = assignments.find(row => row.id === service.assignment);
-        return `<div class="metric"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
-          <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small>
+        return `<div class="metric"><div class="catalogue-details"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
+          <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small></div>
           ${serviceActions(service, 'catalogue')}
         </div>`;
       }).join('') || '<p>No services match these filters.</p>';
