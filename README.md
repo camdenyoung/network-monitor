@@ -1,9 +1,14 @@
-# Network Monitor v0.3 · Build 34
+# Network Monitor v0.3 · Build 35
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 35 — v0.3 (UI polish branch)
+
+- Replace browser service-removal confirmation with an in-app dialog identifying the host and service, retaining history and displaying errors inline.
+
 
 ### Build 34 — v0.3 (UI polish branch)
 

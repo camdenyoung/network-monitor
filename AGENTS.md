@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 34. Show it after the title on both the main and
+Current displayed release is v0.3, Build 35. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -539,3 +539,9 @@ resize close it. Escape restores trigger focus. Internal menu scrolling remains
 usable. Polling restores only a unique location:service key, never both live and
 catalogue occurrences; clear it if the target disappears. Keep popup within the
 viewport, opening upward near the bottom. Other details elements are unaffected.
+
+Removing a host service uses the shared styled in-app confirmation, never native
+confirm(). Show Device ID - Alias / service name using textContent, explain that
+history is retained, and capture the target. Cancel/Escape send no mutation.
+Disable controls while saving, keep errors in the dialog, reject unavailable
+services and preserve backend Admin/CSRF enforcement and soft-removal semantics.

@@ -1541,3 +1541,68 @@ actionMenus = [replacementAction.menu];
 menuContext.restoreActionMenu();
 assert.equal(replacementAction.menu.open,false);
 console.log('Actions menus stay exclusive, float within the viewport, survive polling once, and close on outside/action clicks, Escape and page scroll.');
+
+// Removing a host service uses reviewable app UI, not a native confirmation.
+const removalFixture = {...fixture,projects:[{id:1,name:'Removal project'}],
+  devices:[{id:99,name:'Switch <A>',address:'10.0.0.1'}],
+  assignments:[{id:101,project:1,device:99,alias:'Stage & alias',visible:1,monitoring:1}],
+  services:[{...stateService,id:202,assignment:101,name:'Port <status>',enabled:1}],
+  latest:[],runs:[{id:1,project:1}],settings:{active_run:'1',retention_days:'30'},
+  incident_lists:{active:[],acknowledged:[],suppressed:[],resolved:[]}};
+const removalRequests = [];
+let rejectServiceRemoval = false;
+const removalContext = vm.createContext({document:context.document,localStorage:context.localStorage,
+  setInterval(){},confirm(){throw new Error('Native confirmation must not be used');},
+  fetch:async (path,options) => {
+    if (path === '/api/remove-service') {
+      removalRequests.push({body:JSON.parse(options.body),headers:options.headers});
+      if (rejectServiceRemoval) return {ok:false,status:400,json:async () => ({error:'Removal rejected'})};
+      removalFixture.services[0].enabled = 0;
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => path === '/api/me' ? {id:1,username:'admin',role:'admin',csrf:'remove-token'}
+      : path === '/api/users' ? [] : ['/api/telegram','/api/whatsapp'].includes(path) ? {configuration:{},outbox:[]} : removalFixture};
+  }});
+new vm.Script(script).runInContext(removalContext);
+await removalContext.initializeSession();
+removalContext.openServiceRemoval(202);
+assert.equal(element('remove-service-dialog').open,true);
+assert.equal(element('remove-service-context').textContent,'Switch <A> - Stage & alias / Port <status>');
+assert.equal(removalRequests.length,0);
+element('cancel-remove-service').onclick();
+await element('confirm-remove-service').onclick();
+assert.equal(removalRequests.length,0);
+removalContext.openServiceRemoval(202);
+element('remove-service-dialog').onclose();
+element('remove-service-dialog').close();
+await element('confirm-remove-service').onclick();
+assert.equal(removalRequests.length,0);
+removalContext.openServiceRemoval(202);
+rejectServiceRemoval = true;
+await element('confirm-remove-service').onclick();
+assert.equal(element('remove-service-dialog').open,true);
+assert.equal(element('remove-service-feedback').textContent,'Removal rejected');
+assert.equal(element('confirm-remove-service').disabled,false);
+assert.equal(element('cancel-remove-service').disabled,false);
+assert.equal(removalRequests[0].body.id,202);
+assert.equal(removalRequests[0].headers['X-CSRF-Token'],'remove-token');
+element('cancel-remove-service').onclick();
+removalContext.openServiceRemoval(202);
+removalFixture.services[0].enabled = 0;
+await removalContext.refresh();
+await element('confirm-remove-service').onclick();
+assert.equal(removalRequests.length,1);
+assert.match(element('remove-service-feedback').textContent,/no longer available/);
+element('cancel-remove-service').onclick();
+removalFixture.services[0].enabled = 1;
+await removalContext.refresh();
+removalContext.openServiceRemoval(202);
+rejectServiceRemoval = false;
+const removalSave = element('confirm-remove-service').onclick();
+await element('confirm-remove-service').onclick();
+await removalSave;
+assert.equal(removalRequests.length,2);
+assert.equal(element('remove-service-dialog').open,false);
+assert.equal(removalFixture.services[0].enabled,0);
+assert.match(element('message').textContent,/Service removed/);
+console.log('In-app service removal supports safe cancellation, inline errors, fixed targets and a single confirmed request.');

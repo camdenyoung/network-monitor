@@ -151,7 +151,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 34</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 35</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -447,6 +447,16 @@
       <button id="cancel-acknowledgement" autofocus>Cancel</button>
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="remove-service-dialog" class="acknowledgement-dialog" aria-labelledby="remove-service-title" aria-describedby="remove-service-description">
+    <h2 id="remove-service-title">Remove service from host?</h2>
+    <p id="remove-service-context"></p>
+    <p id="remove-service-description">This stops monitoring this service on this host. Historical readings are retained. Other hosts and reusable library definitions are unchanged.</p>
+    <div class="display-controls">
+      <button id="confirm-remove-service" class="danger">Remove service</button>
+      <button id="cancel-remove-service" autofocus>Cancel</button>
+    </div>
+    <p id="remove-service-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="delete-deployment-dialog" class="acknowledgement-dialog" aria-labelledby="delete-deployment-title">
     <h2 id="delete-deployment-title">Delete deployment?</h2>
@@ -2026,13 +2036,55 @@
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
         if (data.ack) await acknowledgeIssue(data.ack);
-        if (data.remove && confirm('Remove this service? Historical readings are retained.')) await performAction('remove-service', {id: data.remove});
+        if (data.remove) openServiceRemoval(data.remove);
         if (data.history) await openHistory(data.history);
       } catch (error) {
         if (data.deleteDevice) inventoryFeedback(error.message);
         else report(error);
       }
     });
+    let pendingServiceRemoval = null;
+    function openServiceRemoval(id) {
+      const service = state.services.find(row => row.id === Number(id) && row.enabled !== 0 && row.kind !== 'ping');
+      const assignment = state.assignments.find(row => row.id === service?.assignment && !row.removed);
+      const device = state.devices.find(row => row.id === assignment?.device);
+      if (!service || !assignment || !device) throw new Error('Service is no longer available. Refresh the dashboard.');
+      closeActionMenus();
+      // Capture the service and its owner so refreshes cannot retarget confirmation.
+      pendingServiceRemoval = {id: service.id, assignment: assignment.id};
+      el('remove-service-context').textContent = `${device.name} - ${assignment.alias} / ${service.name}`;
+      el('remove-service-feedback').textContent = '';
+      el('remove-service-dialog').showModal();
+    }
+    el('cancel-remove-service').onclick = () => {
+      pendingServiceRemoval = null;
+      el('remove-service-dialog').close();
+    };
+    el('remove-service-dialog').onclose = () => { pendingServiceRemoval = null; };
+    el('remove-service-dialog').oncancel = event => {
+      if (el('confirm-remove-service').disabled) event.preventDefault();
+    };
+    el('confirm-remove-service').onclick = async () => {
+      if (!pendingServiceRemoval || el('confirm-remove-service').disabled) return;
+      const button = el('confirm-remove-service');
+      const cancel = el('cancel-remove-service');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        const target = pendingServiceRemoval;
+        const service = state.services.find(row => row.id === target.id && row.assignment === target.assignment && row.enabled !== 0 && row.kind !== 'ping');
+        const assignment = state.assignments.find(row => row.id === target.assignment && !row.removed);
+        if (!service || !assignment) throw new Error('Service is no longer available. Cancel and refresh the dashboard.');
+        await request('remove-service', {id: target.id});
+        pendingServiceRemoval = null;
+        el('remove-service-dialog').close();
+        notify('Service removed. Historical readings retained.', true);
+        try { await refresh(); }
+        catch (error) { notify('Service removed. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('remove-service-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
+
     function openHostStabilityEditor(id) {
       const service = state.services.find(row => row.id === Number(id) && row.kind === 'ping');
       const assignment = state.assignments.find(row => row.id === service?.assignment && !row.removed);
