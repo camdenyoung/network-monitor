@@ -156,6 +156,7 @@
     <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-pressed="false">Show Project configuration</button>
     <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-pressed="false">Show Reusable service library</button>
     <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-pressed="false">Show User management</button>
+    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-pressed="false">Show Issue reminders</button>
     <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-pressed="false">Show Telegram notifications</button>
     <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-pressed="false">Show WhatsApp Business notifications</button>
     <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-pressed="false">Show Backup, restore, and retention</button>
@@ -299,6 +300,16 @@
       <button>Save session duration</button>
     </form>
     <p id="session-settings-feedback" class="form-feedback" role="status"></p>
+  </section></div>
+  <div data-admin id="reminder-panel" hidden><section>
+    <h2>Issue reminders</h2>
+    <p>Repeat notifications for active, unacknowledged issues through enabled Telegram and WhatsApp Business channels.
+      Reminders stop when acknowledged or recovered. Paused, stale or suppressed checks do not send reminders.</p>
+    <form id="reminder-settings-form">
+      <label>Reminder interval (minutes, 0 disables)<input name="minutes" type="number" min="0" max="10080" step="1" value="0" required></label>
+      <button>Save reminder interval</button>
+    </form>
+    <p id="reminder-settings-feedback" class="form-feedback" role="status"></p>
   </section></div>
   <div data-admin id="telegram-panel" hidden><section>
     <h2>Telegram group</h2>
@@ -467,6 +478,7 @@
     const roleLabels = {admin: 'Admin', operator: 'Operator', viewer: 'View Only'};
     let users = [];
     let sessionSettingsLoaded = false;
+    let reminderSettingsLoaded = false;
     let telegramLoaded = false;
     let whatsappLoaded = false;
     let selectedProject = '';
@@ -522,6 +534,7 @@
       ['project-configuration', 'Project configuration'],
       ['service-library-panel', 'Reusable service library'],
       ['user-management-panel', 'User management'],
+      ['reminder-panel', 'Issue reminders'],
       ['telegram-panel', 'Telegram notifications'],
       ['whatsapp-panel', 'WhatsApp Business notifications'],
       ['backup-panel', 'Backup, restore, and retention'],
@@ -661,6 +674,10 @@
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
       state = await response.json();
+      if (!reminderSettingsLoaded) {
+        el('reminder-settings-form').elements.namedItem('minutes').value = state.settings.reminder_minutes || '0';
+        reminderSettingsLoaded = true;
+      }
       if (!sessionSettingsLoaded) {
         el('session-settings-form').elements.namedItem('hours').value = state.settings.session_hours || '12';
         sessionSettingsLoaded = true;
@@ -1449,6 +1466,19 @@
       el('whatsapp-queue').innerHTML = whatsapp.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
       el('telegram-queue').innerHTML = telegram.outbox.map(row => `<p>#${row.id} ${escapeHtml(row.event)} · ${escapeHtml(row.state)} · attempts ${row.attempts} ${escapeHtml(row.error)}</p>`).join('') || '<p>No queued messages.</p>';
     }
+
+    el('reminder-settings-form').onsubmit = async event => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      button.disabled = true;
+      try {
+        await request('reminder-settings', {minutes: Number(event.target.elements.namedItem('minutes').value)});
+        reminderSettingsLoaded = false;
+        await refresh();
+        el('reminder-settings-feedback').textContent = 'Reminder interval saved.';
+      } catch (error) { el('reminder-settings-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
 
     el('session-settings-form').onsubmit = async event => {
       event.preventDefault();

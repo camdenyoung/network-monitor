@@ -34,6 +34,8 @@ def ensure_tables(db):
         );
     ''')
 
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('reminder_minutes','0')")
+
 
 def configuration(db, channel='telegram'):
     if channel not in ('telegram', 'whatsapp'):
@@ -119,11 +121,79 @@ def enqueue_for_channel(db, incident_id, event, channel):
                          (row['service'], row['run'])).fetchone()
     value = (reading['display_value'] or str(reading['value'])) if reading and reading['value'] is not None else 'No reading'
     title = 'RECOVERED' if event == 'recovery' else row['status'].upper()
+    if event.startswith('reminder:'):
+        title = 'REMINDER · ' + title
     text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
             f"{row['service_name']}: {value} {row['units'] if row['value_type']=='metric' else ''}\nIssue #{incident_id}")
     db.execute('''INSERT OR IGNORE INTO notification_outbox
         (incident,event,channel,text,config_revision,next_attempt,created) VALUES(?,?,?,?,?,?,?)''',
         (incident_id, event, channel, text[:3500], config['revision'], time.time(), time.time()))
+
+
+def reminder_interval(db):
+    row = db.execute("SELECT value FROM settings WHERE key='reminder_minutes'").fetchone()
+    try:
+        minutes = int(row[0]) if row else 0
+        return minutes * 60 if 0 <= minutes <= 10080 else 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def reminder_source(db, incident_id):
+    return db.execute("""SELECT i.*,s.kind,s.assignment,s.enabled,
+        s.monitoring service_monitoring,s.revision,s.monitoring_since,d.address,
+        a.monitoring,a.notifications,a.removed
+        FROM incidents i JOIN services s ON s.id=i.service
+        JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+        WHERE i.id=?""", (incident_id,)).fetchone()
+
+
+def reminder_eligible(db, source, host_is_up):
+    """Require an open, unacknowledged fault backed by a fresh current reading."""
+    run = int(db.execute("SELECT value FROM settings WHERE key='active_run'").fetchone()[0])
+    if (not source or source['run'] != run or source['closed'] is not None
+            or source['acknowledged'] is not None or source['removed']
+            or not source['notifications'] or not source['monitoring']
+            or not source['enabled'] or not source['service_monitoring']):
+        return False
+    reading = db.execute("""SELECT status,timestamp FROM samples WHERE service=? AND run=?
+        AND revision=? AND timestamp>=? ORDER BY id DESC LIMIT 1""",
+        (source['service'], run, source['revision'], source['monitoring_since'])).fetchone()
+    if (not reading or time.time() - reading['timestamp'] > 60
+            or reading['status'] != source['status']):
+        return False
+    return source['kind'] == 'ping' or host_is_up(db, source, run)
+
+
+def enqueue_reminders(db, host_is_up):
+    """Durable per-channel cadence; never accumulate reminders behind a retry.
+
+    The outbox is also the schedule ledger, so restarts cannot duplicate a due
+    reminder. Queue at most one per channel per issue, without catch-up bursts.
+    """
+    interval = reminder_interval(db)
+    if not interval:
+        return
+    now = time.time()
+    candidates = db.execute("""SELECT id FROM incidents WHERE closed IS NULL AND acknowledged IS NULL
+        AND run=CAST((SELECT value FROM settings WHERE key='active_run') AS INTEGER)""").fetchall()
+    for candidate in candidates:
+        source = reminder_source(db, candidate['id'])
+        if not reminder_eligible(db, source, host_is_up):
+            continue
+        for channel in ('telegram', 'whatsapp'):
+            if not configuration(db, channel)['enabled']:
+                continue
+            pending = db.execute("""SELECT 1 FROM notification_outbox WHERE incident=? AND channel=?
+                AND state IN ('pending','sending') AND (event='opened' OR event LIKE 'reminder:%')""",
+                (source['id'], channel)).fetchone()
+            if pending:
+                continue
+            last = db.execute("""SELECT MAX(CASE WHEN state='sent' THEN next_attempt ELSE created END)
+                FROM notification_outbox WHERE incident=? AND channel=?
+                AND (event='opened' OR event LIKE 'reminder:%')""", (source['id'], channel)).fetchone()[0]
+            if now - max(source['opened'], last or source['opened']) >= interval:
+                enqueue_for_channel(db, source['id'], f'reminder:{int(now)}', channel)
 
 
 def enqueue_test(db, channel='telegram'):
@@ -222,6 +292,9 @@ def deliver_once(connect, lock, host_is_up):
                 reason = 'Issue already resolved'
             elif source['kind'] != 'ping' and not host_is_up(db, source, run):
                 reason = 'Suppressed by host dependency'
+        if row['event'].startswith('reminder:') and (
+                not reminder_interval(db) or not reminder_eligible(db, reminder_source(db, row['incident']), host_is_up)):
+            reason = 'Reminder disabled, acknowledged, recovered, paused, or suppressed'
         if reason:
             db.execute("UPDATE notification_outbox SET state='cancelled',error=? WHERE id=?", (reason, row['id']))
             return True
@@ -248,6 +321,8 @@ def worker(connect, lock, host_is_up):
         db.execute("UPDATE notification_outbox SET state='pending' WHERE state='sending'")
     while True:
         try:
+            with lock, connect() as db:
+                enqueue_reminders(db, host_is_up)
             deliver_once(connect, lock, host_is_up)
         except Exception:
             print('Notification queue processing failed', flush=True)

@@ -487,3 +487,11 @@ panel; issue lists, their controls and the update timestamp remain outside it.
 Both dashboards require a confirmation popup before acknowledging an issue.
 Cancelling sends no acknowledgement request; confirming preserves existing role,
 CSRF and status-project acknowledgement restrictions.
+
+Admins configure a shared Telegram/WhatsApp issue reminder interval in Issue
+reminders (0 disables, default 0; otherwise 1–10080 whole minutes). Repeat only
+active, unacknowledged issues with fresh matching fault readings. Respect project
+activation, host dependency, monitoring/removal and notification flags. Recheck
+eligibility before delivery. The durable outbox tracks per-channel cadence, with
+at most one pending/in-flight reminder per issue/channel and no restart catch-up
+bursts. Reminder settings are included in database backups.

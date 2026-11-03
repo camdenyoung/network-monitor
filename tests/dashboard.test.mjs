@@ -659,7 +659,7 @@ await acknowledgedReload.refresh();
 assert.equal(publicNodes.get('status-session').textContent, 'Signed in: Alex Example · Operator');
 assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /by &lt;Alex Example&gt;/);
 const configurationPanels = ['permanent-inventory', 'project-configuration', 'service-library-panel',
-    'user-management-panel', 'telegram-panel', 'whatsapp-panel', 'backup-panel'];
+    'user-management-panel', 'reminder-panel', 'telegram-panel', 'whatsapp-panel', 'backup-panel'];
 for (const panel of configurationPanels) {
     assert.equal(element(panel).hidden, true);
     element(`toggle-${panel}`).onclick();
@@ -859,3 +859,22 @@ namedMain.confirm = () => true;
 await namedMain.acknowledgeIssue(42);
 assert.equal(adminAcknowledgementRequests, 1);
 console.log('Both dashboards require confirmation before acknowledging; Cancel sends no request.');
+
+const reminderForm = element('reminder-settings-form');
+reminderForm.elements.namedItem('minutes').value = '15';
+await namedMain.refresh();
+assert.equal(reminderForm.elements.namedItem('minutes').value, '15');
+let savedReminderMinutes;
+namedMain.fetch = async (path, options) => {
+    if (path === '/api/reminder-settings') {
+        savedReminderMinutes = JSON.parse(options.body).minutes;
+        fixture.settings.reminder_minutes = String(savedReminderMinutes);
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return originalNamedFetch(path, options);
+};
+await reminderForm.onsubmit({preventDefault(){},target:reminderForm});
+assert.equal(savedReminderMinutes, 15);
+assert.equal(reminderForm.elements.namedItem('minutes').value, '15');
+assert.equal(element('reminder-settings-feedback').textContent, 'Reminder interval saved.');
+console.log('Shared issue reminder form saves interval and preserves unfinished edits.');

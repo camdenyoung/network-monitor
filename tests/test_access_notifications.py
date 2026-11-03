@@ -267,6 +267,121 @@ class AccessAndNotificationTests(unittest.TestCase):
             db.execute("DELETE FROM settings WHERE key='session_hours'")
             self.assertEqual(auth.session_seconds(db), 43200)
 
+    def reminder_fault(self):
+        host = self.create_host()
+        self.configure_channels()
+        server.mutate('reminder-settings', {'minutes': 1})
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        now = server.time.time()
+        issue = server.snapshot()['incident_lists']['active'][0]['id']
+        with server.connect() as db:
+            db.execute('UPDATE incidents SET opened=? WHERE id=?', (now - 61, issue))
+            db.execute("UPDATE notification_outbox SET state='sent',created=?,next_attempt=?", (now - 61, now - 61))
+        return host, issue, now
+
+    def test_reminders_repeat_per_channel_without_pending_or_restart_bursts(self):
+        host, issue, now = self.reminder_fault()
+        with patch.object(notifications.time, 'time', return_value=now), server.connect() as db:
+            notifications.enqueue_reminders(db, server.host_is_up)
+            notifications.enqueue_reminders(db, server.host_is_up)
+            rows = db.execute("SELECT * FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchall()
+            self.assertEqual(len(rows), 2)
+            self.assertEqual({row['channel'] for row in rows}, {'telegram', 'whatsapp'})
+            self.assertTrue(all('REMINDER' in row['text'] for row in rows))
+            notifications.ensure_tables(db)
+            notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], 2)
+            db.execute("UPDATE notification_outbox SET state='sent',next_attempt=? WHERE event LIKE 'reminder:%' AND channel='telegram'", (now,))
+        for elapsed, expected in ((59, 2), (60, 3), (3600, 3)):
+            with patch.object(notifications.time, 'time', return_value=now + elapsed), server.connect() as db:
+                db.execute('UPDATE samples SET timestamp=?', (now + elapsed,))
+                notifications.enqueue_reminders(db, server.host_is_up)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], expected)
+
+    def test_reminders_deliver_through_both_providers_and_disable_cleanly(self):
+        host, issue, now = self.reminder_fault()
+        with server.connect() as db:
+            notifications.enqueue_reminders(db, server.host_is_up)
+        with patch.object(notifications, 'send_message', return_value='telegram-reminder') as telegram, patch.object(notifications, 'send_whatsapp', return_value='whatsapp-reminder') as whatsapp:
+            notifications.deliver_once(server.connect, server.LOCK, server.host_is_up)
+            notifications.deliver_once(server.connect, server.LOCK, server.host_is_up)
+            telegram.assert_called_once()
+            whatsapp.assert_called_once()
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%' AND state='sent'").fetchone()[0], 2)
+            db.execute("UPDATE notification_outbox SET state='pending' WHERE event LIKE 'reminder:%'")
+        server.mutate('reminder-settings', {'minutes': 0})
+        with server.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%' AND state='pending'").fetchone()[0], 0)
+            notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], 2)
+
+    def test_queued_reminders_are_cancelled_if_no_longer_eligible(self):
+        host, issue, now = self.reminder_fault()
+        with server.connect() as db:
+            notifications.enqueue_reminders(db, server.host_is_up)
+        changes = [
+            "UPDATE incidents SET acknowledged=1",
+            "UPDATE incidents SET closed=1",
+            "UPDATE settings SET value='0' WHERE key='active_run'",
+            "UPDATE assignments SET monitoring=0",
+            "UPDATE assignments SET notifications=0",
+            "UPDATE assignments SET removed=1",
+            "UPDATE services SET monitoring=0",
+            "UPDATE services SET enabled=0",
+            "UPDATE samples SET timestamp=0",
+            "UPDATE settings SET value='0' WHERE key='reminder_minutes'",
+        ]
+        for change in changes:
+            with self.subTest(change=change):
+                with server.connect() as db:
+                    db.execute('UPDATE incidents SET acknowledged=NULL,closed=NULL')
+                    db.execute("UPDATE settings SET value='1' WHERE key IN ('active_run','reminder_minutes')")
+                    db.execute('UPDATE assignments SET monitoring=1,notifications=1,removed=0')
+                    db.execute('UPDATE services SET monitoring=1,enabled=1')
+                    db.execute('UPDATE samples SET timestamp=?', (now,))
+                    db.execute("UPDATE notification_outbox SET state='pending',next_attempt=0 WHERE event LIKE 'reminder:%'")
+                    db.execute(change)
+                with patch.object(notifications, 'send_message') as telegram, patch.object(notifications, 'send_whatsapp') as whatsapp:
+                    notifications.deliver_once(server.connect, server.LOCK, server.host_is_up)
+                    notifications.deliver_once(server.connect, server.LOCK, server.host_is_up)
+                    telegram.assert_not_called()
+                    whatsapp.assert_not_called()
+                with server.connect() as db:
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%' AND state='cancelled'").fetchone()[0], 2)
+
+    def test_reminders_require_fresh_faults_and_host_dependency(self):
+        host, issue, now = self.reminder_fault()
+        with server.connect() as db:
+            db.execute("UPDATE services SET kind='snmp' WHERE id=?", (host['id'],))
+            with patch.object(server, 'host_is_up', return_value=False):
+                notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], 0)
+            for status in ('healthy', 'blocked', 'unknown', 'paused'):
+                db.execute('UPDATE samples SET status=?', (status,))
+                with patch.object(server, 'host_is_up', return_value=True):
+                    notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE event LIKE 'reminder:%'").fetchone()[0], 0)
+
+    def test_reminder_settings_are_admin_only_validated_and_backed_up(self):
+        self.assertEqual(self.request('/api/reminder-settings', {'minutes': 5}, self.viewer_token, self.viewer['csrf'])['status'], 403)
+        token, operator = self.create_operator()
+        self.assertEqual(self.request('/api/reminder-settings', {'minutes': 5}, token, operator['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/reminder-settings', {'minutes': 5}, self.admin_token)['status'], 403)
+        for value in (-1, 10081, 1.5, True, '5', None):
+            self.assertEqual(self.request('/api/reminder-settings', {'minutes': value}, self.admin_token, self.admin['csrf'])['status'], 400)
+        for value in (0, 1, 10080):
+            self.assertEqual(self.request('/api/reminder-settings', {'minutes': value}, self.admin_token, self.admin['csrf'])['status'], 200)
+        backup = self.request('/api/backup', token=self.admin_token)
+        restored = sqlite3.connect(':memory:')
+        try:
+            restored.deserialize(backup['content'])
+            self.assertEqual(notifications.reminder_interval(restored), 10080 * 60)
+        finally:
+            restored.close()
+
     def test_login_page_accepts_status_return_parameter_without_authentication(self):
         for path in ('/login', '/login?next=%2Fstatus', '/login?next=%2F'):
             response = self.request(path)

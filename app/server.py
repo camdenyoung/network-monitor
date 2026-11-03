@@ -826,6 +826,13 @@ def mutate(action, body, actor=None):
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
         elif action == 'ack':
             record_acknowledgement(db, int(body['id']), actor)
+        elif action == 'reminder-settings':
+            minutes = body['minutes']
+            if type(minutes) is not int or not 0 <= minutes <= 10080:
+                raise ValueError('Reminder interval must be 0–10080 whole minutes')
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('reminder_minutes',?)", (str(minutes),))
+            db.execute("""UPDATE notification_outbox SET state='cancelled',error='Reminder interval changed'
+                WHERE event LIKE 'reminder:%' AND state='pending'""")
         elif action == 'session-settings':
             hours = body['hours']
             if type(hours) is not int or not 1 <= hours <= 168:
