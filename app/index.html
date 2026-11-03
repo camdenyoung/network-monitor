@@ -22,14 +22,28 @@
     [hidden] { display: none !important; }
     label { display: grid; gap: 5px; font-size: 13px; }
     input, select, textarea, button, .button-link { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
+    /* Give every checkbox a visible control and keep stacked field labels aligned. */
+    input[type="checkbox"] { width: 24px; height: 24px; min-width: 24px; max-width: 24px; padding: 0; margin: 0; box-sizing: border-box; accent-color: #176959; cursor: pointer; flex: 0 0 24px; }
+    .checkbox-field { grid-template-rows: auto 35px; }
+    .checkbox-field input { align-self: center; }
+    .checkbox-inline { display: flex; align-items: center; gap: 10px; min-height: 35px; }
+    .user-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #435b78; border-radius: 8px; padding: 14px; margin-top: 12px; }
+    .user-details { flex: 1 1 320px; overflow-wrap: anywhere; }
+    .user-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
     .service-controls { display: flex; align-items: start; gap: 6px; }
+    #service-catalogue .metric { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; }
+    .catalogue-details { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+    .catalogue-details small { display: block; margin-top: 4px; }
+    #service-catalogue .service-controls { flex-shrink: 0; gap: 12px; }
+    #service-catalogue .service-controls > button { margin: 0; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
     .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
+    input:disabled, select:disabled, textarea:disabled { opacity: 0.5; cursor: not-allowed; }
     button:disabled { opacity: 0.5; cursor: wait; }
     button.danger { background: #6b2834; border-color: #df6578; }
     button.danger:hover { background: #873344; }
@@ -42,10 +56,28 @@
     .metric-value { font-size: 21px; margin: 8px 0 3px; }
     details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
     .action-menu summary { padding: 5px 9px; border: 1px solid #435b78; border-radius: 5px; font-size: 13px; }
-    .action-menu .menu-buttons { position: absolute; right: 0; top: 34px; z-index: 10; display: grid; gap: 4px; min-width: 170px; padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+    .action-menu .menu-buttons { position: fixed; left: 0; top: 0; z-index: 1000; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; display: grid; gap: 4px; min-width: min(170px, calc(100vw - 16px)); padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
     .action-menu .menu-buttons button { text-align: left; margin: 0; padding: 8px; }
     .delivery-log { border: 1px solid #435b78; border-radius: 10px; padding: 16px; margin-top: 16px; }
+    /* Single-line 40px entries show the newest ten before scrolling. */
+    #telegram-queue { max-height: 400px; overflow: auto; }
+    #telegram-queue > p { margin: 0; padding: 10px 8px; line-height: 20px; white-space: nowrap; min-width: max-content; box-sizing: border-box; }
     #toggle-telegram-log[aria-pressed="true"] { background: #176959; }
+    /* Keep flap settings in their own horizontal row rather than one tall form item. */
+    .flap-settings { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; flex: 1 1 100%; width: 100%; min-width: 0; margin: 0; padding: 14px; box-sizing: border-box; border: 1px solid #435b78; border-radius: 8px; }
+    .flap-settings legend { padding: 0 6px; }
+    .flap-settings > label { flex: 1 1 150px; min-width: 0; }
+    .flap-settings > .checkbox-inline { flex: 1 1 100%; }
+    .flap-settings input:not([type="checkbox"]) { width: 100%; min-width: 0; box-sizing: border-box; }
+    #service-editor, #host-stability { width: 1040px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; box-sizing: border-box; border-radius: 10px; }
+    #host-stability { width: 800px; }
+    #service-edit-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 14px; }
+    #service-edit-form > label { min-width: 0; }
+    #service-edit-form > label > input, #service-edit-form > label > select, #service-edit-form > label > textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+    #service-edit-form > [data-state], #service-edit-form > .flap-settings, .editor-actions { grid-column: 1 / -1; }
+    .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    @media (max-width: 760px) { #service-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 480px) { #service-edit-form { grid-template-columns: minmax(0, 1fr); } }
     #history { width: 880px; box-sizing: border-box; }
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
@@ -68,22 +100,25 @@
     .host-heading h2 { margin: 0; }
     .host-heading > button { flex-shrink: 0; font-size: 13px; padding: 4px 8px; }
     .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
-    .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"], .display-controls button[aria-selected="true"] { background: #176959; }
     .acknowledgement-dialog, .library-import-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
     .acknowledgement-dialog::backdrop, .library-import-dialog::backdrop { background: #0009; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
-    /* Keep this space even when the image is hidden, preventing selector shifts. */
-    .project-toolbar { justify-content: flex-start; align-items: flex-end; }
-    .project-toolbar > small { flex: 0 0 100%; }
-    .deployment-controls { display: flex; flex: 0 0 100%; flex-wrap: wrap; align-items: end; gap: 12px; min-width: 0; }
-    .deployment-controls label { flex: 1 1 320px; min-width: 0; max-width: 760px; }
-    .deployment-controls select { width: 100%; box-sizing: border-box; }
-    .deployment-controls small { flex: 0 0 100%; overflow-wrap: anywhere; }
-    .project-logo-slot { flex: 0 0 180px; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
-    .project-selector { flex: 1 1 240px; max-width: 360px; min-width: 0; }
-    .project-selector select { width: 100%; box-sizing: border-box; }
+    /* Reserve the logo column even when hidden; both selector/action rows align. */
+    .project-toolbar { display: grid; grid-template-columns: 180px minmax(0, 360px) minmax(0, 1fr); align-items: start; }
+    .project-toolbar > small { grid-column: 1 / -1; }
+    /* Reserve one label line so the first action still aligns if buttons wrap. */
+    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: wrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
+    .project-actions > button, .deployment-actions > button { min-height: 38px; }
+    .project-selector, .deployment-controls label { grid-template-rows: 16px auto; gap: 5px; line-height: 16px; }
+    .project-selector select, .deployment-controls select { height: 38px; font-size: 15px; }
+    .deployment-controls { display: contents; }
+    .deployment-controls label { grid-column: 1 / 3; min-width: 0; }
+    .deployment-controls select, .project-selector select { width: 100%; box-sizing: border-box; min-width: 0; }
+    .deployment-controls small { grid-column: 1 / -1; overflow-wrap: anywhere; }
+    .project-logo-slot { grid-column: 1; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
+    .project-selector { grid-column: 2; min-width: 0; }
     .project-settings > h2 { margin-bottom: 6px; }
     .project-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .project-settings-panel { display: flex; flex-direction: column; padding: 18px; border: 1px solid #314257; border-radius: 8px; background: #101b29; min-width: 0; }
@@ -93,7 +128,7 @@
     .project-settings-panel input { box-sizing: border-box; width: 100%; min-width: 0; }
     .project-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
     .project-settings-panel .project-check { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
-    .project-settings-panel .project-check input { width: 18px; height: 18px; flex: 0 0 18px; margin: 3px 0 0; }
+    .project-settings-panel .project-check input { width: 24px; height: 24px; flex: 0 0 24px; margin: 0; }
     .project-logo-preview { height: 88px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; border: 1px dashed #435b78; border-radius: 6px; color: #a9bad0; }
     .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
     #monitoring-toggle[aria-pressed="true"], #notifications-toggle[aria-pressed="true"] { background: #176959; }
@@ -106,7 +141,11 @@
     @media (prefers-reduced-motion: reduce) {
       #monitoring-toggle.monitoring-paused { animation: none; }
     }
-    @media (max-width: 760px) { .project-settings-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) {
+      .project-settings-grid, .project-toolbar { grid-template-columns: minmax(0, 1fr); }
+      .project-selector, .project-actions, .deployment-controls label, .deployment-actions, .deployment-controls small { grid-column: 1; }
+      .project-actions, .deployment-actions { padding-top: 0; }
+    }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .account-nav { justify-content: flex-start; }
     .account-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
@@ -117,7 +156,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 26</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3.1 · Build 38</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -132,15 +171,19 @@
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
-    <button data-admin id="activate" class="primary">Activate / start new deployment</button>
-    <button data-admin id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
-    <button data-admin id="notifications-toggle" aria-pressed="true">Pause notifications</button>
+    <div data-admin class="project-actions">
+      <button id="activate" class="primary">Activate / start new deployment</button>
+      <button id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
+      <button id="notifications-toggle" aria-pressed="true">Pause notifications</button>
+    </div>
     <small>15-second polling · issue persistence is configurable per service</small>
     <small id="deployment-details"></small>
     <div data-admin class="deployment-controls">
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
-      <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
-      <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
+      <div class="deployment-actions">
+        <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
+        <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
+      </div>
       <small id="previous-deployment-details">Choose a previous deployment for the selected project.</small>
     </div>
   </section>
@@ -263,39 +306,9 @@
       <p id="project-feedback" class="project-settings-feedback" role="status"></p>
     </section>
     <section><h2>Assign equipment to selected project</h2><p>New assignments include the device’s service defaults. Existing project configurations remain independent.</p><form data-action="assignment"><label>Device<select name="device" id="device" required></select></label><label>Project alias<input name="alias" required maxlength="100"></label><button>Assign device</button></form></section>
-    <section><h2>Selected services</h2><p>Use verified numeric OIDs or zero-based Modbus holding-register addresses. SNMP values are numeric raw readings; traffic counters are not converted to throughput. Modbus currently reads one unsigned 16-bit register using function 03 on TCP port 502.</p>
-      <form data-action="service">
-        <label>Assignment<select name="assignment" id="assignment" required></select></label>
-        <label>Service name<input name="name" required placeholder="RSSI"></label>
-        <label>Protocol<select name="kind"><option value="snmp">SNMP v2c</option><option value="modbus">Modbus TCP</option><option value="tcp">TCP port reachability</option></select></label>
-        <label>OID / register / port<input name="target" required></label>
-        <label>SNMP community<input name="community" type="password" value="public" autocomplete="off"></label>
-        <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" value="1" required></label>
-        <fieldset><legend>Flap protection</legend>
-        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
-        <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
-        <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
-        <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
-        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
-      </fieldset>
-      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" value="2" required></label>
-      <label>Returned value<select name="value_type">
-        <option value="metric">Numeric metric (percent, degrees, etc.)</option>
-        <option value="state">Numeric state codes with labels</option>
-      </select></label>
-      <label data-state hidden>State mappings: number | label | severity
-        <textarea name="state_map" rows="4" placeholder="1 | Up | Healthy&#10;2 | Down | Critical"></textarea>
-        <small>One per line. Severity: Healthy, Warning, or Critical. Unmapped codes warn.</small>
-      </label>
-        <label data-numeric>Scale<input name="scale" type="number" step="any" value="1" required></label>
-        <label data-numeric>Units<input name="units" placeholder="dBm"></label>
-        <label data-numeric>Alarm direction<select name="direction"><option value="below">Below</option><option value="above">Above</option></select></label>
-        <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
-        <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
-        <button>Add service</button>
-      </form>
+    <section><h2>Configured services</h2>
+      <p>Create definitions in Reusable service library and use Add to host to apply them. Manage existing project services below.</p>
       <p id="service-feedback" class="form-feedback" role="status"></p>
-      <h3>Configured services</h3>
       <div class="display-controls">
         <label>Host<select id="catalogue-host"><option value="">Choose a host…</option></select></label>
         <label>Service name / OID<input id="catalogue-search" type="search" maxlength="100" placeholder="e.g. RSSI"></label>
@@ -338,7 +351,7 @@
       <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
       <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
       <label>Password<input name="password" required type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
-      <label>Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
+      <label class="checkbox-field">Require password change on next login<input name="must_change_password" type="checkbox" checked></label>
       <button>Add user</button><button id="clear-new-user" type="button">Clear</button>
     </form><p id="user-feedback" role="status"></p><div id="users"></div>
     <h3>Login sessions</h3>
@@ -364,14 +377,15 @@
     <h2>Telegram group</h2>
     <p>Create a bot with BotFather, add it to your group with permission to send messages, and enter the numeric chat ID. No inbound port or public server is required for outbound notifications.</p>
     <form id="telegram-form">
-      <label>Enabled<input name="enabled" type="checkbox"></label>
+      <label class="checkbox-field">Enabled<input name="enabled" type="checkbox"></label>
       <label>Bot token (blank keeps stored token)<input name="bot_token" type="password" autocomplete="new-password"></label>
       <label>Chat ID<input name="chat_id" placeholder="-100…"></label>
       <label>Topic ID (optional)<input name="thread_id" type="number" min="1"></label>
-      <label>Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <label class="checkbox-field">Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <button id="telegram-chats" type="button">Discover groups</button>
       <button>Save settings</button>
     </form>
-    <button id="telegram-chats">Discover groups</button><div id="telegram-group-list"></div>
+    <div id="telegram-group-list"></div>
     <div class="display-controls">
       <label>Sample notification<select id="telegram-sample-type">
         <option value="test">Connectivity test</option>
@@ -390,7 +404,7 @@
     <button type="button" id="toggle-telegram-log" aria-controls="telegram-log" aria-expanded="false" aria-pressed="false">Show log</button>
     <div id="telegram-log" class="delivery-log" hidden>
       <h3>Telegram delivery log</h3>
-      <div id="telegram-queue"></div>
+      <div id="telegram-queue" tabindex="0" role="region" aria-label="Recent Telegram deliveries"></div>
     </div>
   </section></div>
   <div data-admin id="whatsapp-panel" hidden><section>
@@ -399,7 +413,7 @@
       parameters: device, status/project, and details. This does not connect to an
       ordinary WhatsApp app group. Group mode requires an eligible Business API group.</p>
     <form id="whatsapp-form">
-      <label>Enabled<input name="enabled" type="checkbox"></label>
+      <label class="checkbox-field">Enabled<input name="enabled" type="checkbox"></label>
       <label>Access token (blank keeps stored token)<input name="bot_token" type="password" autocomplete="new-password"></label>
       <label>Sender phone number ID<input name="phone_number_id"></label>
       <label>Graph API version<input name="api_version" placeholder="Version from your Meta app"></label>
@@ -407,7 +421,7 @@
       <label>Recipient phone (country code, no +) / Business group ID<input name="chat_id"></label>
       <label>Approved template name<input name="template_name"></label>
       <label>Template language<input name="language" value="en_US"></label>
-      <label>Send recoveries<input name="recoveries" type="checkbox" checked></label>
+      <label class="checkbox-field">Send recoveries<input name="recoveries" type="checkbox" checked></label>
       <button>Save settings</button>
     </form>
     <button id="whatsapp-test">Send test message</button><button id="whatsapp-retry">Retry failed messages</button>
@@ -438,6 +452,26 @@
       <button id="cancel-acknowledgement" autofocus>Cancel</button>
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="app-confirmation" class="acknowledgement-dialog" aria-labelledby="app-confirmation-title" aria-describedby="app-confirmation-description">
+    <h2 id="app-confirmation-title"></h2>
+    <p id="app-confirmation-context"></p>
+    <p id="app-confirmation-description"></p>
+    <div class="display-controls">
+      <button id="confirm-app-action" class="danger">Continue</button>
+      <button id="cancel-app-action" autofocus>Cancel</button>
+    </div>
+    <p id="app-confirmation-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="remove-service-dialog" class="acknowledgement-dialog" aria-labelledby="remove-service-title" aria-describedby="remove-service-description">
+    <h2 id="remove-service-title">Remove service from host?</h2>
+    <p id="remove-service-context"></p>
+    <p id="remove-service-description">This stops monitoring this service on this host. Historical readings are retained. Other hosts and reusable library definitions are unchanged.</p>
+    <div class="display-controls">
+      <button id="confirm-remove-service" class="danger">Remove service</button>
+      <button id="cancel-remove-service" autofocus>Cancel</button>
+    </div>
+    <p id="remove-service-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="delete-deployment-dialog" class="acknowledgement-dialog" aria-labelledby="delete-deployment-title">
     <h2 id="delete-deployment-title">Delete deployment?</h2>
@@ -496,7 +530,7 @@
       <label>Email<input name="email" type="email" maxlength="254" autocomplete="off"></label>
       <label>Role<select name="role"><option value="viewer">View Only</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
       <label>Password (blank keeps existing)<input name="password" type="password" minlength="10" maxlength="256" autocomplete="new-password"></label>
-      <label>Require password change on next login<input name="must_change_password" type="checkbox"></label>
+      <label class="checkbox-field">Require password change on next login<input name="must_change_password" type="checkbox"></label>
       <button class="primary">Save changes</button>
       <button id="cancel-user-edit" type="button">Cancel</button>
     </form>
@@ -534,7 +568,7 @@
     <div id="device-default-list"></div>
     <button id="close-device-defaults">Close</button>
   </dialog>
-  <dialog id="service-editor">
+  <dialog id="service-editor" aria-labelledby="service-editor-title" aria-describedby="service-editor-host">
     <h2 id="service-editor-title">Edit monitored service</h2>
     <p id="service-editor-host"></p>
     <form id="service-edit-form">
@@ -565,26 +599,39 @@
       </select></label>
       <label data-numeric>Warning<input name="warning" type="number" step="any"></label>
       <label data-numeric>Critical<input name="critical" type="number" step="any"></label>
-      <fieldset><legend>Flap protection</legend>
-        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
+      <fieldset class="flap-settings"><legend>Flap protection</legend>
+        <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
         <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
       </fieldset>
-      <label>Consecutive readings<input name="persistence" type="number" min="1" max="120" required></label>
-      <button class="primary">Save changes</button>
-      <button type="button" id="cancel-service-edit">Cancel</button>
+      <div class="editor-actions">
+        <button class="primary">Save changes</button>
+        <button type="button" id="cancel-service-edit">Cancel</button>
+      </div>
     </form>
     <p id="service-edit-feedback" role="status"></p>
   </dialog>
-  <dialog id="host-stability"><h2>Host flap protection</h2><form id="host-stability-form"><input name="service" type="hidden"><fieldset><legend>Flap protection</legend>
-        <label><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
+  <dialog id="host-stability" aria-labelledby="host-stability-title" aria-describedby="host-stability-host">
+    <h2 id="host-stability-title">Host flap protection</h2>
+    <p id="host-stability-host"></p>
+    <form id="host-stability-form">
+      <input name="service" type="hidden">
+      <fieldset class="flap-settings"><legend>Flap protection</legend>
+        <label class="checkbox-inline"><input name="flap_enabled" type="checkbox" checked> Enable flap protection</label>
         <label>Confirmed changes<input name="flap_changes" type="number" min="2" max="100" value="4" required></label>
         <label>Window (minutes)<input name="flap_window" type="number" min="1" max="1440" value="5" required></label>
         <label>Stable period (minutes)<input name="flap_stable" type="number" min="1" max="1440" value="5" required></label>
-        <label data-numeric>Recovery hysteresis (metric units)<input name="hysteresis" type="number" min="0" step="any" value="0"></label>
-      </fieldset><button>Save</button><button type="button" id="cancel-host-stability">Cancel</button></form><p id="host-stability-feedback" role="status"></p></dialog>
+      </fieldset>
+      <div class="editor-actions">
+        <button>Save</button>
+        <button type="button" id="cancel-host-stability">Cancel</button>
+      </div>
+    </form>
+    <p id="host-stability-feedback" role="status"></p>
+  </dialog>
   <dialog id="service-transfer">
     <h2 id="transfer-title">Copy service to host</h2>
     <p>Settings and credentials are copied; history and issues are not.
@@ -661,9 +708,9 @@
       return reading.status;
     }
 
-    function serviceActions(service) {
+    function serviceActions(service, location = 'hosts') {
       if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History / graph</button>`;
-      return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}">
+      return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}" data-menu-key="${location}:${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
         <div class="menu-buttons">
           <button data-history="${service.id}">History / graph</button>
@@ -674,6 +721,78 @@
         </div>
       </details></div>`;
     }
+
+    let activeActionMenuKey = null;
+
+    function closeActionMenus() {
+      activeActionMenuKey = null;
+      document.querySelectorAll('.action-menu[open]').forEach(menu => { menu.open = false; });
+    }
+
+    function positionActionMenu(menu) {
+      const summary = menu.querySelector('summary');
+      const popup = menu.querySelector('.menu-buttons');
+      const viewport = document.documentElement;
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      // Fixed positioning escapes the host list's scrolling container without
+      // adding menu height to the row. Clamp to the screen and open upward if needed.
+      popup.style.left = '0px';
+      popup.style.top = '0px';
+      popup.style.maxHeight = Math.max(0, height - 16) + 'px';
+      const anchor = summary.getBoundingClientRect();
+      const bounds = popup.getBoundingClientRect();
+      const left = Math.max(8, Math.min(anchor.right - bounds.width, width - bounds.width - 8));
+      const below = anchor.bottom + 6;
+      const top = below + bounds.height <= height - 8 ? below : Math.max(8, anchor.top - bounds.height - 6);
+      popup.style.left = left + 'px';
+      popup.style.top = top + 'px';
+    }
+
+    function restoreActionMenu() {
+      // Polling replaces markup. Restore just the selected occurrence, never
+      // both the live-host menu and catalogue menu for the same service.
+      let restored = false;
+      document.querySelectorAll('.action-menu').forEach(menu => {
+        menu.open = !restored && activeActionMenuKey !== null && menu.dataset.menuKey === activeActionMenuKey;
+        if (menu.open) {
+          restored = true;
+          positionActionMenu(menu);
+        }
+      });
+      if (!restored) activeActionMenuKey = null;
+    }
+
+    function handleActionMenuClick(event) {
+      const menu = event.target.closest?.('.action-menu');
+      const summary = event.target.closest?.('summary');
+      if (menu && summary?.parentElement === menu) {
+        event.preventDefault();
+        const opening = !menu.open;
+        closeActionMenus();
+        if (opening) {
+          activeActionMenuKey = menu.dataset.menuKey;
+          menu.open = true;
+          positionActionMenu(menu);
+        }
+      } else if (!menu || event.target.closest?.('button')) {
+        closeActionMenus();
+      }
+    }
+
+    // Capture clicks before individual controls open dialogs or replace their DOM.
+    document.addEventListener?.('click', handleActionMenuClick, true);
+    document.addEventListener?.('keydown', event => {
+      if (event.key !== 'Escape' || activeActionMenuKey === null) return;
+      const menu = [...document.querySelectorAll('.action-menu[open]')][0];
+      closeActionMenus();
+      menu?.querySelector('summary').focus();
+      event.preventDefault();
+    }, true);
+    document.addEventListener?.('scroll', event => {
+      if (!event.target.closest?.('.menu-buttons')) closeActionMenus();
+    }, true);
+    globalThis.addEventListener?.('resize', closeActionMenus);
 
     // Configuration areas are exclusive tabs. Start closed on each page load.
     const configurationSections = [
@@ -791,7 +910,6 @@
       const visible = state.assignments.filter(row => String(row.project) === selectedProject && row.visible && !row.removed);
       const matches = visible.filter(assignment => !serviceFilter.trim() || state.services.some(service =>
         service.assignment === assignment.id && service.enabled !== 0 && service.kind !== 'ping' && serviceMatches(service)));
-      const openActions = new Set([...document.querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
       const rendered = matches.map(assignment => {
         const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
@@ -845,7 +963,7 @@
       const names = [...new Set(state.services.filter(service => service.kind !== 'ping' && service.enabled !== 0 &&
         visible.some(assignment => assignment.id === service.assignment)).map(service => service.name))].sort();
       el('service-filter-options').innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
-      document.querySelectorAll('.action-menu').forEach(menu => { menu.open = openActions.has(menu.dataset.serviceActions); });
+      restoreActionMenu();
     }
 
     function previewNewProjectLogo() {
@@ -936,13 +1054,20 @@
       el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
         : pausedRun ? 'Paused: ' + state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'Monitoring paused';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
-      updateOptions('device', state.devices, deviceLabel, 'Select device…');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
-      updateOptions('assignment', assignments, row => row.alias, 'Select host…');
+      // Pausing/hiding a host does not remove its assignment. Archived hosts may
+      // be added again, and assignments in other projects do not exclude inventory.
+      const assignedDevices = new Set(assignments.map(row => row.device));
+      const availableDevices = selectedProject ? state.devices.filter(row => !assignedDevices.has(row.id)) : [];
+      updateOptions('device', availableDevices, deviceLabel,
+        availableDevices.length ? 'Select device…' : selectedProject ? 'No unassigned devices' : 'Choose a project first…');
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       renderInventory();
       renderHosts();
-      el('assignments').innerHTML = '<table><tr><th>Alias / address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => `<tr><td>${escapeHtml(row.alias)} / ${escapeHtml(state.devices.find(device => device.id === row.device)?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`).join('') + '</table>';
+      el('assignments').innerHTML = '<table><tr><th>Device ID - Alias / Address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => {
+        const device = state.devices.find(device => device.id === row.device);
+        return `<tr><td>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(row.alias)} / ${escapeHtml(device?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`;
+      }).join('') + '</table>';
       renderServiceCatalogue();
       el('service-library').innerHTML = state.service_templates.map(template => `
         <article><strong>${escapeHtml(template.name)}</strong>
@@ -1005,7 +1130,6 @@
     let catalogueLimit = 20;
     function renderServiceCatalogue() {
       if (!state) return;
-      const openMenus = new Set([...el('service-catalogue').querySelectorAll('.action-menu[open]')].map(menu => menu.dataset.serviceActions));
       const hostSelect = el('catalogue-host');
       const previous = hostSelect.value;
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
@@ -1018,6 +1142,7 @@
         el('service-catalogue').innerHTML = '';
         el('catalogue-summary').textContent = 'Choose a host, or All hosts to search across this project.';
         el('catalogue-more').hidden = true;
+        restoreActionMenu();
         return;
       }
       const query = el('catalogue-search').value.trim().toLowerCase();
@@ -1032,12 +1157,12 @@
       el('catalogue-summary').textContent = `Showing ${Math.min(catalogueLimit, matches.length)} of ${matches.length} matching services`;
       el('service-catalogue').innerHTML = matches.slice(0, catalogueLimit).map(service => {
         const host = assignments.find(row => row.id === service.assignment);
-        return `<div class="metric"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
-          <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small>
-          ${serviceActions(service)}
+        return `<div class="metric"><div class="catalogue-details"><strong>${escapeHtml(host.alias)} / ${escapeHtml(service.name)}</strong> ${service.flapping ? '<span class="warning">Flapping</span>' : ''}
+          <small>${escapeHtml(service.kind.toUpperCase())} · ${escapeHtml(service.target)} · ${service.monitoring === 0 ? 'Paused' : 'Monitoring'}</small></div>
+          ${serviceActions(service, 'catalogue')}
         </div>`;
       }).join('') || '<p>No services match these filters.</p>';
-      el('service-catalogue').querySelectorAll('.action-menu').forEach(menu => { menu.open = openMenus.has(menu.dataset.serviceActions); });
+      restoreActionMenu();
       el('catalogue-more').hidden = catalogueLimit >= matches.length;
     }
     for (const id of ['catalogue-host', 'catalogue-protocol', 'catalogue-monitoring']) {
@@ -1090,6 +1215,13 @@
       });
     }
 
+    function updateProtocolFields(form) {
+      const protocol = form.elements.namedItem('kind').value;
+      // Disable rather than clear: switching back keeps the user's unfinished input.
+      form.elements.namedItem('community').disabled = protocol !== 'snmp';
+      form.elements.namedItem('unit').disabled = protocol !== 'modbus';
+    }
+
     function servicePayload(form) {
       const body = Object.fromEntries(new FormData(form));
       if (body.value_type === 'state') {
@@ -1119,12 +1251,16 @@
       updateValueMode(select.form);
     });
 
+    document.querySelectorAll('select[name="kind"]').forEach(select => {
+      select.onchange = () => updateProtocolFields(select.form);
+      updateProtocolFields(select.form);
+    });
+
     const successMessages = {
       project: 'Project added successfully.',
       device: 'Inventory device added successfully.',
       'device-address': 'Inventory IP updated successfully for all projects.',
       assignment: 'Host assigned successfully. Automatic ping monitoring is configured.',
-      service: 'Service added successfully.',
       retention: 'Retention updated successfully.',
     };
 
@@ -1138,7 +1274,7 @@
         event.preventDefault();
         const action = form.dataset.action;
         let body;
-        try { body = action === 'service' ? servicePayload(form) : Object.fromEntries(new FormData(form)); }
+        try { body = Object.fromEntries(new FormData(form)); }
         catch (error) { feedback.textContent = error.message; report(error); return; }
         if (action === 'assignment') body.project = selectedProject;
         const button = form.querySelector('button');
@@ -1148,7 +1284,6 @@
           await request(action, body);
           // Reset only after a confirmed write; failed requests retain entered data.
           if (action !== 'retention') form.reset();
-          if (action === 'service') updateValueMode(form);
           feedback.textContent = successMessages[action];
           feedback.classList.add('success');
           notify(successMessages[action], true);
@@ -1274,8 +1409,8 @@
     el('adopt-device-defaults').onclick = () => {
       const assignment = el('device-default-source').value;
       if (!assignment) { el('device-default-feedback').textContent = 'Choose a project configuration first.'; return; }
-      if (!confirm('Replace this device’s defaults with the selected project’s service definitions? Existing projects and history are unchanged.')) return;
-      return changeDeviceDefaults('device-defaults-from-assignment', {assignment}, el('adopt-device-defaults'));
+      try { openAdministrativeConfirmation('adopt-defaults', {device: defaultsDevice, assignment}); }
+      catch (error) { el('device-default-feedback').textContent = error.message; }
     };
 
     function openConfigurationEditor(configuration, mode, source, title, context) {
@@ -1297,6 +1432,7 @@
       }
       form.elements.namedItem('flap_enabled').checked = configuration.flap_enabled !== 0;
       form.elements.namedItem('community').value = '';
+      updateProtocolFields(form);
       el('service-editor-title').textContent = title;
       el('service-editor-host').textContent = context;
       el('service-edit-feedback').textContent = '';
@@ -1621,26 +1757,8 @@
       el('history').showModal();
     }
 
-    async function removeDevice(id, button) {
-      const device = state.devices.find(row => row.id === Number(id));
-      if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
-      const assignments = state.assignments.filter(row => row.device === device.id);
-      const warning = `Permanently delete "${device.name}"? This removes the device, ` +
-        `its ${assignments.length} project assignment(s), all services, readings, ` +
-        'and issues. This cannot be undone without restoring a backup.';
-      if (!confirm(warning)) return;
-      button.disabled = true;
-      try {
-        await request('delete-device', {device: device.id});
-        inventoryFeedback('Inventory item and its associated data deleted successfully.', true);
-        try {
-          await refresh();
-        } catch (error) {
-          notify('Item deleted. Dashboard refresh failed; reload to see changes.');
-        }
-      } finally {
-        button.disabled = false;
-      }
+    function removeDevice(id) {
+      openAdministrativeConfirmation('delete-device', {device: id});
     }
 
     el('project-edit-form').onsubmit = async event => {
@@ -1880,19 +1998,8 @@
 
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
-      const menu = event.target.closest('.action-menu');
-      if (menu && event.target.tagName === 'BUTTON') menu.open = false;
       try {
-        if (data.hostStability) {
-          const service = state.services.find(row => row.id === Number(data.hostStability));
-          const form = el('host-stability-form');
-          form.elements.namedItem('service').value = service.id;
-          for (const field of ['flap_changes', 'flap_window', 'flap_stable']) form.elements.namedItem(field).value = service[field];
-          form.elements.namedItem('flap_enabled').checked = Boolean(service.flap_enabled);
-          form.elements.namedItem('hysteresis').closest('label').hidden = true;
-          el('host-stability-feedback').textContent = '';
-          el('host-stability').showModal();
-        }
+        if (data.hostStability) openHostStabilityEditor(data.hostStability);
         if (data.serviceMonitoring) {
           const button = event.target;
           button.disabled = true;
@@ -1903,39 +2010,220 @@
             await refresh();
           } finally { button.disabled = false; }
         }
-        if (data.removeAssignment && confirm('Remove this device from the project? Inventory, other projects, and history are retained.')) {
-          await request('assignment-remove', {assignment: data.removeAssignment});
-          el('assignment-feedback').textContent = 'Device removed from project. Inventory and history retained.';
-          await refresh();
-        }
+        if (data.removeAssignment) openAdministrativeConfirmation('remove-assignment', {assignment: data.removeAssignment});
         if (data.editAlias) openAliasEditor(data.editAlias);
         if (data.copyService) openServiceTransfer('service-copy', data.copyService);
         if (data.saveTemplate) openServiceEditor(data.saveTemplate, true);
         if (data.applyTemplate) openServiceTransfer('template-apply', data.applyTemplate);
         if (data.editTemplate) openTemplateEditor(data.editTemplate);
-        if (data.deleteTemplate && confirm('Delete this library entry? Existing host services will be kept.')) {
-          await request('template-delete', {template: data.deleteTemplate});
-          el('library-feedback').textContent = 'Library entry deleted. Existing host services are unchanged.';
-          el('library-feedback').classList.add('success');
-          await refresh();
-        }
+        if (data.deleteTemplate) openAdministrativeConfirmation('delete-template', {template: data.deleteTemplate});
         if (data.editService) openServiceEditor(data.editService);
         if (data.deviceDefaults) openDeviceDefaults(data.deviceDefaults);
         if (data.editDeviceDefault) openDeviceDefaultEditor(data.editDeviceDefault);
-        if (data.deleteDeviceDefault && confirm('Remove this service default? Existing project services are unchanged.')) {
-          await changeDeviceDefaults('device-default-delete', {default_service: data.deleteDeviceDefault}, event.target);
-        }
+        if (data.deleteDeviceDefault) openAdministrativeConfirmation('delete-default', {device: defaultsDevice, default_service: data.deleteDeviceDefault});
         if (data.editDevice) openDeviceEditor(data.editDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
         if (data.ack) await acknowledgeIssue(data.ack);
-        if (data.remove && confirm('Remove this service? Historical readings are retained.')) await performAction('remove-service', {id: data.remove});
+        if (data.remove) openServiceRemoval(data.remove);
         if (data.history) await openHistory(data.history);
       } catch (error) {
         if (data.deleteDevice) inventoryFeedback(error.message);
         else report(error);
       }
     });
+    let pendingAppConfirmation = null;
+
+    function openAppConfirmation(configuration) {
+      if (el('confirm-app-action').disabled || el('app-confirmation').open) return;
+      closeActionMenus();
+      pendingAppConfirmation = configuration;
+      el('app-confirmation-title').textContent = configuration.title;
+      el('app-confirmation-context').textContent = configuration.context;
+      el('app-confirmation-description').textContent = configuration.description;
+      el('confirm-app-action').textContent = configuration.label;
+      el('app-confirmation-feedback').textContent = '';
+      el('app-confirmation').showModal();
+    }
+    el('cancel-app-action').onclick = () => {
+      pendingAppConfirmation = null;
+      el('app-confirmation').close();
+    };
+    el('app-confirmation').onclose = () => {
+      if (!el('app-confirmation').open) pendingAppConfirmation = null;
+    };
+    el('app-confirmation').oncancel = event => {
+      if (el('confirm-app-action').disabled) event.preventDefault();
+    };
+    el('confirm-app-action').onclick = async () => {
+      if (!pendingAppConfirmation || el('confirm-app-action').disabled) return;
+      const configuration = pendingAppConfirmation;
+      const button = el('confirm-app-action');
+      const cancel = el('cancel-app-action');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        await configuration.run();
+        pendingAppConfirmation = null;
+        el('app-confirmation').close();
+        try { await configuration.completed(); }
+        catch (error) { notify('Action completed. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('app-confirmation-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
+
+    function openAdministrativeConfirmation(action, selection) {
+      if (currentUser?.role !== 'admin') throw new Error('Administrator access required.');
+      // Copy the selected IDs before showing the dialog. Completion must never
+      // read a mutable selected project, defaults device, user row or file picker.
+      const target = {...selection};
+      let configuration;
+      const mutation = (endpoint, body, message, feedback) => ({
+        run: () => request(endpoint, body),
+        completed: async () => {
+          if (feedback) {
+            el(feedback).textContent = message;
+            el(feedback).classList.add('success');
+          }
+          notify(message, true);
+          await refresh();
+        },
+      });
+      const device = state.devices.find(row => row.id === Number(target.device));
+      const assignment = state.assignments.find(row => row.id === Number(target.assignment) && !row.removed);
+      switch (action) {
+        case 'delete-device': {
+          if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
+          const count = state.assignments.filter(row => row.device === device.id).length;
+          configuration = {title: 'Permanently delete inventory device?', context: device.name,
+            description: `This deletes the device, its ${count} project assignment(s), all related services, readings and issues. This cannot be undone without restoring a backup.`,
+            label: 'Delete device and history',
+            ...mutation('delete-device', {device: device.id}, 'Inventory item and its associated data deleted successfully.', 'inventory-feedback')};
+          break;
+        }
+        case 'remove-assignment': {
+          if (!assignment) throw new Error('Project assignment no longer exists.');
+          const host = state.devices.find(row => row.id === assignment.device);
+          const project = state.projects.find(row => row.id === assignment.project);
+          configuration = {title: 'Remove device from project?', context: `${project?.name || 'Project'} · ${host?.name || 'Device'} - ${assignment.alias}`,
+            description: 'This removes the device from this project. Inventory, other projects and historical readings are retained.', label: 'Remove from project',
+            ...mutation('assignment-remove', {assignment: assignment.id}, 'Device removed from project. Inventory and history retained.', 'assignment-feedback')};
+          break;
+        }
+        case 'delete-template': {
+          const template = state.service_templates.find(row => row.id === Number(target.template));
+          if (!template) throw new Error('Library entry no longer exists.');
+          configuration = {title: 'Delete library service?', context: template.name,
+            description: 'This removes the reusable library entry. Existing host services and device defaults are kept.', label: 'Delete library service',
+            ...mutation('template-delete', {template: template.id}, 'Library entry deleted. Existing host services are unchanged.', 'library-feedback')};
+          break;
+        }
+        case 'delete-default': {
+          const definition = (state.device_service_defaults || []).find(row => row.id === Number(target.default_service) && row.device === device?.id);
+          if (!device || !definition) throw new Error('Device service default no longer exists.');
+          configuration = {title: 'Remove device service default?', context: `${device.name} / ${definition.name}`,
+            description: 'This removes the default for future project assignments. Existing project services and history are unchanged.', label: 'Remove default',
+            ...mutation('device-default-delete', {device: device.id, default_service: definition.id}, 'Device service default removed. Existing projects are unchanged.', 'device-default-feedback')};
+          break;
+        }
+        case 'adopt-defaults': {
+          if (!device || !assignment || assignment.device !== device.id) throw new Error('Choose an available project configuration for this device.');
+          const project = state.projects.find(row => row.id === assignment.project);
+          configuration = {title: 'Replace device service defaults?', context: `${device.name} · From ${project?.name || 'Project'} - ${assignment.alias}`,
+            description: 'This replaces all defaults for this device with the selected project’s service definitions, including stored credentials. Existing project services and history are unchanged.', label: 'Replace defaults',
+            ...mutation('device-defaults-from-assignment', {device: device.id, assignment: target.assignment}, 'Device service defaults saved. Existing projects are unchanged.', 'device-default-feedback')};
+          break;
+        }
+        case 'delete-user': {
+          const user = users.find(row => row.id === Number(target.user));
+          if (!user || user.id === currentUser.id) throw new Error('Choose another existing user to remove.');
+          configuration = {title: 'Remove user?', context: `${user.full_name || user.username} (${user.username})`,
+            description: 'This deletes the user account and revokes their sessions. Recorded issue acknowledgements are retained.', label: 'Remove user',
+            ...mutation('user-delete', {user: user.id}, 'User removed.', 'user-feedback')};
+          break;
+        }
+        case 'restore': {
+          const file = target.file;
+          if (!file || !file.name || !file.size) throw new Error('Choose a non-empty backup file first.');
+          configuration = {title: 'Restore complete backup?', context: file.name,
+            description: 'This replaces all current configuration, users and monitoring data with the backup and pauses monitoring. Existing sessions will be signed out. Back up the current installation first if you need to keep its data.',
+            label: 'Replace data and restore',
+            run: async () => {
+              const response = await fetch('/api/restore', {method: 'POST',
+                headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser.csrf}, body: file});
+              if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
+            },
+            completed: async () => {
+              selectedProject = '';
+              notify('Restored successfully. Monitoring is paused. Sign in again.', true);
+              location.assign('/login');
+            }};
+          break;
+        }
+        default: throw new Error('Unknown confirmation action.');
+      }
+      openAppConfirmation(configuration);
+    }
+
+    let pendingServiceRemoval = null;
+    function openServiceRemoval(id) {
+      const service = state.services.find(row => row.id === Number(id) && row.enabled !== 0 && row.kind !== 'ping');
+      const assignment = state.assignments.find(row => row.id === service?.assignment && !row.removed);
+      const device = state.devices.find(row => row.id === assignment?.device);
+      if (!service || !assignment || !device) throw new Error('Service is no longer available. Refresh the dashboard.');
+      closeActionMenus();
+      // Capture the service and its owner so refreshes cannot retarget confirmation.
+      pendingServiceRemoval = {id: service.id, assignment: assignment.id};
+      el('remove-service-context').textContent = `${device.name} - ${assignment.alias} / ${service.name}`;
+      el('remove-service-feedback').textContent = '';
+      el('remove-service-dialog').showModal();
+    }
+    el('cancel-remove-service').onclick = () => {
+      pendingServiceRemoval = null;
+      el('remove-service-dialog').close();
+    };
+    el('remove-service-dialog').onclose = () => { pendingServiceRemoval = null; };
+    el('remove-service-dialog').oncancel = event => {
+      if (el('confirm-remove-service').disabled) event.preventDefault();
+    };
+    el('confirm-remove-service').onclick = async () => {
+      if (!pendingServiceRemoval || el('confirm-remove-service').disabled) return;
+      const button = el('confirm-remove-service');
+      const cancel = el('cancel-remove-service');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        const target = pendingServiceRemoval;
+        const service = state.services.find(row => row.id === target.id && row.assignment === target.assignment && row.enabled !== 0 && row.kind !== 'ping');
+        const assignment = state.assignments.find(row => row.id === target.assignment && !row.removed);
+        if (!service || !assignment) throw new Error('Service is no longer available. Cancel and refresh the dashboard.');
+        await request('remove-service', {id: target.id});
+        pendingServiceRemoval = null;
+        el('remove-service-dialog').close();
+        notify('Service removed. Historical readings retained.', true);
+        try { await refresh(); }
+        catch (error) { notify('Service removed. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('remove-service-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
+
+    function openHostStabilityEditor(id) {
+      const service = state.services.find(row => row.id === Number(id) && row.kind === 'ping');
+      const assignment = state.assignments.find(row => row.id === service?.assignment && !row.removed);
+      const device = state.devices.find(row => row.id === assignment?.device);
+      if (!service || !assignment || !device) throw new Error('Host no longer exists. Refresh the dashboard.');
+      const form = el('host-stability-form');
+      form.elements.namedItem('service').value = service.id;
+      for (const field of ['flap_changes', 'flap_window', 'flap_stable']) {
+        form.elements.namedItem(field).value = service[field];
+      }
+      form.elements.namedItem('flap_enabled').checked = Boolean(service.flap_enabled);
+      // textContent preserves literal names without treating device or alias text as HTML.
+      el('host-stability-host').textContent = `${device.name} - ${assignment.alias}`;
+      el('host-stability-feedback').textContent = '';
+      el('host-stability').showModal();
+    }
+
     el('cancel-host-stability').onclick = () => el('host-stability').close();
     el('host-stability-form').onsubmit = async event => {
       event.preventDefault();
@@ -1953,25 +2241,21 @@
       finally { button.disabled = false; }
     };
     el('close-history').onclick = () => el('history').close();
-    el('restore').onsubmit = async event => {
+    el('restore').onsubmit = event => {
       event.preventDefault();
-      if (!confirm('Replace all current data with this backup and pause monitoring?')) return;
       try {
+        // Capture the File now; later changes to the picker must not change the backup approved.
         const file = new FormData(event.target).get('backup');
-        const response = await fetch('/api/restore', {method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser?.csrf || ''}, body: file});
-        if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
-        selectedProject = '';
-        await refresh();
-        el('message').textContent = 'Restored successfully. Monitoring is paused.';
+        openAdministrativeConfirmation('restore', {file});
       } catch (error) { report(error); }
     };
     async function loadAdmin() {
       const responses = await Promise.all([fetch('/api/users'), fetch('/api/telegram'), fetch('/api/whatsapp')]);
       if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
       users = await responses[0].json();
-      el('users').innerHTML = users.map(user => `<p>${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}
-        <button data-edit-user="${user.id}">Edit</button>
-        ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</p>`).join('');
+      el('users').innerHTML = users.map(user => `<div class="user-entry"><span class="user-details">${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}</span>
+        <div class="user-actions"><button data-edit-user="${user.id}">Edit</button>
+        ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</div></div>`).join('');
       const telegram = await responses[1].json();
       if (!telegramLoaded) {
         const form = el('telegram-form');
@@ -2061,11 +2345,7 @@
       const data = event.target.dataset;
       try {
         if (data.editUser) openUserEditor(data.editUser);
-        if (data.deleteUser && confirm('Remove this user and revoke their sessions?')) {
-          await request('user-delete', {user: data.deleteUser});
-          el('user-feedback').textContent = 'User removed.';
-          await loadAdmin();
-        }
+        if (data.deleteUser) openAdministrativeConfirmation('delete-user', {user: data.deleteUser});
       } catch (error) { el('user-feedback').textContent = error.message; }
     });
     el('telegram-form').onsubmit = async event => {

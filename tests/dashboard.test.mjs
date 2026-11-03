@@ -77,6 +77,8 @@ const context = vm.createContext({
 new vm.Script(script).runInContext(context);
 await context.refresh();
 assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
+assert.match(element('assignments').innerHTML, /Device ID - Alias \/ Address/);
+assert.match(element('assignments').innerHTML, /SW001 - Stage \/ 127\.0\.0\.1/);
 assert.match(element('dashboard').innerHTML, /class="action-menu"/);
 assert.match(element('dashboard').innerHTML, />Up /);
 context.openAliasEditor(1);
@@ -1001,6 +1003,9 @@ assert.equal(defaultSubmission.path, '/api/device-default-from-template');
 assert.equal(defaultSubmission.body.template, '8');
 element('device-default-source').value = '1';
 await element('adopt-device-defaults').onclick();
+assert.equal(element('app-confirmation').open, true);
+assert.equal(defaultSubmission.path, '/api/device-default-from-template');
+await element('confirm-app-action').onclick();
 assert.equal(defaultSubmission.path, '/api/device-defaults-from-assignment');
 assert.equal(defaultSubmission.body.assignment, '1');
 assert.match(element('device-default-feedback').textContent, /Existing projects are unchanged/);
@@ -1336,3 +1341,374 @@ assert.match(element('telegram-feedback').textContent, /Sample notification queu
 assert.equal(element('telegram-sample-type').value, 'flapping');
 resumeContext.fetch = sampleOriginalFetch;
 console.log('Telegram sample selector queues the selected example without resetting the selection.');
+
+// Public status must let every signed-in role log out even without acknowledgement CSRF.
+const signOutData = {project:'Logout test',devices:[],incidents:[],acknowledged_incidents:[],updated:now,
+  acknowledge_enabled:false,can_acknowledge:false,viewer:null};
+const signOutRequests = [];
+let signOutDenied = false;
+let signOutExpired = false;
+const signOutContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,
+  setInterval(){},fetch:async (path, options) => {
+    if (path === '/api/me') {
+      if (signOutExpired) {
+        signOutData.viewer = null;
+        return {ok:false,status:401,json:async () => ({error:'Login required'})};
+      }
+      return {ok:true,status:200,json:async () => ({...signOutData.viewer,csrf:'logout-session-token'})};
+    }
+    if (path === '/api/logout') {
+      signOutRequests.push(options);
+      if (signOutDenied) return {ok:false,status:403,json:async () => ({error:'Sign out rejected'})};
+      signOutData.viewer = null;
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => signOutData};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(signOutContext);
+await signOutContext.refresh();
+assert.equal(publicNodes.get('status-logout').hidden,true);
+for (const role of ['admin','operator','viewer']) {
+  for (const mustChangePassword of [false,true]) {
+    signOutData.viewer = {username:role,role,must_change_password:mustChangePassword};
+    await signOutContext.refresh();
+    assert.equal(publicNodes.get('status-logout').hidden,false);
+    await publicNodes.get('status-logout').onclick();
+    const posted = signOutRequests.at(-1);
+    assert.equal(posted.headers['X-CSRF-Token'],'logout-session-token');
+    assert.equal(posted.method,'POST');
+    assert.equal(publicNodes.get('status-logout').hidden,true);
+    assert.equal(publicNodes.get('status-session').textContent,'Not signed in');
+    assert.equal(publicNodes.get('status-session-link').textContent,'Sign in');
+    assert.equal(publicNodes.get('status-logout').disabled,false);
+  }
+}
+signOutData.viewer = {username:'viewer',role:'viewer'};
+signOutDenied = true;
+await signOutContext.refresh();
+await publicNodes.get('status-logout').onclick();
+assert.equal(publicNodes.get('status-logout').hidden,false);
+assert.equal(publicNodes.get('status-logout').disabled,false);
+assert.equal(publicNodes.get('status-ack-feedback').textContent,'Sign out rejected');
+const callsBeforeExpiry = signOutRequests.length;
+signOutExpired = true;
+await publicNodes.get('status-logout').onclick();
+assert.equal(signOutRequests.length,callsBeforeExpiry);
+assert.equal(publicNodes.get('status-logout').hidden,true);
+console.log('Status sign-out works for all roles and temporary passwords, uses session CSRF, and handles rejection/expiry.');
+
+// Host flap editing must always identify and populate the host just selected.
+const firstFlapHost = fixture.services.find(service => service.kind === 'ping');
+Object.assign(firstFlapHost, {flap_enabled:1,flap_changes:4,flap_window:5,flap_stable:5});
+const firstFlapAssignment = fixture.assignments.find(row => row.id === firstFlapHost.assignment);
+const firstFlapDevice = fixture.devices.find(row => row.id === firstFlapAssignment.device);
+fixture.devices.push({id:987,name:'<Host B>',address:'10.1.1.2'});
+fixture.assignments.push({id:988,project:1,device:987,alias:'Second & alias',monitoring:1,visible:1});
+fixture.services.push({id:989,assignment:988,kind:'ping',enabled:1,flap_enabled:0,flap_changes:7,flap_window:8,flap_stable:9});
+await context.refresh();
+context.openHostStabilityEditor(firstFlapHost.id);
+assert.equal(element('host-stability-host').textContent, `${firstFlapDevice.name} - ${firstFlapAssignment.alias}`);
+assert.equal(element('host-stability-form').elements.namedItem('service').value,firstFlapHost.id);
+assert.equal(element('host-stability-form').elements.namedItem('flap_changes').value,4);
+context.openHostStabilityEditor(989);
+assert.equal(element('host-stability-host').textContent,'<Host B> - Second & alias');
+assert.equal(element('host-stability-form').elements.namedItem('service').value,989);
+assert.equal(element('host-stability-form').elements.namedItem('flap_changes').value,7);
+assert.equal(element('host-stability-form').elements.namedItem('flap_enabled').checked,false);
+context.openHostStabilityEditor(firstFlapHost.id);
+assert.equal(element('host-stability-form').elements.namedItem('flap_changes').value,4);
+assert.equal(element('host-stability-form').elements.namedItem('flap_enabled').checked,true);
+assert.throws(() => context.openHostStabilityEditor(-999), /Host no longer exists/);
+fixture.assignments.find(row => row.id === 988).removed = 1;
+await context.refresh();
+assert.throws(() => context.openHostStabilityEditor(989), /Host no longer exists/);
+console.log('Host flap dialog identifies the correct host, safely displays aliases, refreshes policy fields and rejects removed targets.');
+
+// Protocol changes disable irrelevant inputs without clearing draft values.
+const protocolForm = element('service-edit-form');
+protocolForm.elements.namedItem('community').value = 'unsaved-community';
+protocolForm.elements.namedItem('unit').value = '17';
+for (const [protocol, communityDisabled, unitDisabled] of [
+  ['snmp',false,true],['modbus',true,false],['tcp',true,true],['snmp',false,true],
+]) {
+  protocolForm.elements.namedItem('kind').value = protocol;
+  context.updateProtocolFields(protocolForm);
+  assert.equal(protocolForm.elements.namedItem('community').disabled,communityDisabled);
+  assert.equal(protocolForm.elements.namedItem('unit').disabled,unitDisabled);
+  assert.equal(protocolForm.elements.namedItem('community').value,'unsaved-community');
+  assert.equal(protocolForm.elements.namedItem('unit').value,'17');
+}
+for (const [kind, mode] of [['snmp','service-edit'],['modbus','template-create'],['tcp','device-default-create']]) {
+  context.openConfigurationEditor({...stateService,kind},mode,null,'Protocol test','Sample configuration');
+  assert.equal(protocolForm.elements.namedItem('community').disabled,kind !== 'snmp');
+  assert.equal(protocolForm.elements.namedItem('unit').disabled,kind !== 'modbus');
+}
+console.log('Service protocol fields initialise correctly and retain drafts while switching SNMP, Modbus and TCP.');
+
+// Assignment choices are project-scoped; paused/hidden still means assigned.
+fixture.projects.push({id:876,name:'Other assignment project'});
+fixture.devices.push({id:877,name:'Elsewhere',address:'10.9.1.1'},
+  {id:878,name:'Paused assigned',address:'10.9.1.2'}, {id:879,name:'Removed available',address:'10.9.1.3'});
+fixture.assignments.push({id:877,project:876,device:877,alias:'Other project',monitoring:1,visible:1},
+  {id:878,project:1,device:878,alias:'Paused',monitoring:0,visible:0},
+  {id:879,project:1,device:879,alias:'Removed',removed:1,monitoring:0,visible:0});
+vm.runInContext("selectedProject = '1'", context);
+await context.refresh();
+assert.match(element('device').innerHTML, /value="877"/);
+assert.doesNotMatch(element('device').innerHTML, /value="878"/);
+assert.match(element('device').innerHTML, /value="879"/);
+element('device').value = '879';
+await context.refresh();
+assert.equal(element('device').value,'879');
+fixture.assignments.find(row => row.id === 879).removed = 0;
+await context.refresh();
+assert.doesNotMatch(element('device').innerHTML, /value="879"/);
+assert.equal(element('device').value,'');
+vm.runInContext("selectedProject = '876'", context);
+await context.refresh();
+assert.doesNotMatch(element('device').innerHTML, /value="877"/);
+assert.match(element('device').innerHTML, /value="878"/);
+console.log('Assign-equipment choices exclude current project assignments and preserve eligible selections across refreshes.');
+
+// Shared Actions menus float independently of rows and remain globally exclusive.
+const menuEvents = new Map();
+let actionMenus = [];
+function actionMenu(key, anchor) {
+  const menu = {open:false,dataset:{menuKey:key}};
+  const summary = {parentElement:menu,focused:false,focus(){this.focused=true;},
+    getBoundingClientRect(){return anchor;},
+    closest(selector){return selector === '.action-menu' ? menu : selector === 'summary' ? this : null;}};
+  const popup = {style:{},getBoundingClientRect(){return {width:200,height:180};}};
+  menu.querySelector = selector => selector === 'summary' ? summary : popup;
+  return {menu,summary,popup};
+}
+const firstAction = actionMenu('hosts:2',{right:400,top:70,bottom:100});
+const catalogueAction = actionMenu('catalogue:2',{right:980,top:650,bottom:680});
+actionMenus = [firstAction.menu,catalogueAction.menu];
+const menuContext = vm.createContext({document:{...context.document,
+  documentElement:{clientWidth:1000,clientHeight:700},
+  addEventListener(type,handler){menuEvents.set(type,handler);},
+  querySelectorAll(selector){
+    if (selector === '.action-menu') return actionMenus;
+    if (selector === '.action-menu[open]') return actionMenus.filter(menu => menu.open);
+    return [];
+  }},localStorage:context.localStorage,setInterval(){},
+  fetch:async path => ({ok:true,json:async () => path === '/api/me' ? {id:1,username:'admin',role:'admin',csrf:'test'}
+    : path === '/api/users' ? [] : ['/api/telegram','/api/whatsapp'].includes(path) ? {configuration:{},outbox:[]} : fixture})});
+new vm.Script(script).runInContext(menuContext);
+await menuContext.initializeSession();
+function clickAction(target) {
+  let prevented = false;
+  menuEvents.get('click')({target,preventDefault(){prevented=true;}});
+  return prevented;
+}
+assert.equal(clickAction(firstAction.summary),true);
+assert.equal(firstAction.menu.open,true);
+assert.equal(catalogueAction.menu.open,false);
+assert.equal(firstAction.popup.style.left,'200px');
+assert.equal(firstAction.popup.style.top,'106px');
+clickAction(catalogueAction.summary);
+assert.equal(firstAction.menu.open,false);
+assert.equal(catalogueAction.menu.open,true);
+assert.equal(catalogueAction.popup.style.top,'464px');
+assert.equal(catalogueAction.popup.style.left,'780px');
+// Clicking menu whitespace or scrolling its own content keeps it usable.
+const insideMenu = {closest:selector => selector === '.action-menu' ? catalogueAction.menu : null};
+clickAction(insideMenu);
+assert.equal(catalogueAction.menu.open,true);
+menuEvents.get('scroll')({target:{closest:selector => selector === '.menu-buttons' ? catalogueAction.popup : null}});
+assert.equal(catalogueAction.menu.open,true);
+// Clicking an action or anywhere else closes it.
+clickAction({closest:selector => selector === '.action-menu' ? catalogueAction.menu : selector === 'button' ? {} : null});
+assert.equal(catalogueAction.menu.open,false);
+clickAction(firstAction.summary);
+clickAction({closest:() => null});
+assert.equal(firstAction.menu.open,false);
+// A poll may replace the selected occurrence, but never open a second occurrence.
+clickAction(firstAction.summary);
+const replacementAction = actionMenu('hosts:2',{right:400,top:70,bottom:100});
+actionMenus = [replacementAction.menu,catalogueAction.menu];
+menuContext.restoreActionMenu();
+assert.equal(replacementAction.menu.open,true);
+assert.equal(catalogueAction.menu.open,false);
+let escapePrevented = false;
+menuEvents.get('keydown')({key:'Escape',preventDefault(){escapePrevented=true;}});
+assert.equal(replacementAction.menu.open,false);
+assert.equal(replacementAction.summary.focused,true);
+assert.equal(escapePrevented,true);
+clickAction(replacementAction.summary);
+menuEvents.get('scroll')({target:{closest:() => null}});
+assert.equal(replacementAction.menu.open,false);
+clickAction(replacementAction.summary);
+actionMenus = [];
+menuContext.restoreActionMenu();
+actionMenus = [replacementAction.menu];
+menuContext.restoreActionMenu();
+assert.equal(replacementAction.menu.open,false);
+console.log('Actions menus stay exclusive, float within the viewport, survive polling once, and close on outside/action clicks, Escape and page scroll.');
+
+// Removing a host service uses reviewable app UI, not a native confirmation.
+const removalFixture = {...fixture,projects:[{id:1,name:'Removal project'}],
+  devices:[{id:99,name:'Switch <A>',address:'10.0.0.1'}],
+  assignments:[{id:101,project:1,device:99,alias:'Stage & alias',visible:1,monitoring:1}],
+  services:[{...stateService,id:202,assignment:101,name:'Port <status>',enabled:1}],
+  latest:[],runs:[{id:1,project:1}],settings:{active_run:'1',retention_days:'30'},
+  incident_lists:{active:[],acknowledged:[],suppressed:[],resolved:[]}};
+const removalRequests = [];
+let rejectServiceRemoval = false;
+const removalContext = vm.createContext({document:context.document,localStorage:context.localStorage,
+  setInterval(){},confirm(){throw new Error('Native confirmation must not be used');},
+  fetch:async (path,options) => {
+    if (path === '/api/remove-service') {
+      removalRequests.push({body:JSON.parse(options.body),headers:options.headers});
+      if (rejectServiceRemoval) return {ok:false,status:400,json:async () => ({error:'Removal rejected'})};
+      removalFixture.services[0].enabled = 0;
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => path === '/api/me' ? {id:1,username:'admin',role:'admin',csrf:'remove-token'}
+      : path === '/api/users' ? [] : ['/api/telegram','/api/whatsapp'].includes(path) ? {configuration:{},outbox:[]} : removalFixture};
+  }});
+new vm.Script(script).runInContext(removalContext);
+await removalContext.initializeSession();
+removalContext.openServiceRemoval(202);
+assert.equal(element('remove-service-dialog').open,true);
+assert.equal(element('remove-service-context').textContent,'Switch <A> - Stage & alias / Port <status>');
+assert.equal(removalRequests.length,0);
+element('cancel-remove-service').onclick();
+await element('confirm-remove-service').onclick();
+assert.equal(removalRequests.length,0);
+removalContext.openServiceRemoval(202);
+element('remove-service-dialog').onclose();
+element('remove-service-dialog').close();
+await element('confirm-remove-service').onclick();
+assert.equal(removalRequests.length,0);
+removalContext.openServiceRemoval(202);
+rejectServiceRemoval = true;
+await element('confirm-remove-service').onclick();
+assert.equal(element('remove-service-dialog').open,true);
+assert.equal(element('remove-service-feedback').textContent,'Removal rejected');
+assert.equal(element('confirm-remove-service').disabled,false);
+assert.equal(element('cancel-remove-service').disabled,false);
+assert.equal(removalRequests[0].body.id,202);
+assert.equal(removalRequests[0].headers['X-CSRF-Token'],'remove-token');
+element('cancel-remove-service').onclick();
+removalContext.openServiceRemoval(202);
+removalFixture.services[0].enabled = 0;
+await removalContext.refresh();
+await element('confirm-remove-service').onclick();
+assert.equal(removalRequests.length,1);
+assert.match(element('remove-service-feedback').textContent,/no longer available/);
+element('cancel-remove-service').onclick();
+removalFixture.services[0].enabled = 1;
+await removalContext.refresh();
+removalContext.openServiceRemoval(202);
+rejectServiceRemoval = false;
+const removalSave = element('confirm-remove-service').onclick();
+await element('confirm-remove-service').onclick();
+await removalSave;
+assert.equal(removalRequests.length,2);
+assert.equal(element('remove-service-dialog').open,false);
+assert.equal(removalFixture.services[0].enabled,0);
+assert.match(element('message').textContent,/Service removed/);
+console.log('In-app service removal supports safe cancellation, inline errors, fixed targets and a single confirmed request.');
+
+// Every remaining destructive admin action must be reviewed before any request.
+const confirmationFixture = {...removalFixture,
+  devices:[{id:99,name:'Device <A>',address:'10.0.0.1'}],
+  service_templates:[{id:301,name:'Library <RSSI>',kind:'snmp'}],
+  device_service_defaults:[{id:401,device:99,name:'Default & RSSI'}]};
+const administrativeRequests = [];
+const administrativeRedirects = [];
+let rejectAdministrativeAction = false;
+const administrativeContext = vm.createContext({document:context.document,localStorage:context.localStorage,
+  setInterval(){},confirm(){throw new Error('Native confirmation is forbidden');},
+  location:{assign(path){administrativeRedirects.push(path);}},
+  FormData:class {constructor(form){this.form=form;}get(){return this.form.backupFile;}},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      administrativeRequests.push({path,body:path === '/api/restore' ? options.body : JSON.parse(options.body),headers:options.headers});
+      return {ok:!rejectAdministrativeAction,status:rejectAdministrativeAction ? 400 : 200,
+        json:async () => rejectAdministrativeAction ? {error:'Operation rejected'} : {ok:true}};
+    }
+    return {ok:true,status:200,json:async () => path === '/api/me' ? {id:1,username:'admin',role:'admin',csrf:'admin-action-token'}
+      : path === '/api/users' ? [{id:1,username:'admin',role:'admin'},{id:2,username:'reader',full_name:'Reader <B>',role:'viewer'}]
+      : ['/api/telegram','/api/whatsapp'].includes(path) ? {configuration:{},outbox:[]} : confirmationFixture};
+  }});
+new vm.Script(script).runInContext(administrativeContext);
+await administrativeContext.initializeSession();
+for (const [action,selection,path,expectedBody] of [
+  ['delete-device',{device:99},'/api/delete-device',{device:99}],
+  ['remove-assignment',{assignment:101},'/api/assignment-remove',{assignment:101}],
+  ['delete-template',{template:301},'/api/template-delete',{template:301}],
+  ['delete-default',{device:99,default_service:401},'/api/device-default-delete',{device:99,default_service:401}],
+  ['adopt-defaults',{device:99,assignment:101},'/api/device-defaults-from-assignment',{device:99,assignment:101}],
+  ['delete-user',{user:2},'/api/user-delete',{user:2}],
+]) {
+  const before = administrativeRequests.length;
+  administrativeContext.openAdministrativeConfirmation(action,selection);
+  assert.equal(element('app-confirmation').open,true);
+  assert.equal(administrativeRequests.length,before);
+  assert.ok(element('app-confirmation-context').textContent.length);
+  assert.ok(element('app-confirmation-description').textContent.length);
+  element('cancel-app-action').onclick();
+  await element('confirm-app-action').onclick();
+  assert.equal(administrativeRequests.length,before);
+  administrativeContext.openAdministrativeConfirmation(action,selection);
+  element('app-confirmation').close();
+  element('app-confirmation').onclose();
+  await element('confirm-app-action').onclick();
+  assert.equal(administrativeRequests.length,before);
+  administrativeContext.openAdministrativeConfirmation(action,selection);
+  rejectAdministrativeAction = true;
+  await element('confirm-app-action').onclick();
+  assert.equal(element('app-confirmation').open,true);
+  assert.equal(element('app-confirmation-feedback').textContent,'Operation rejected');
+  assert.equal(element('confirm-app-action').disabled,false);
+  element('cancel-app-action').onclick();
+  rejectAdministrativeAction = false;
+  const mutableSelection = {...selection};
+  administrativeContext.openAdministrativeConfirmation(action,mutableSelection);
+  // Changing external selection data after opening cannot change the approved target.
+  for (const key of Object.keys(mutableSelection)) mutableSelection[key] = 9999;
+  const save = element('confirm-app-action').onclick();
+  let preventedCancel = false;
+  element('app-confirmation').oncancel({preventDefault(){preventedCancel=true;}});
+  assert.equal(preventedCancel,true);
+  await element('confirm-app-action').onclick();
+  await save;
+  assert.equal(administrativeRequests.length,before+2);
+  const request = administrativeRequests.at(-1);
+  assert.equal(request.path,path);
+  assert.deepEqual(request.body,expectedBody);
+  assert.equal(request.headers['X-CSRF-Token'],'admin-action-token');
+  assert.equal(element('app-confirmation').open,false);
+  assert.equal(element('cancel-app-action').disabled,false);
+}
+// Backup selection is captured before review; Cancel and errors never upload another file.
+const approvedBackup = {name:'backup <A>.sqlite3',size:123};
+const replacementBackup = {name:'backup B.sqlite3',size:456};
+const restoreForm = element('restore');
+restoreForm.backupFile = approvedBackup;
+element('restore').onsubmit({preventDefault(){},target:restoreForm});
+assert.equal(element('app-confirmation-context').textContent,approvedBackup.name);
+const beforeRestore = administrativeRequests.length;
+element('cancel-app-action').onclick();
+await element('confirm-app-action').onclick();
+assert.equal(administrativeRequests.length,beforeRestore);
+element('restore').onsubmit({preventDefault(){},target:restoreForm});
+rejectAdministrativeAction = true;
+await element('confirm-app-action').onclick();
+assert.equal(element('app-confirmation').open,true);
+assert.match(element('app-confirmation-feedback').textContent,/Restore rejected/);
+rejectAdministrativeAction = false;
+element('cancel-app-action').onclick();
+element('restore').onsubmit({preventDefault(){},target:restoreForm});
+restoreForm.backupFile = replacementBackup;
+await element('confirm-app-action').onclick();
+assert.equal(administrativeRequests.at(-1).body,approvedBackup);
+assert.equal(administrativeRequests.at(-1).headers['Content-Type'],'application/octet-stream');
+assert.equal(administrativeRequests.at(-1).headers['X-CSRF-Token'],'admin-action-token');
+assert.deepEqual(administrativeRedirects,['/login']);
+assert.equal(element('app-confirmation').open,false);
+assert.doesNotMatch(html,/\b(?:confirm|alert|prompt)\s*\(/);
+console.log('All seven admin confirmations support cancellation, target capture, inline rejection, duplicate protection and safe backup selection.');

@@ -1228,6 +1228,22 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(issue['trigger_display'], '-81')
 
 
+    def test_disabled_protocol_fields_preserve_saved_values_on_edit(self):
+        with server.connect() as db:
+            db.execute('UPDATE services SET unit=17,community=? WHERE id=?', ('saved-secret', self.service['id']))
+        body = {**self.service, 'service': self.service['id']}
+        body.pop('unit')
+        body.pop('community')
+        server.mutate('service-edit', body)
+        with server.connect() as db:
+            saved = db.execute('SELECT unit,community FROM services WHERE id=?', (self.service['id'],)).fetchone()
+            self.assertEqual(tuple(saved), (17, 'saved-secret'))
+        server.mutate('service-edit', {**body, 'kind': 'modbus', 'target': '10', 'unit': 23})
+        server.mutate('service-edit', {**body, 'kind': 'tcp', 'target': '443'})
+        with server.connect() as db:
+            saved = db.execute('SELECT kind,unit,community FROM services WHERE id=?', (self.service['id'],)).fetchone()
+            self.assertEqual(tuple(saved), ('tcp', 23, 'saved-secret'))
+
 
 if __name__ == '__main__':
     unittest.main()

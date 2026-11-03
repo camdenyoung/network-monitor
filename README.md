@@ -1,9 +1,81 @@
-# Network Monitor v0.3 · Build 26
+# Network Monitor v0.3.1 · Build 38
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 38 — v0.3.1
+
+- Merge the UI polish branch into main and release the dashboard, editor and confirmation improvements.
+
+
+### Build 37 — v0.3 (UI polish branch)
+
+- Separate Configured Services details from Pause/Actions controls with more spacing and responsive alignment.
+- Show Device ID alongside alias and address in Project Assignments.
+
+
+### Build 36 — v0.3 (UI polish branch)
+
+- Replace all remaining browser confirmations with app-styled dialogs for inventory/project removal, library/default changes, user deletion and backup restore.
+- Show the selected target and consequences before approval; retain errors inline and prevent duplicate submissions.
+- Successful backup restoration returns to sign-in because saved sessions are invalidated.
+
+
+### Build 35 — v0.3 (UI polish branch)
+
+- Replace browser service-removal confirmation with an in-app dialog identifying the host and service, retaining history and displaying errors inline.
+
+
+### Build 34 — v0.3 (UI polish branch)
+
+- Actions menus float over List rows without expanding or being clipped by them.
+- Allow one Actions menu open across the app; close on outside clicks, action selection or Escape, and retain only that menu during polling refreshes.
+
+
+### Build 33 — v0.3 (UI polish branch)
+
+- Assign equipment lists only devices not already assigned to the selected project; removed devices remain available for reassignment.
+
+
+### Build 32 — v0.3 (UI polish branch)
+
+- Remove the redundant Selected services creation form from Project configuration; create reusable definitions in the library and apply them to hosts.
+- Retain Configured services filters and management actions for existing project services.
+
+
+### Build 31 — v0.3 (UI polish branch)
+
+- Service forms disable SNMP community outside SNMP, and Modbus Unit ID outside Modbus, including when opening existing definitions.
+- Switching protocols preserves unfinished input; saving with an irrelevant field disabled preserves its stored value.
+
+
+### Build 30 — v0.3 (UI polish branch)
+
+- Move Consecutive readings immediately to the right of Critical in the service editor.
+
+
+### Build 29 — v0.3 (UI polish branch)
+
+- Identify the host being edited in the flap-protection dialog by device ID and project alias.
+- Rework service editing into a responsive grid with horizontal flap settings and grouped action buttons.
+
+
+### Build 28 — v0.3 (UI polish branch)
+
+- Extend Previous deployments to the toolbar's left edge while retaining its right-edge alignment with Selected project.
+- Move Telegram Discover groups between Send recoveries and Save settings.
+- Limit the Telegram log viewport to ten entries, with scrolling inside its bordered section.
+
+
+### Build 27 — v0.3 (UI polish branch)
+
+- Give each listed user a separate rounded border.
+- Enlarge checkboxes to 24px across the app and align stacked checkbox headings with other form labels.
+- Align project and previous-deployment selectors, with their action groups starting in the same column.
+- Restore Sign out beside Admin Dashboard on public status for every signed-in role.
+
 
 ### Build 26 — v0.3
 
@@ -155,6 +227,17 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.3.1
+
+- Add bordered user entries, larger consistent checkboxes and aligned project/deployment controls.
+- Restore Status Dashboard sign-out for all signed-in roles; add a bounded, scrollable Telegram log and refine notification settings layout.
+- Identify hosts in flap-protection dialogs and arrange service editing in a responsive grid. Disable protocol-specific fields when irrelevant while preserving stored values.
+- Remove redundant inline service creation; filter equipment assignment choices to devices not already in the project. Improve service-control spacing and show Device ID in assignments.
+- Float Actions menus in List view without growing rows; enforce one open menu with outside-click and Escape dismissal.
+- Replace all remaining browser confirmations with app-styled dialogs that capture selected targets, retain errors inline and prevent duplicate submissions.
+- After backup restoration, return to sign-in because sessions are invalidated.
+
 
 ### v0.3
 

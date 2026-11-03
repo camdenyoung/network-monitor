@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 26. Show it after the title on both the main and
+Current displayed release is v0.3.1, Build 38. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -482,3 +482,80 @@ unknown sample types before queueing; old callers default to connectivity test.
 STABLE notifications match the four-line flapping layout with icon, project,
 host/alias, current service reading and issue/deployment numbers. Do not append
 HEALTHY or other severity to the heading, or the historical opening value.
+
+UI polish: user-management entries have independent rounded borders. All app
+checkboxes use 24px native controls; stacked checkbox fields reserve the same
+35px control height as other fields so Enabled/Send recoveries labels align.
+Keep inline checkbox labels and project settings at the same 24px size.
+Project and previous-deployment selectors share grid columns and right edges;
+primary and previous-deployment action groups start in the same next column.
+Collapse to a single column on narrow screens and reserve the logo slot.
+Status navigation groups Admin Dashboard and Sign out at the right. Sign out is
+visible to all signed-in roles (including temporary-password users), uses the
+CSRF token from /api/me with /api/logout, and stays on public status afterwards.
+Do not expose additional account information or widen acknowledgement permissions.
+
+Previous-deployment dropdown spans the logo and project-selector columns so it
+starts at the toolbar's left edge and ends at Selected project's right edge.
+Keep its action group in the shared next column. Telegram Discover groups sits
+inside the settings form between Send recoveries and Save settings; type=button
+must prevent accidental saves. Telegram delivery log keeps the newest ten
+single-line 40px entries visible (400px maximum), with keyboard-accessible vertical
+and horizontal scrolling inside its border for older entries and long text.
+
+Host flap-protection dialog identifies its target with Device ID - project alias
+using textContent every time it opens. Reject missing/removed targets. The host
+form has no numeric hysteresis control. Service editing uses a responsive wide
+three-column grid; .flap-settings spans its own row, with side-by-side settings
+that wrap on narrower screens. Use the same horizontal fieldset for library,
+inventory defaults and service creation. Keep Save/Cancel together below settings.
+
+In the service editor, Consecutive readings follows Critical in the same
+Warning / Critical / Consecutive readings row, before the flap settings.
+
+Service forms disable irrelevant protocol fields on initial load, editor opening,
+protocol changes and successful add-form reset. SNMP enables community only;
+Modbus enables unit ID only; TCP disables both. Do not clear disabled drafts.
+Keep native disabled styling visible. Missing unit on edit preserves the existing
+value in service_details, as missing community already preserves the secret.
+Apply the shared editor rules to services, library definitions and device defaults.
+
+Project configuration no longer contains the inline Selected services creation
+form or its assignment selector. Create definitions in Reusable service library
+and apply them with Add to host. Preserve the separate Configured services
+filter/management section, service feedback and host actions, existing services,
+inventory defaults and history. The shared editor still supports library/default
+creation and editing of existing project services.
+
+Assign-equipment dropdown excludes all non-removed assignments in the selected
+project, including hidden/paused hosts. Devices assigned only elsewhere and
+removed assignments remain eligible. Recompute on project change and refresh;
+preserve eligible selection, clear it after assignment, and explain empty choices.
+
+Actions menus use viewport-fixed floating panels in Cards, List and configured
+services, escaping list scroll clipping without growing rows. One menu may be
+open globally; outside clicks, action selection, Escape, page/list scroll and
+resize close it. Escape restores trigger focus. Internal menu scrolling remains
+usable. Polling restores only a unique location:service key, never both live and
+catalogue occurrences; clear it if the target disappears. Keep popup within the
+viewport, opening upward near the bottom. Other details elements are unaffected.
+
+Removing a host service uses the shared styled in-app confirmation, never native
+confirm(). Show Device ID - Alias / service name using textContent, explain that
+history is retained, and capture the target. Cancel/Escape send no mutation.
+Disable controls while saving, keep errors in the dialog, reject unavailable
+services and preserve backend Admin/CSRF enforcement and soft-removal semantics.
+
+All destructive/replacement confirmations use app-styled dialogs; no native
+confirm/alert/prompt calls remain. The shared administrative confirmation captures
+IDs or the actual backup File before approval, uses textContent for target labels,
+keeps Cancel focused, blocks duplicate saves/closing in flight and retains API
+errors inline. Success refresh failures must not imply the mutation failed.
+Covers device deletion, project removal, library deletion, default deletion/adoption,
+user deletion and backup restore. Preserve server-side Admin/CSRF/last-admin checks.
+Restore invalidates sessions; after success return to login, not authenticated refresh.
+
+Configured Services rows separate name/protocol details from right-aligned
+Pause/Actions controls with a 24px gap, wrapping safely on small screens.
+Project Assignments identifies equipment as Device ID - Alias / Address;
+resolve Device ID and IP from permanent inventory and escape all displayed text.
