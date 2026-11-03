@@ -50,6 +50,8 @@
     .display-controls button[aria-pressed="true"] { background: #176959; }
     #live-host-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
     #devices.grid { margin-top: 16px; }
+    .acknowledgement-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
+    .acknowledgement-dialog::backdrop { background: #0009; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     .status-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }
     .status-header h1 { justify-self: start; margin: 0; }
@@ -114,6 +116,16 @@
     <div id="devices" class="grid"></div>
   </div>
   <p id="updated"></p>
+  <dialog id="acknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="acknowledgement-title" aria-describedby="acknowledgement-description">
+    <h2 id="acknowledgement-title">Acknowledge issue?</h2>
+    <p id="acknowledgement-context"></p>
+    <p id="acknowledgement-description">This moves the issue to the acknowledged list and stops reminder notifications. Monitoring continues until the issue recovers.</p>
+    <div class="display-controls">
+      <button id="confirm-acknowledgement" class="primary">Acknowledge issue</button>
+      <button id="cancel-acknowledgement" autofocus>Cancel</button>
+    </div>
+    <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <script>
     const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const formatStatus = value => String(value ?? '').replace(/^./, char => char.toUpperCase());
@@ -258,6 +270,7 @@
         document.getElementById('status-ack-note').hidden = !data.acknowledge_enabled || data.can_acknowledge;
         document.getElementById('incidents').innerHTML = data.incidents.map(incident => `
           <div class="metric">
+            <strong>Issue #${escape(incident.id)}</strong> ·
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Since ${escape(new Date(incident.opened * 1000).toLocaleString())}</small>
@@ -265,6 +278,7 @@
           </div>`).join('') || '<p>No active issues.</p>';
         document.getElementById('acknowledged-incidents').innerHTML = (data.acknowledged_incidents || []).map(incident => `
           <div class="metric">
+            <strong>Issue #${escape(incident.id)}</strong> ·
             <strong class="${escape(incident.status)}">${escape(labels[incident.status] || formatStatus(incident.status))}</strong>
             · ${escape(incident.device)} - ${escape(incident.alias)} / ${escape(incident.service)}
             <small>· Acknowledged ${escape(new Date(incident.acknowledged * 1000).toLocaleString())}
@@ -277,20 +291,46 @@
         document.getElementById('summary').textContent = error.message + ' — displayed information may be stale.';
       }
     }
-    document.getElementById('incidents').onclick = async event => {
+    let pendingAcknowledgement = null;
+    document.getElementById('incidents').onclick = event => {
       const id = event.target.dataset.statusAck;
       if (!id || !publicState?.can_acknowledge) return;
-      if (!confirm('Acknowledge this issue? It will move to the acknowledged list. Monitoring will continue.')) return;
-      event.target.disabled = true;
+      const issue = publicState.incidents.find(row => String(row.id) === String(id));
+      if (!issue) return;
+      pendingAcknowledgement = id;
+      document.getElementById('acknowledgement-context').textContent = `Issue #${issue.id} · ${issue.device} - ${issue.alias} / ${issue.service}`;
+      document.getElementById('acknowledgement-feedback').textContent = '';
+      document.getElementById('acknowledgement-dialog').showModal();
+    };
+    document.getElementById('cancel-acknowledgement').onclick = () => {
+      pendingAcknowledgement = null;
+      document.getElementById('acknowledgement-dialog').close();
+    };
+    document.getElementById('acknowledgement-dialog').onclose = () => { pendingAcknowledgement = null; };
+    document.getElementById('acknowledgement-dialog').oncancel = event => {
+      if (document.getElementById('confirm-acknowledgement').disabled) event.preventDefault();
+    };
+    document.getElementById('confirm-acknowledgement').onclick = async () => {
+      if (pendingAcknowledgement === null || document.getElementById('confirm-acknowledgement').disabled) return;
+      if (!publicState?.can_acknowledge) {
+        document.getElementById('acknowledgement-feedback').textContent = 'Sign in as an Admin or Operator to acknowledge this issue.';
+        return;
+      }
+      const button = document.getElementById('confirm-acknowledgement');
+      const cancel = document.getElementById('cancel-acknowledgement');
+      button.disabled = true;
+      cancel.disabled = true;
       try {
         const response = await fetch('/api/status-ack', {method:'POST',
-          headers:{'Content-Type':'application/json','X-CSRF-Token':publicState.csrf}, body:JSON.stringify({id})});
+          headers:{'Content-Type':'application/json','X-CSRF-Token':publicState.csrf}, body:JSON.stringify({id:pendingAcknowledgement})});
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
+        pendingAcknowledgement = null;
+        document.getElementById('acknowledgement-dialog').close();
         document.getElementById('status-ack-feedback').textContent = 'Issue acknowledged.';
         await refresh();
-      } catch (error) { document.getElementById('status-ack-feedback').textContent = error.message; }
-      finally { event.target.disabled = false; }
+      } catch (error) { document.getElementById('acknowledgement-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
     };
     refresh(); setInterval(refresh,10000);
   </script>

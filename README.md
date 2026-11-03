@@ -495,3 +495,11 @@ activation, host dependency, monitoring/removal and notification flags. Recheck
 eligibility before delivery. The durable outbox tracks per-channel cadence, with
 at most one pending/in-flight reminder per issue/channel and no restart catch-up
 bursts. Reminder settings are included in database backups.
+
+Acknowledgement confirmation on both dashboards uses a styled in-app dialog,
+not window.confirm. Show the target issue, explicit Acknowledge issue and Cancel
+buttons, inline errors, and matching dark panel/backdrop styling. Opening or
+cancelling sends no request; disable repeat submits while saving.
+
+Both dashboards display Issue #ID on issue rows and acknowledgement dialogs,
+matching the stable database ID included in Telegram/WhatsApp notifications.

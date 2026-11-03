@@ -65,6 +65,8 @@
     .host-list .menu-buttons { position: static; box-shadow: none; }
     .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
     .display-controls button[aria-pressed="true"] { background: #176959; }
+    .acknowledgement-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
+    .acknowledgement-dialog::backdrop { background: #0009; }
     .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
     /* Keep this space even when the image is hidden, preventing selector shifts. */
     .project-toolbar { justify-content: flex-start; align-items: flex-end; }
@@ -352,6 +354,16 @@
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="acknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="acknowledgement-title" aria-describedby="acknowledgement-description">
+    <h2 id="acknowledgement-title">Acknowledge issue?</h2>
+    <p id="acknowledgement-context"></p>
+    <p id="acknowledgement-description">This moves the issue to the acknowledged list and stops reminder notifications. Monitoring continues until the issue recovers.</p>
+    <div class="display-controls">
+      <button id="confirm-acknowledgement" class="primary">Acknowledge issue</button>
+      <button id="cancel-acknowledgement" autofocus>Cancel</button>
+    </div>
+    <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="deployment-confirmation" aria-labelledby="deployment-confirmation-title">
     <h2 id="deployment-confirmation-title">Start a new deployment?</h2>
     <p id="deployment-confirmation-project"></p>
@@ -836,7 +848,7 @@
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
-        return `<div class="metric"><span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
+        return `<div class="metric"><strong>Issue #${escapeHtml(incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
           · ${escapeHtml(assignment?.alias)} / ${escapeHtml(service?.name || 'Removed service')}
           · ${date(incident.opened)} · ${recovery} · ${acknowledgement}</div>`;
       }).join('');
@@ -1376,13 +1388,42 @@
       const running = Number(state.settings.active_run) !== 0;
       return performAction(running ? 'pause' : 'resume', running ? {} : {project: selectedProject}).catch(report);
     };
-    async function acknowledgeIssue(id) {
-      if (!confirm('Acknowledge this issue? It will move to the acknowledged list. Monitoring will continue.')) return;
-      await request('ack', {id});
-      el('incident-feedback').textContent = 'Issue moved to the acknowledged list.';
-      el('incident-feedback').classList.add('success');
-      await refresh();
+    let pendingAcknowledgement = null;
+    function acknowledgeIssue(id) {
+      pendingAcknowledgement = id;
+      const issue = state.incident_lists.active.find(row => String(row.id) === String(id));
+      const service = state.services.find(row => row.id === issue?.service);
+      const assignment = state.assignments.find(row => row.id === service?.assignment);
+      el('acknowledgement-context').textContent = service
+        ? `Issue #${id} · ${assignment?.alias || 'Host'} / ${service.name}` : `Issue #${id}`;
+      el('acknowledgement-feedback').textContent = '';
+      el('acknowledgement-dialog').showModal();
     }
+    el('cancel-acknowledgement').onclick = () => {
+      pendingAcknowledgement = null;
+      el('acknowledgement-dialog').close();
+    };
+    el('acknowledgement-dialog').onclose = () => { pendingAcknowledgement = null; };
+    el('acknowledgement-dialog').oncancel = event => {
+      if (el('confirm-acknowledgement').disabled) event.preventDefault();
+    };
+    el('confirm-acknowledgement').onclick = async () => {
+      if (pendingAcknowledgement === null || el('confirm-acknowledgement').disabled) return;
+      el('confirm-acknowledgement').disabled = true;
+      el('cancel-acknowledgement').disabled = true;
+      try {
+        await request('ack', {id: pendingAcknowledgement});
+        pendingAcknowledgement = null;
+        el('acknowledgement-dialog').close();
+        el('incident-feedback').textContent = 'Issue moved to the acknowledged list.';
+        el('incident-feedback').classList.add('success');
+        await refresh();
+      } catch (error) { el('acknowledgement-feedback').textContent = error.message; }
+      finally {
+        el('confirm-acknowledgement').disabled = false;
+        el('cancel-acknowledgement').disabled = false;
+      }
+    };
 
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;

@@ -129,7 +129,7 @@ const publicStorage = new Map();
 const publicContext = vm.createContext({
     localStorage: {getItem: key => publicStorage.get(key), setItem: (key, value) => publicStorage.set(key, value)},
     document: { getElementById(id) {
-        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '', attributes: {}, setAttribute(key, value) { this.attributes[key] = value; }, getAttribute(key) { return this.attributes[key]; } });
+        if (!publicNodes.has(id)) publicNodes.set(id, { innerHTML: '', textContent: '', open:false, showModal(){this.open=true;}, close(){this.open=false;}, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; }, getAttribute(key) { return this.attributes[key]; } });
         return publicNodes.get(id);
     } },
     fetch: async () => ({ ok: true, json: async () => publicData }),
@@ -503,20 +503,36 @@ publicData.incidents = [{id:42,device:'SW2',alias:'Zulu',service:'Host ping',sta
 await sortedPublic.refresh();
 assert.match(publicNodes.get('incidents').innerHTML, /data-status-ack="42"/);
 let statusAcknowledgement;
+let rejectStatusAcknowledgement = false;
 sortedPublic.fetch = async (path, options) => {
     if (path === '/api/status-ack') {
         statusAcknowledgement = {headers:options.headers,body:JSON.parse(options.body)};
+        if (rejectStatusAcknowledgement) return {ok:false,json:async () => ({error:'Status acknowledgement failed'})};
         publicData.incidents = [];
         return {ok:true,json:async () => ({ok:true})};
     }
     return {ok:true,json:async () => publicData};
 };
-sortedPublic.confirm = () => false;
 await publicNodes.get('incidents').onclick({target:{dataset:{statusAck:'42'},disabled:false}});
 assert.equal(statusAcknowledgement, undefined);
+assert.equal(publicNodes.get('acknowledgement-dialog').open, true);
+assert.match(publicNodes.get('acknowledgement-context').textContent, /SW2 - Zulu/);
+assert.match(publicNodes.get('acknowledgement-context').textContent, /Issue #42/);
+assert.match(publicNodes.get('incidents').innerHTML, /Issue #42/);
+publicNodes.get('cancel-acknowledgement').onclick();
+await publicNodes.get('confirm-acknowledgement').onclick();
+assert.equal(statusAcknowledgement, undefined);
+assert.equal(publicNodes.get('acknowledgement-dialog').open, false);
 assert.equal(publicData.incidents.length, 1);
-sortedPublic.confirm = () => true;
 await publicNodes.get('incidents').onclick({target:{dataset:{statusAck:'42'},disabled:false}});
+rejectStatusAcknowledgement = true;
+await publicNodes.get('confirm-acknowledgement').onclick();
+assert.equal(publicNodes.get('acknowledgement-dialog').open, true);
+assert.equal(publicNodes.get('acknowledgement-feedback').textContent, 'Status acknowledgement failed');
+assert.equal(publicNodes.get('confirm-acknowledgement').disabled, false);
+rejectStatusAcknowledgement = false;
+await publicNodes.get('confirm-acknowledgement').onclick();
+assert.equal(publicNodes.get('acknowledgement-dialog').open, false);
 assert.equal(statusAcknowledgement.body.id, '42');
 assert.equal(statusAcknowledgement.headers['X-CSRF-Token'], 'status-csrf');
 assert.match(publicNodes.get('incidents').innerHTML, /No active issues/);
@@ -844,20 +860,32 @@ assert.match(element('session-settings-feedback').textContent, /Applies to new s
 console.log('Admin session-duration form preserves edits and saves the configured lifetime.');
 
 let adminAcknowledgementRequests = 0;
-namedMain.confirm = () => false;
+let rejectAdminAcknowledgement = false;
 namedMain.fetch = async (path, options) => {
     if (path === '/api/ack') {
         adminAcknowledgementRequests += 1;
+        if (rejectAdminAcknowledgement) return {ok:false,json:async () => ({error:'Admin acknowledgement failed'})};
         assert.equal(JSON.parse(options.body).id, 42);
         return {ok:true,json:async () => ({ok:true})};
     }
     return originalNamedFetch(path, options);
 };
-await namedMain.acknowledgeIssue(42);
+namedMain.acknowledgeIssue(42);
 assert.equal(adminAcknowledgementRequests, 0);
-namedMain.confirm = () => true;
-await namedMain.acknowledgeIssue(42);
-assert.equal(adminAcknowledgementRequests, 1);
+assert.equal(element('acknowledgement-dialog').open, true);
+element('cancel-acknowledgement').onclick();
+await element('confirm-acknowledgement').onclick();
+assert.equal(adminAcknowledgementRequests, 0);
+assert.equal(element('acknowledgement-dialog').open, false);
+namedMain.acknowledgeIssue(42);
+rejectAdminAcknowledgement = true;
+await element('confirm-acknowledgement').onclick();
+assert.equal(element('acknowledgement-dialog').open, true);
+assert.equal(element('acknowledgement-feedback').textContent, 'Admin acknowledgement failed');
+rejectAdminAcknowledgement = false;
+await element('confirm-acknowledgement').onclick();
+assert.equal(adminAcknowledgementRequests, 2);
+assert.equal(element('acknowledgement-dialog').open, false);
 console.log('Both dashboards require confirmation before acknowledging; Cancel sends no request.');
 
 const reminderForm = element('reminder-settings-form');
@@ -878,3 +906,9 @@ assert.equal(savedReminderMinutes, 15);
 assert.equal(reminderForm.elements.namedItem('minutes').value, '15');
 assert.equal(element('reminder-settings-feedback').textContent, 'Reminder interval saved.');
 console.log('Shared issue reminder form saves interval and preserves unfinished edits.');
+
+assert.match(namedMain.renderIncidents([{id:123,status:'critical',opened:now}]), /Issue #123/);
+assert.match(namedMain.renderIncidents([{id:124,status:'warning',opened:now,acknowledged:now}]), /Issue #124/);
+publicData.acknowledged_incidents = [{id:125,device:'SW1',alias:'Stage',service:'RSSI',status:'critical',acknowledged:now}];
+await acknowledgedReload.refresh();
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML, /Issue #125/);
