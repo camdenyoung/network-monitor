@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 27. Show it after the title on both the main and
+Current displayed release is v0.3, Build 28. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -494,3 +494,11 @@ Status navigation groups Admin Dashboard and Sign out at the right. Sign out is
 visible to all signed-in roles (including temporary-password users), uses the
 CSRF token from /api/me with /api/logout, and stays on public status afterwards.
 Do not expose additional account information or widen acknowledgement permissions.
+
+Previous-deployment dropdown spans the logo and project-selector columns so it
+starts at the toolbar's left edge and ends at Selected project's right edge.
+Keep its action group in the shared next column. Telegram Discover groups sits
+inside the settings form between Send recoveries and Save settings; type=button
+must prevent accidental saves. Telegram delivery log keeps the newest ten
+single-line 40px entries visible (400px maximum), with keyboard-accessible vertical
+and horizontal scrolling inside its border for older entries and long text.

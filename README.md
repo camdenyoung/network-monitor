@@ -1,9 +1,16 @@
-# Network Monitor v0.3 · Build 27
+# Network Monitor v0.3 · Build 28
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 28 — v0.3 (UI polish branch)
+
+- Extend Previous deployments to the toolbar's left edge while retaining its right-edge alignment with Selected project.
+- Move Telegram Discover groups between Send recoveries and Save settings.
+- Limit the Telegram log viewport to ten entries, with scrolling inside its bordered section.
+
 
 ### Build 27 — v0.3 (UI polish branch)
 
