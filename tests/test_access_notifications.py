@@ -1318,7 +1318,9 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertNotIn('HEALTHY', messages['flapping'])
             self.assertIn('suppressed until it stabilises', messages['flapping'])
             self.assertEqual(len(messages['flapping'].splitlines()), 5)
-            self.assertIn('STABLE · HEALTHY', messages['stable'])
+            self.assertEqual(messages['stable'].splitlines(), [
+                '✅ STABLE - Sample Project', 'Sample Host - Sample Alias',
+                'RSSI: -60 dBm', 'Issue #1 - Deployment #1'])
             self.assertIn('Host unreachable', messages['host-unreachable'])
             self.assertNotIn('CalledProcessError', messages['host-unreachable'])
             self.assertIn('Port status: Port Down', messages['port-down'])

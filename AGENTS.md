@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.3, Build 24. Show it after the title on both the main and
+Current displayed release is v0.2.3, Build 25. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -478,3 +478,7 @@ format_issue_message renderer as live events; fictitious data never creates issu
 samples or deployments. Respect saved provider settings and global notification
 pause. Test outbox rows have no incident and bypass real-check suppression. Reject
 unknown sample types before queueing; old callers default to connectivity test.
+
+STABLE notifications match the four-line flapping layout with icon, project,
+host/alias, current service reading and issue/deployment numbers. Do not append
+HEALTHY or other severity to the heading, or the historical opening value.

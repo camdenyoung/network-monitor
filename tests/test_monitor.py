@@ -1168,7 +1168,9 @@ class MonitorTests(unittest.TestCase):
             while notifications.deliver_once(server.connect, server.LOCK, server.host_is_up):
                 pass
             self.assertEqual(send.call_count, 1)
-            self.assertIn('STABLE · HEALTHY', send.call_args.args[1])
+            self.assertTrue(send.call_args.args[1].startswith('✅ STABLE - Festival\n'))
+            self.assertNotIn('HEALTHY', send.call_args.args[1])
+            self.assertEqual(len(send.call_args.args[1].splitlines()), 4)
         self.assertFalse(next(row for row in server.snapshot()['services'] if row['id'] == self.service['id'])['flapping'])
 
     def test_notification_opening_uses_saved_cause_after_later_reading(self):

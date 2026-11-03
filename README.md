@@ -1,9 +1,14 @@
-# Network Monitor v0.2.3 · Build 24
+# Network Monitor v0.2.3 · Build 25
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 25 — v0.2.3 (flap-protection branch)
+
+- STABLE notifications match the flapping layout, showing the icon and current reading without a repeated severity or historical opening value.
+
 
 ### Build 24 — v0.2.3 (flap-protection branch)
 

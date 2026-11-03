@@ -177,21 +177,18 @@ def format_issue_message(row, event, reading, runtime=None):
     icons = {'warning': '⚠️', 'critical': '❌', 'unreachable': '❌'}
     icon = '✅' if event == 'recovery' else icons.get(row['status'], 'ℹ️')
     if flap_event:
-        title = ('FLAPPING' if event.startswith('flap-start:') else 'STABLE') + ' · ' + (runtime['confirmed'] or 'unknown').upper()
+        title = 'FLAPPING' if event.startswith('flap-start:') else 'STABLE'
         icon = '⚠️' if runtime['flapping'] else '✅' if runtime['confirmed'] == 'healthy' else icons.get(runtime['confirmed'], 'ℹ️')
     title = f'{icon} {title}'
-    text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
-            f"{row['service_name']}: {value} {units}\nIssue #{row['number']} · Deployment #{row['run']}")
+    separator = ' - ' if flap_event else ' · '
+    text = (f"{title}{separator}{row['project_name']}\n{row['device_name']} - {row['alias']}\n"
+            f"{row['service_name']}: {value} {units}".rstrip() +
+            f"\nIssue #{row['number']}{separator}Deployment #{row['run']}")
     if event.startswith('flap-start:'):
-        # Flapping describes an unstable check, not its momentary severity.
-        text = (f"⚠️ FLAPPING - {row['project_name']}\n"
-                f"{row['device_name']} - {row['alias']}\n"
-                f"{row['service_name']}: {value} {units}".rstrip() +
-                f"\nIssue #{row['number']} - Deployment #{row['run']}\n"
-                'Notifications for this check are suppressed until it stabilises.')
+        text += '\nNotifications for this check are suppressed until it stabilises.'
     # Recovery messages report the current reading only; the opening cause
     # remains recorded on the issue and available in reminder messages.
-    if event not in ('opened', 'recovery') and not event.startswith('flap-start:') and row['trigger_timestamp'] is not None:
+    if event not in ('opened', 'recovery') and not flap_event and row['trigger_timestamp'] is not None:
         cause = recorded_issue_value(row) + ' ' + (row['trigger_units'] or '')
         text += '\n' + cause.strip()
     return text
