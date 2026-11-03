@@ -1,9 +1,15 @@
-# Network Monitor v0.2 · Build 6
+# Network Monitor v0.2 · Build 7
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 7 — v0.2
+
+- Moved status-page Admin Dashboard / Sign in navigation to the right of the issue and host visibility controls.
+- Kept the login-status badge in the header.
+
 
 ### Build 6 — v0.2
 

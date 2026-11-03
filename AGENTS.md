@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2, Build 6. Show it after the title on both the main and
+Current displayed release is v0.2, Build 7. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -388,3 +388,7 @@ Starting any new deployment always pauses global notifications and cancels pendi
 alerts in the same transaction. Explain this in the start confirmation dialog.
 Admins must explicitly Resume notifications for the new deployment. Resuming an
 existing deployment preserves the current global notification state.
+
+Status navigation (Admin Dashboard / Sign in / Change password) sits on the
+same control row as acknowledged-issue and host visibility toggles, aligned
+right with auto margin. The logged-in badge remains at the header top right.
