@@ -1,9 +1,14 @@
-# Network Monitor v0.2 · Build 8
+# Network Monitor v0.2.1 · Build 9
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 9 — v0.2.1
+
+- Merged inventory service defaults, configuration navigation, notification controls and status attention improvements into main.
+
 
 ### Build 8 — v0.2
 
@@ -55,6 +60,17 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.2.1
+
+- Added per-device service defaults for new project assignments, with independent event configurations, library import and explicit adoption from existing projects.
+- Changed Admin configuration controls into exclusive tabs; click the selected tab to close it.
+- Added three red status-page background pulses when a new active issue appears, respecting reduced-motion preferences.
+- Added an independent global Pause/Resume notifications control while monitoring and dashboard issues continue.
+- New deployments start with notifications paused until an Admin explicitly resumes delivery.
+- Moved status-page Admin Dashboard / Sign in navigation onto the right of the issue/host visibility row.
+- Added reusable uploaded logos and previews when creating projects.
+
 
 ### v0.2
 
