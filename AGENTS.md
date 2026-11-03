@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2.3, Build 17. Show it after the title on both the main and
+Current displayed release is v0.2.3, Build 18. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -450,3 +450,7 @@ cause with a later sample or edited state mapping. Legacy missing evidence stays
 Display recorded issue values without a Triggered by prefix. Ping failures display
 Host unreachable on both dashboards and notifications, including older saved issues;
 retain internal exception classes for diagnostics, not the host-facing state.
+
+Telegram delivery log is wrapped in its own bordered section. Show/Hide log
+starts hidden on every page load; reflect visibility with aria-expanded and
+aria-pressed plus the standard green active button. Data refresh preserves visibility.

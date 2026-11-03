@@ -42,6 +42,8 @@
     .action-menu summary { padding: 5px 9px; border: 1px solid #435b78; border-radius: 5px; font-size: 13px; }
     .action-menu .menu-buttons { position: absolute; right: 0; top: 34px; z-index: 10; display: grid; gap: 4px; min-width: 170px; padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
     .action-menu .menu-buttons button { text-align: left; margin: 0; padding: 8px; }
+    .delivery-log { border: 1px solid #435b78; border-radius: 10px; padding: 16px; margin-top: 16px; }
+    #toggle-telegram-log[aria-pressed="true"] { background: #176959; }
     #history { width: 880px; box-sizing: border-box; }
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
@@ -113,7 +115,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 17</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2.3 · Build 18</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -369,7 +371,12 @@
     </form>
     <button id="telegram-chats">Discover groups</button><div id="telegram-group-list"></div>
     <button id="telegram-test">Send test message</button><button id="telegram-retry">Retry failed messages</button>
-    <p id="telegram-feedback" role="status"></p><div id="telegram-queue"></div>
+    <p id="telegram-feedback" role="status"></p>
+    <button type="button" id="toggle-telegram-log" aria-controls="telegram-log" aria-expanded="false" aria-pressed="false">Show log</button>
+    <div id="telegram-log" class="delivery-log" hidden>
+      <h3>Telegram delivery log</h3>
+      <div id="telegram-queue"></div>
+    </div>
   </section></div>
   <div data-admin id="whatsapp-panel" hidden><section>
     <h2>Meta Cloud API</h2>
@@ -696,6 +703,17 @@
       };
     });
     selectConfiguration(null);
+
+    // Log visibility is local to this page load; refreshing data never reopens it.
+    el('toggle-telegram-log').onclick = () => {
+      const log = el('telegram-log');
+      log.hidden = !log.hidden;
+      const visible = !log.hidden;
+      const button = el('toggle-telegram-log');
+      button.textContent = visible ? 'Hide log' : 'Show log';
+      button.setAttribute('aria-expanded', String(visible));
+      button.setAttribute('aria-pressed', String(visible));
+    };
 
     // Section visibility is presentation only; polling and incident tracking continue.
     for (const [key, panelId, label, initiallyVisible] of [

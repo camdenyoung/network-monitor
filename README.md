@@ -1,9 +1,14 @@
-# Network Monitor v0.2.3 · Build 17
+# Network Monitor v0.2.3 · Build 18
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 18 — v0.2.3 (flap-protection branch)
+
+- Telegram delivery log has its own bordered section with a Show/Hide log button. It starts hidden on each page load and highlights the button while visible.
+
 
 ### Build 17 — v0.2.3 (flap-protection branch)
 
