@@ -1,9 +1,14 @@
-# Network Monitor v0.2 · Build 3
+# Network Monitor v0.2 · Build 4
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 4 — v0.2
+
+- Clicking the selected configuration tab closes its area, allowing all configuration areas to be hidden.
+
 
 ### Build 3 — v0.2
 

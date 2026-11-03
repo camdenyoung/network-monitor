@@ -685,7 +685,9 @@ for (const panel of configurationPanels) {
     assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
     for (const other of configurationPanels.filter(id => id !== panel)) assert.equal(element(other).hidden, true);
     element(`toggle-${panel}`).onclick();
-    assert.equal(element(panel).hidden, false, 'Clicking the current tab keeps it selected');
+    assert.equal(element(panel).hidden, true, 'Clicking the current tab closes it');
+    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'false');
+    assert.equal(element(`toggle-${panel}`).getAttribute('tabindex'), '0');
 }
 element('toggle-permanent-inventory').onclick();
 let navigationPrevented = false;

@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.2, Build 3. Show it after the title on both the main and
+Current displayed release is v0.2, Build 4. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -372,3 +372,7 @@ Status background pulses red three times for newly observed active issues, not
 initial load or reappearing previously seen issues. Track internal IDs/labels per
 deployment and preserve the seen set across pause/resume. Honour reduced motion
 with a brief static red highlight instead of animation.
+
+Clicking the selected configuration tab closes its panel, allowing all config
+areas to be hidden. Other tabs switch areas. Preserve the keyboard tab stop and
+unsaved form values when closing/reopening.

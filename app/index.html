@@ -106,7 +106,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 3</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.2 · Build 4</small></h1><p>Local equipment monitoring · first-pass preview</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -574,14 +574,16 @@
       ['whatsapp-panel', 'WhatsApp Business notifications'],
       ['backup-panel', 'Backup, restore, and retention'],
     ];
+    let configurationTabStop = 0;
     function selectConfiguration(panelId, focus = false) {
+      if (panelId !== null) configurationTabStop = configurationSections.findIndex(([id]) => id === panelId);
       configurationSections.forEach(([id], index) => {
         const selected = id === panelId;
         const button = el(`toggle-${id}`);
         el(id).hidden = !selected;
         button.setAttribute('aria-selected', String(selected));
         button.setAttribute('aria-expanded', String(selected));
-        button.setAttribute('tabindex', selected || (panelId === null && index === 0) ? '0' : '-1');
+        button.setAttribute('tabindex', selected || (panelId === null && index === configurationTabStop) ? '0' : '-1');
       });
       if (focus) el(`toggle-${panelId}`).focus();
     }
@@ -591,7 +593,7 @@
       button.setAttribute('role', 'tab');
       el(panelId).setAttribute('role', 'tabpanel');
       el(panelId).setAttribute('aria-labelledby', button.id || `toggle-${panelId}`);
-      button.onclick = () => selectConfiguration(panelId);
+      button.onclick = () => selectConfiguration(el(panelId).hidden ? panelId : null);
       button.onkeydown = event => {
         let next;
         if (event.key === 'ArrowRight') next = (index + 1) % configurationSections.length;
