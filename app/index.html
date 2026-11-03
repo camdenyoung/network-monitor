@@ -151,7 +151,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 35</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3 · Build 36</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -447,6 +447,16 @@
       <button id="cancel-acknowledgement" autofocus>Cancel</button>
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="app-confirmation" class="acknowledgement-dialog" aria-labelledby="app-confirmation-title" aria-describedby="app-confirmation-description">
+    <h2 id="app-confirmation-title"></h2>
+    <p id="app-confirmation-context"></p>
+    <p id="app-confirmation-description"></p>
+    <div class="display-controls">
+      <button id="confirm-app-action" class="danger">Continue</button>
+      <button id="cancel-app-action" autofocus>Cancel</button>
+    </div>
+    <p id="app-confirmation-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="remove-service-dialog" class="acknowledgement-dialog" aria-labelledby="remove-service-title" aria-describedby="remove-service-description">
     <h2 id="remove-service-title">Remove service from host?</h2>
@@ -1391,8 +1401,8 @@
     el('adopt-device-defaults').onclick = () => {
       const assignment = el('device-default-source').value;
       if (!assignment) { el('device-default-feedback').textContent = 'Choose a project configuration first.'; return; }
-      if (!confirm('Replace this device’s defaults with the selected project’s service definitions? Existing projects and history are unchanged.')) return;
-      return changeDeviceDefaults('device-defaults-from-assignment', {assignment}, el('adopt-device-defaults'));
+      try { openAdministrativeConfirmation('adopt-defaults', {device: defaultsDevice, assignment}); }
+      catch (error) { el('device-default-feedback').textContent = error.message; }
     };
 
     function openConfigurationEditor(configuration, mode, source, title, context) {
@@ -1739,26 +1749,8 @@
       el('history').showModal();
     }
 
-    async function removeDevice(id, button) {
-      const device = state.devices.find(row => row.id === Number(id));
-      if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
-      const assignments = state.assignments.filter(row => row.device === device.id);
-      const warning = `Permanently delete "${device.name}"? This removes the device, ` +
-        `its ${assignments.length} project assignment(s), all services, readings, ` +
-        'and issues. This cannot be undone without restoring a backup.';
-      if (!confirm(warning)) return;
-      button.disabled = true;
-      try {
-        await request('delete-device', {device: device.id});
-        inventoryFeedback('Inventory item and its associated data deleted successfully.', true);
-        try {
-          await refresh();
-        } catch (error) {
-          notify('Item deleted. Dashboard refresh failed; reload to see changes.');
-        }
-      } finally {
-        button.disabled = false;
-      }
+    function removeDevice(id) {
+      openAdministrativeConfirmation('delete-device', {device: id});
     }
 
     el('project-edit-form').onsubmit = async event => {
@@ -2010,28 +2002,17 @@
             await refresh();
           } finally { button.disabled = false; }
         }
-        if (data.removeAssignment && confirm('Remove this device from the project? Inventory, other projects, and history are retained.')) {
-          await request('assignment-remove', {assignment: data.removeAssignment});
-          el('assignment-feedback').textContent = 'Device removed from project. Inventory and history retained.';
-          await refresh();
-        }
+        if (data.removeAssignment) openAdministrativeConfirmation('remove-assignment', {assignment: data.removeAssignment});
         if (data.editAlias) openAliasEditor(data.editAlias);
         if (data.copyService) openServiceTransfer('service-copy', data.copyService);
         if (data.saveTemplate) openServiceEditor(data.saveTemplate, true);
         if (data.applyTemplate) openServiceTransfer('template-apply', data.applyTemplate);
         if (data.editTemplate) openTemplateEditor(data.editTemplate);
-        if (data.deleteTemplate && confirm('Delete this library entry? Existing host services will be kept.')) {
-          await request('template-delete', {template: data.deleteTemplate});
-          el('library-feedback').textContent = 'Library entry deleted. Existing host services are unchanged.';
-          el('library-feedback').classList.add('success');
-          await refresh();
-        }
+        if (data.deleteTemplate) openAdministrativeConfirmation('delete-template', {template: data.deleteTemplate});
         if (data.editService) openServiceEditor(data.editService);
         if (data.deviceDefaults) openDeviceDefaults(data.deviceDefaults);
         if (data.editDeviceDefault) openDeviceDefaultEditor(data.editDeviceDefault);
-        if (data.deleteDeviceDefault && confirm('Remove this service default? Existing project services are unchanged.')) {
-          await changeDeviceDefaults('device-default-delete', {default_service: data.deleteDeviceDefault}, event.target);
-        }
+        if (data.deleteDeviceDefault) openAdministrativeConfirmation('delete-default', {device: defaultsDevice, default_service: data.deleteDeviceDefault});
         if (data.editDevice) openDeviceEditor(data.editDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
@@ -2043,6 +2024,139 @@
         else report(error);
       }
     });
+    let pendingAppConfirmation = null;
+
+    function openAppConfirmation(configuration) {
+      if (el('confirm-app-action').disabled || el('app-confirmation').open) return;
+      closeActionMenus();
+      pendingAppConfirmation = configuration;
+      el('app-confirmation-title').textContent = configuration.title;
+      el('app-confirmation-context').textContent = configuration.context;
+      el('app-confirmation-description').textContent = configuration.description;
+      el('confirm-app-action').textContent = configuration.label;
+      el('app-confirmation-feedback').textContent = '';
+      el('app-confirmation').showModal();
+    }
+    el('cancel-app-action').onclick = () => {
+      pendingAppConfirmation = null;
+      el('app-confirmation').close();
+    };
+    el('app-confirmation').onclose = () => {
+      if (!el('app-confirmation').open) pendingAppConfirmation = null;
+    };
+    el('app-confirmation').oncancel = event => {
+      if (el('confirm-app-action').disabled) event.preventDefault();
+    };
+    el('confirm-app-action').onclick = async () => {
+      if (!pendingAppConfirmation || el('confirm-app-action').disabled) return;
+      const configuration = pendingAppConfirmation;
+      const button = el('confirm-app-action');
+      const cancel = el('cancel-app-action');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        await configuration.run();
+        pendingAppConfirmation = null;
+        el('app-confirmation').close();
+        try { await configuration.completed(); }
+        catch (error) { notify('Action completed. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('app-confirmation-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
+
+    function openAdministrativeConfirmation(action, selection) {
+      if (currentUser?.role !== 'admin') throw new Error('Administrator access required.');
+      // Copy the selected IDs before showing the dialog. Completion must never
+      // read a mutable selected project, defaults device, user row or file picker.
+      const target = {...selection};
+      let configuration;
+      const mutation = (endpoint, body, message, feedback) => ({
+        run: () => request(endpoint, body),
+        completed: async () => {
+          if (feedback) {
+            el(feedback).textContent = message;
+            el(feedback).classList.add('success');
+          }
+          notify(message, true);
+          await refresh();
+        },
+      });
+      const device = state.devices.find(row => row.id === Number(target.device));
+      const assignment = state.assignments.find(row => row.id === Number(target.assignment) && !row.removed);
+      switch (action) {
+        case 'delete-device': {
+          if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
+          const count = state.assignments.filter(row => row.device === device.id).length;
+          configuration = {title: 'Permanently delete inventory device?', context: device.name,
+            description: `This deletes the device, its ${count} project assignment(s), all related services, readings and issues. This cannot be undone without restoring a backup.`,
+            label: 'Delete device and history',
+            ...mutation('delete-device', {device: device.id}, 'Inventory item and its associated data deleted successfully.', 'inventory-feedback')};
+          break;
+        }
+        case 'remove-assignment': {
+          if (!assignment) throw new Error('Project assignment no longer exists.');
+          const host = state.devices.find(row => row.id === assignment.device);
+          const project = state.projects.find(row => row.id === assignment.project);
+          configuration = {title: 'Remove device from project?', context: `${project?.name || 'Project'} · ${host?.name || 'Device'} - ${assignment.alias}`,
+            description: 'This removes the device from this project. Inventory, other projects and historical readings are retained.', label: 'Remove from project',
+            ...mutation('assignment-remove', {assignment: assignment.id}, 'Device removed from project. Inventory and history retained.', 'assignment-feedback')};
+          break;
+        }
+        case 'delete-template': {
+          const template = state.service_templates.find(row => row.id === Number(target.template));
+          if (!template) throw new Error('Library entry no longer exists.');
+          configuration = {title: 'Delete library service?', context: template.name,
+            description: 'This removes the reusable library entry. Existing host services and device defaults are kept.', label: 'Delete library service',
+            ...mutation('template-delete', {template: template.id}, 'Library entry deleted. Existing host services are unchanged.', 'library-feedback')};
+          break;
+        }
+        case 'delete-default': {
+          const definition = (state.device_service_defaults || []).find(row => row.id === Number(target.default_service) && row.device === device?.id);
+          if (!device || !definition) throw new Error('Device service default no longer exists.');
+          configuration = {title: 'Remove device service default?', context: `${device.name} / ${definition.name}`,
+            description: 'This removes the default for future project assignments. Existing project services and history are unchanged.', label: 'Remove default',
+            ...mutation('device-default-delete', {device: device.id, default_service: definition.id}, 'Device service default removed. Existing projects are unchanged.', 'device-default-feedback')};
+          break;
+        }
+        case 'adopt-defaults': {
+          if (!device || !assignment || assignment.device !== device.id) throw new Error('Choose an available project configuration for this device.');
+          const project = state.projects.find(row => row.id === assignment.project);
+          configuration = {title: 'Replace device service defaults?', context: `${device.name} · From ${project?.name || 'Project'} - ${assignment.alias}`,
+            description: 'This replaces all defaults for this device with the selected project’s service definitions, including stored credentials. Existing project services and history are unchanged.', label: 'Replace defaults',
+            ...mutation('device-defaults-from-assignment', {device: device.id, assignment: target.assignment}, 'Device service defaults saved. Existing projects are unchanged.', 'device-default-feedback')};
+          break;
+        }
+        case 'delete-user': {
+          const user = users.find(row => row.id === Number(target.user));
+          if (!user || user.id === currentUser.id) throw new Error('Choose another existing user to remove.');
+          configuration = {title: 'Remove user?', context: `${user.full_name || user.username} (${user.username})`,
+            description: 'This deletes the user account and revokes their sessions. Recorded issue acknowledgements are retained.', label: 'Remove user',
+            ...mutation('user-delete', {user: user.id}, 'User removed.', 'user-feedback')};
+          break;
+        }
+        case 'restore': {
+          const file = target.file;
+          if (!file || !file.name || !file.size) throw new Error('Choose a non-empty backup file first.');
+          configuration = {title: 'Restore complete backup?', context: file.name,
+            description: 'This replaces all current configuration, users and monitoring data with the backup and pauses monitoring. Existing sessions will be signed out. Back up the current installation first if you need to keep its data.',
+            label: 'Replace data and restore',
+            run: async () => {
+              const response = await fetch('/api/restore', {method: 'POST',
+                headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser.csrf}, body: file});
+              if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
+            },
+            completed: async () => {
+              selectedProject = '';
+              notify('Restored successfully. Monitoring is paused. Sign in again.', true);
+              location.assign('/login');
+            }};
+          break;
+        }
+        default: throw new Error('Unknown confirmation action.');
+      }
+      openAppConfirmation(configuration);
+    }
+
     let pendingServiceRemoval = null;
     function openServiceRemoval(id) {
       const service = state.services.find(row => row.id === Number(id) && row.enabled !== 0 && row.kind !== 'ping');
@@ -2119,16 +2233,12 @@
       finally { button.disabled = false; }
     };
     el('close-history').onclick = () => el('history').close();
-    el('restore').onsubmit = async event => {
+    el('restore').onsubmit = event => {
       event.preventDefault();
-      if (!confirm('Replace all current data with this backup and pause monitoring?')) return;
       try {
+        // Capture the File now; later changes to the picker must not change the backup approved.
         const file = new FormData(event.target).get('backup');
-        const response = await fetch('/api/restore', {method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser?.csrf || ''}, body: file});
-        if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
-        selectedProject = '';
-        await refresh();
-        el('message').textContent = 'Restored successfully. Monitoring is paused.';
+        openAdministrativeConfirmation('restore', {file});
       } catch (error) { report(error); }
     };
     async function loadAdmin() {
@@ -2227,11 +2337,7 @@
       const data = event.target.dataset;
       try {
         if (data.editUser) openUserEditor(data.editUser);
-        if (data.deleteUser && confirm('Remove this user and revoke their sessions?')) {
-          await request('user-delete', {user: data.deleteUser});
-          el('user-feedback').textContent = 'User removed.';
-          await loadAdmin();
-        }
+        if (data.deleteUser) openAdministrativeConfirmation('delete-user', {user: data.deleteUser});
       } catch (error) { el('user-feedback').textContent = error.message; }
     });
     el('telegram-form').onsubmit = async event => {

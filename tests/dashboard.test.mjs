@@ -1001,6 +1001,9 @@ assert.equal(defaultSubmission.path, '/api/device-default-from-template');
 assert.equal(defaultSubmission.body.template, '8');
 element('device-default-source').value = '1';
 await element('adopt-device-defaults').onclick();
+assert.equal(element('app-confirmation').open, true);
+assert.equal(defaultSubmission.path, '/api/device-default-from-template');
+await element('confirm-app-action').onclick();
 assert.equal(defaultSubmission.path, '/api/device-defaults-from-assignment');
 assert.equal(defaultSubmission.body.assignment, '1');
 assert.match(element('device-default-feedback').textContent, /Existing projects are unchanged/);
@@ -1606,3 +1609,104 @@ assert.equal(element('remove-service-dialog').open,false);
 assert.equal(removalFixture.services[0].enabled,0);
 assert.match(element('message').textContent,/Service removed/);
 console.log('In-app service removal supports safe cancellation, inline errors, fixed targets and a single confirmed request.');
+
+// Every remaining destructive admin action must be reviewed before any request.
+const confirmationFixture = {...removalFixture,
+  devices:[{id:99,name:'Device <A>',address:'10.0.0.1'}],
+  service_templates:[{id:301,name:'Library <RSSI>',kind:'snmp'}],
+  device_service_defaults:[{id:401,device:99,name:'Default & RSSI'}]};
+const administrativeRequests = [];
+const administrativeRedirects = [];
+let rejectAdministrativeAction = false;
+const administrativeContext = vm.createContext({document:context.document,localStorage:context.localStorage,
+  setInterval(){},confirm(){throw new Error('Native confirmation is forbidden');},
+  location:{assign(path){administrativeRedirects.push(path);}},
+  FormData:class {constructor(form){this.form=form;}get(){return this.form.backupFile;}},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      administrativeRequests.push({path,body:path === '/api/restore' ? options.body : JSON.parse(options.body),headers:options.headers});
+      return {ok:!rejectAdministrativeAction,status:rejectAdministrativeAction ? 400 : 200,
+        json:async () => rejectAdministrativeAction ? {error:'Operation rejected'} : {ok:true}};
+    }
+    return {ok:true,status:200,json:async () => path === '/api/me' ? {id:1,username:'admin',role:'admin',csrf:'admin-action-token'}
+      : path === '/api/users' ? [{id:1,username:'admin',role:'admin'},{id:2,username:'reader',full_name:'Reader <B>',role:'viewer'}]
+      : ['/api/telegram','/api/whatsapp'].includes(path) ? {configuration:{},outbox:[]} : confirmationFixture};
+  }});
+new vm.Script(script).runInContext(administrativeContext);
+await administrativeContext.initializeSession();
+for (const [action,selection,path,expectedBody] of [
+  ['delete-device',{device:99},'/api/delete-device',{device:99}],
+  ['remove-assignment',{assignment:101},'/api/assignment-remove',{assignment:101}],
+  ['delete-template',{template:301},'/api/template-delete',{template:301}],
+  ['delete-default',{device:99,default_service:401},'/api/device-default-delete',{device:99,default_service:401}],
+  ['adopt-defaults',{device:99,assignment:101},'/api/device-defaults-from-assignment',{device:99,assignment:101}],
+  ['delete-user',{user:2},'/api/user-delete',{user:2}],
+]) {
+  const before = administrativeRequests.length;
+  administrativeContext.openAdministrativeConfirmation(action,selection);
+  assert.equal(element('app-confirmation').open,true);
+  assert.equal(administrativeRequests.length,before);
+  assert.ok(element('app-confirmation-context').textContent.length);
+  assert.ok(element('app-confirmation-description').textContent.length);
+  element('cancel-app-action').onclick();
+  await element('confirm-app-action').onclick();
+  assert.equal(administrativeRequests.length,before);
+  administrativeContext.openAdministrativeConfirmation(action,selection);
+  element('app-confirmation').close();
+  element('app-confirmation').onclose();
+  await element('confirm-app-action').onclick();
+  assert.equal(administrativeRequests.length,before);
+  administrativeContext.openAdministrativeConfirmation(action,selection);
+  rejectAdministrativeAction = true;
+  await element('confirm-app-action').onclick();
+  assert.equal(element('app-confirmation').open,true);
+  assert.equal(element('app-confirmation-feedback').textContent,'Operation rejected');
+  assert.equal(element('confirm-app-action').disabled,false);
+  element('cancel-app-action').onclick();
+  rejectAdministrativeAction = false;
+  const mutableSelection = {...selection};
+  administrativeContext.openAdministrativeConfirmation(action,mutableSelection);
+  // Changing external selection data after opening cannot change the approved target.
+  for (const key of Object.keys(mutableSelection)) mutableSelection[key] = 9999;
+  const save = element('confirm-app-action').onclick();
+  let preventedCancel = false;
+  element('app-confirmation').oncancel({preventDefault(){preventedCancel=true;}});
+  assert.equal(preventedCancel,true);
+  await element('confirm-app-action').onclick();
+  await save;
+  assert.equal(administrativeRequests.length,before+2);
+  const request = administrativeRequests.at(-1);
+  assert.equal(request.path,path);
+  assert.deepEqual(request.body,expectedBody);
+  assert.equal(request.headers['X-CSRF-Token'],'admin-action-token');
+  assert.equal(element('app-confirmation').open,false);
+  assert.equal(element('cancel-app-action').disabled,false);
+}
+// Backup selection is captured before review; Cancel and errors never upload another file.
+const approvedBackup = {name:'backup <A>.sqlite3',size:123};
+const replacementBackup = {name:'backup B.sqlite3',size:456};
+const restoreForm = element('restore');
+restoreForm.backupFile = approvedBackup;
+element('restore').onsubmit({preventDefault(){},target:restoreForm});
+assert.equal(element('app-confirmation-context').textContent,approvedBackup.name);
+const beforeRestore = administrativeRequests.length;
+element('cancel-app-action').onclick();
+await element('confirm-app-action').onclick();
+assert.equal(administrativeRequests.length,beforeRestore);
+element('restore').onsubmit({preventDefault(){},target:restoreForm});
+rejectAdministrativeAction = true;
+await element('confirm-app-action').onclick();
+assert.equal(element('app-confirmation').open,true);
+assert.match(element('app-confirmation-feedback').textContent,/Restore rejected/);
+rejectAdministrativeAction = false;
+element('cancel-app-action').onclick();
+element('restore').onsubmit({preventDefault(){},target:restoreForm});
+restoreForm.backupFile = replacementBackup;
+await element('confirm-app-action').onclick();
+assert.equal(administrativeRequests.at(-1).body,approvedBackup);
+assert.equal(administrativeRequests.at(-1).headers['Content-Type'],'application/octet-stream');
+assert.equal(administrativeRequests.at(-1).headers['X-CSRF-Token'],'admin-action-token');
+assert.deepEqual(administrativeRedirects,['/login']);
+assert.equal(element('app-confirmation').open,false);
+assert.doesNotMatch(html,/\b(?:confirm|alert|prompt)\s*\(/);
+console.log('All seven admin confirmations support cancellation, target capture, inline rejection, duplicate protection and safe backup selection.');

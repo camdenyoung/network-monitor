@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3, Build 35. Show it after the title on both the main and
+Current displayed release is v0.3, Build 36. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -545,3 +545,12 @@ confirm(). Show Device ID - Alias / service name using textContent, explain that
 history is retained, and capture the target. Cancel/Escape send no mutation.
 Disable controls while saving, keep errors in the dialog, reject unavailable
 services and preserve backend Admin/CSRF enforcement and soft-removal semantics.
+
+All destructive/replacement confirmations use app-styled dialogs; no native
+confirm/alert/prompt calls remain. The shared administrative confirmation captures
+IDs or the actual backup File before approval, uses textContent for target labels,
+keeps Cancel focused, blocks duplicate saves/closing in flight and retains API
+errors inline. Success refresh failures must not imply the mutation failed.
+Covers device deletion, project removal, library deletion, default deletion/adoption,
+user deletion and backup restore. Preserve server-side Admin/CSRF/last-admin checks.
+Restore invalidates sessions; after success return to login, not authenticated refresh.

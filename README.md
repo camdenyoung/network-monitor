@@ -1,9 +1,16 @@
-# Network Monitor v0.3 · Build 35
+# Network Monitor v0.3 · Build 36
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 36 — v0.3 (UI polish branch)
+
+- Replace all remaining browser confirmations with app-styled dialogs for inventory/project removal, library/default changes, user deletion and backup restore.
+- Show the selected target and consequences before approval; retain errors inline and prevent duplicate submissions.
+- Successful backup restoration returns to sign-in because saved sessions are invalidated.
+
 
 ### Build 35 — v0.3 (UI polish branch)
 
