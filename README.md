@@ -1,9 +1,16 @@
-# Network Monitor v0.3.1 · Build 38
+# Network Monitor v0.3.1 · Build 39
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 39 — v0.3.1 (unacknowledgement branch)
+
+- Admins and Operators can Unacknowledge issues through confirmed actions on both dashboards; the Status Dashboard follows the project's acknowledgement setting.
+- Unresolved issues return to Active or Suppressed; recovered issues move to Resolved without reopening. Reminders restart after the configured interval and obey existing suppression settings.
+- Preserve an immutable acknowledgement/unacknowledgement audit trail and reject stale confirmations from earlier acknowledgement cycles.
+
 
 ### Build 38 — v0.3.1
 
@@ -899,3 +906,26 @@ Status attention pulses reflect severity: three yellow pulses for new Warning
 issues, three red pulses for new Critical/Unreachable issues. Red takes priority
 if both arrive together or while a critical alert is already pulsing. These
 visual alerts do not depend on Telegram/WhatsApp notification settings.
+
+
+## Unacknowledging issues
+
+Admins and Operators can use **Unacknowledge** in Acknowledged issues on the main
+dashboard. The Status Dashboard offers the same action when that project's
+acknowledgement setting is enabled and the issue is publicly visible. View Only
+and anonymous visitors cannot use it. Both pages require an app-styled confirmation.
+
+The action removes the current acknowledgement without changing the recorded
+fault or recovery: open faults return to Active, unavailable child services appear
+in Suppressed, and recovered faults move to Resolved. It does not send another
+opening notification. Eligible reminders restart after the configured interval;
+global pause, host dependencies, service pause and flap protection still apply.
+
+Each acknowledge/unacknowledge records the authenticated actor's ID, username,
+full name and timestamp in an immutable audit table in SQLite. The authenticated
+state API includes this as `acknowledgement_history`; it is included in complete
+backups and is not exposed on anonymous status. Account edits/deletion do not
+rewrite the trail. Deleting the corresponding issue/deployment/device purges its
+related audit events. Older acknowledgements are migrated using their saved actor
+snapshot; missing historical identity remains unknown. Revision checks prevent a
+stale confirmation from removing a later acknowledgement.

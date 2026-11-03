@@ -272,7 +272,7 @@ def enqueue_reminders(db, host_is_up):
             last = db.execute("""SELECT MAX(CASE WHEN state='sent' THEN next_attempt ELSE created END)
                 FROM notification_outbox WHERE incident=? AND channel=?
                 AND (event='opened' OR event LIKE 'reminder:%' OR event LIKE 'flap-stable:%')""", (source['id'], channel)).fetchone()[0]
-            if now - max(source['opened'], last or source['opened'], resumed_at) >= interval:
+            if now - max(source['opened'], last or source['opened'], resumed_at, source['unacknowledged_at'] or 0) >= interval:
                 enqueue_for_channel(db, source['id'], f'reminder:{int(now)}', channel)
 
 

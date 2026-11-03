@@ -1712,3 +1712,142 @@ assert.deepEqual(administrativeRedirects,['/login']);
 assert.equal(element('app-confirmation').open,false);
 assert.doesNotMatch(html,/\b(?:confirm|alert|prompt)\s*\(/);
 console.log('All seven admin confirmations support cancellation, target capture, inline rejection, duplicate protection and safe backup selection.');
+
+// Unacknowledgement is confirmed, revision-bound and available to Operators.
+const undoIssue = {id:501,number:7,service:202,run:1,status:'critical',opened:now-300,
+  acknowledged:now-100,ack_revision:1,acknowledged_by_full_name:'Earlier Operator',closed:null};
+const undoFixture = {...removalFixture,services:[{...stateService,id:202,assignment:101,enabled:1}],
+  incidents:[undoIssue],incident_lists:{active:[],acknowledged:[undoIssue],suppressed:[],resolved:[]}};
+const undoRequests = [];
+let rejectUndo = false;
+const undoContext = vm.createContext({document:context.document,localStorage:context.localStorage,setInterval(){},
+  fetch:async (path,options) => {
+    if (path === '/api/unack') {
+      undoRequests.push({body:JSON.parse(options.body),headers:options.headers});
+      if (rejectUndo) return {ok:false,status:400,json:async () => ({error:'Acknowledgement rejected'})};
+      undoIssue.acknowledged = null;
+      undoIssue.ack_revision += 1;
+      undoFixture.incident_lists.acknowledged = [];
+      undoFixture.incident_lists[undoIssue.closed ? 'resolved' : 'active'] = [undoIssue];
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => path === '/api/me'
+      ? {id:3,username:'operator',role:'operator',csrf:'undo-token'} : undoFixture};
+  }});
+new vm.Script(script).runInContext(undoContext);
+await undoContext.initializeSession();
+assert.match(element('acknowledged-incidents').innerHTML,/data-unack="501"/);
+undoContext.openUnacknowledgement(501);
+assert.equal(element('unacknowledgement-dialog').open,true);
+assert.match(element('unacknowledgement-context').textContent,/Issue #7/);
+assert.equal(undoRequests.length,0);
+element('cancel-unacknowledgement').onclick();
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoRequests.length,0);
+undoContext.openUnacknowledgement(501);
+element('unacknowledgement-dialog').onclose();
+element('unacknowledgement-dialog').close();
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoRequests.length,0);
+undoContext.openUnacknowledgement(501);
+rejectUndo = true;
+await element('confirm-unacknowledgement').onclick();
+assert.equal(element('unacknowledgement-dialog').open,true);
+assert.equal(element('unacknowledgement-feedback').textContent,'Acknowledgement rejected');
+assert.equal(element('confirm-unacknowledgement').disabled,false);
+element('cancel-unacknowledgement').onclick();
+rejectUndo = false;
+undoContext.openUnacknowledgement(501);
+undoIssue.ack_revision = 2;
+await undoContext.refresh();
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoRequests.length,1);
+assert.match(element('unacknowledgement-feedback').textContent,/changed/);
+element('cancel-unacknowledgement').onclick();
+undoContext.openUnacknowledgement(501);
+const undoSave = element('confirm-unacknowledgement').onclick();
+await element('confirm-unacknowledgement').onclick();
+await undoSave;
+assert.equal(undoRequests.length,2);
+assert.equal(undoRequests.at(-1).body.expected_revision,2);
+assert.equal(undoRequests.at(-1).headers['X-CSRF-Token'],'undo-token');
+assert.equal(element('unacknowledgement-dialog').open,false);
+assert.match(element('incidents').innerHTML,/Issue #7/);
+undoIssue.acknowledged = now;
+undoIssue.ack_revision = 4;
+undoFixture.incident_lists.active = [];
+undoFixture.incident_lists.acknowledged = [undoIssue];
+await undoContext.refresh();
+vm.runInContext("currentUser.role='viewer'",undoContext);
+assert.doesNotMatch(undoContext.renderIncidents([undoIssue]),/data-unack/);
+assert.throws(() => undoContext.openUnacknowledgement(501),/Admin or Operator/);
+vm.runInContext("currentUser.role='operator'",undoContext);
+undoContext.openUnacknowledgement(501);
+undoIssue.closed = now;
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoFixture.incident_lists.resolved[0].id,501);
+assert.match(element('resolved-incidents').innerHTML,/Issue #7/);
+console.log('Main Unacknowledge supports role checks, Cancel/Escape, inline errors, stale review and recovered routing.');
+
+// Public Unacknowledge follows project opt-in and rechecks it at confirmation.
+const publicUndoIssue = {id:601,number:8,device:'Switch',alias:'Stage',service:'RSSI',status:'critical',
+  opened:now-300,acknowledged:now-100,ack_revision:1,closed:null};
+const publicUndoData = {project:'Undo event',devices:[],incidents:[],acknowledged_incidents:[publicUndoIssue],updated:now,
+  acknowledge_enabled:false,can_acknowledge:false,viewer:{username:'operator',role:'operator'}};
+const publicUndoRequests = [];
+let publicUndoRejected = false;
+const publicUndoContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,setInterval(){},
+  fetch:async (path,options) => {
+    if (path === '/api/status-unack') {
+      publicUndoRequests.push({body:JSON.parse(options.body),headers:options.headers});
+      if (publicUndoRejected) return {ok:false,status:400,json:async () => ({error:'Public undo rejected'})};
+      publicUndoData.acknowledged_incidents = [];
+      if (!publicUndoIssue.closed) publicUndoData.incidents = [publicUndoIssue];
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => publicUndoData};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(publicUndoContext);
+await publicUndoContext.refresh();
+assert.doesNotMatch(publicNodes.get('acknowledged-incidents').innerHTML,/data-status-unack/);
+publicUndoData.acknowledge_enabled = true;
+publicUndoData.can_acknowledge = true;
+publicUndoData.csrf = 'public-undo-token';
+await publicUndoContext.refresh();
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML,/data-status-unack="601"/);
+publicNodes.get('acknowledged-incidents').onclick({target:{dataset:{statusUnack:'601'}}});
+assert.equal(publicNodes.get('unacknowledgement-dialog').open,true);
+publicNodes.get('cancel-unacknowledgement').onclick();
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,0);
+publicUndoContext.openUnacknowledgement(601);
+publicUndoRejected = true;
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicNodes.get('unacknowledgement-feedback').textContent,'Public undo rejected');
+assert.equal(publicNodes.get('unacknowledgement-dialog').open,true);
+publicNodes.get('cancel-unacknowledgement').onclick();
+publicUndoRejected = false;
+publicUndoContext.openUnacknowledgement(601);
+publicUndoData.can_acknowledge = false;
+await publicUndoContext.refresh();
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,1);
+assert.match(publicNodes.get('unacknowledgement-feedback').textContent,/project acknowledgement enabled/);
+publicNodes.get('cancel-unacknowledgement').onclick();
+publicUndoData.can_acknowledge = true;
+await publicUndoContext.refresh();
+publicUndoContext.openUnacknowledgement(601);
+publicUndoIssue.ack_revision = 2;
+await publicUndoContext.refresh();
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,1);
+assert.match(publicNodes.get('unacknowledgement-feedback').textContent,/changed/);
+publicNodes.get('cancel-unacknowledgement').onclick();
+publicUndoContext.openUnacknowledgement(601);
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,2);
+assert.equal(publicUndoRequests.at(-1).body.expected_revision,2);
+assert.equal(publicUndoRequests.at(-1).headers['X-CSRF-Token'],'public-undo-token');
+assert.equal(publicNodes.get('unacknowledgement-dialog').open,false);
+assert.match(publicNodes.get('incidents').innerHTML,/Issue #8/);
+console.log('Public Unacknowledge requires opt-in, confirms the selected revision, preserves errors and sends the status CSRF token.');
