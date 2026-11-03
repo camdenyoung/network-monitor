@@ -1,9 +1,14 @@
-# Network Monitor v0.2.1 · Build 10
+# Network Monitor v0.2.2 · Build 11
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 11 — v0.2.2
+
+- Merged reusable service library transfer and updated dashboard branding into main.
+
 
 ### Build 10 — v0.2.1
 
@@ -67,6 +72,15 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.2.2
+
+- Added Admin-only reusable service library JSON export/import for transferring definitions between installations.
+- Added reviewed Merge imports that keep existing matching names, and Replace imports that affect only the library.
+- Validate complete files before applying atomic changes; project services, inventory defaults and monitoring history are preserved.
+- Include stored SNMP communities in portable exports, with credential-handling guidance and host-local timestamp filenames.
+- Updated the Admin dashboard subtitle to Project based network monitoring.
+
 
 ### v0.2.1
 
