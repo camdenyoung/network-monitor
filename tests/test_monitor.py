@@ -1183,6 +1183,11 @@ class MonitorTests(unittest.TestCase):
             message = db.execute("SELECT text FROM notification_outbox WHERE event='reminder:1'").fetchone()[0]
             self.assertIn('\n-81', message)
             self.assertNotIn('Triggered by', message)
+            notifications.enqueue_incident(db, issue['id'], 'recovery')
+            recovered = db.execute("SELECT text FROM notification_outbox WHERE event='recovery'").fetchone()[0]
+            self.assertIn('RSSI: -60', recovered)
+            self.assertNotIn('-81', recovered)
+
 
     def test_policy_export_roundtrip_and_disabled_detector(self):
         from app import stability, service_library

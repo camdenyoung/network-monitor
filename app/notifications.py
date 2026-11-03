@@ -173,7 +173,9 @@ def enqueue_for_channel(db, incident_id, event, channel):
     title = f'{icon} {title}'
     text = (f"{title} · {row['project_name']}\n{row['device_name']} - {row['alias']}\n"
             f"{row['service_name']}: {value} {units}\nIssue #{row['number']} · Deployment #{row['run']}")
-    if event != 'opened' and row['trigger_timestamp'] is not None:
+    # Recovery messages report the current reading only; the opening cause
+    # remains recorded on the issue and available in reminder messages.
+    if event not in ('opened', 'recovery') and row['trigger_timestamp'] is not None:
         cause = recorded_issue_value(row) + ' ' + (row['trigger_units'] or '')
         text += '\n' + cause.strip()
     db.execute('''INSERT OR IGNORE INTO notification_outbox

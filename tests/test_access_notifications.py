@@ -168,6 +168,11 @@ class AccessAndNotificationTests(unittest.TestCase):
             server.poll_one(host, 1)
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox').fetchone()[0], 4)
+            for message in db.execute("SELECT text FROM notification_outbox WHERE event='recovery'"):
+                self.assertIn('Host ping: 1', message[0])
+                self.assertNotIn('Host unreachable', message[0])
+                self.assertNotIn('TimeoutError', message[0])
+
 
     def test_muted_host_does_not_queue_notifications(self):
         host = self.create_host()

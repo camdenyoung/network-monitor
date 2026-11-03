@@ -1,9 +1,14 @@
-# Network Monitor v0.2.3 · Build 18
+# Network Monitor v0.2.3 · Build 19
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 19 — v0.2.3 (flap-protection branch)
+
+- Recovery notifications show only the current value/state, omitting the original triggering value.
+
 
 ### Build 18 — v0.2.3 (flap-protection branch)
 
