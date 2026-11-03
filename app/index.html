@@ -1359,6 +1359,14 @@
       const running = Number(state.settings.active_run) !== 0;
       return performAction(running ? 'pause' : 'resume', running ? {} : {project: selectedProject}).catch(report);
     };
+    async function acknowledgeIssue(id) {
+      if (!confirm('Acknowledge this issue? It will move to the acknowledged list. Monitoring will continue.')) return;
+      await request('ack', {id});
+      el('incident-feedback').textContent = 'Issue moved to the acknowledged list.';
+      el('incident-feedback').classList.add('success');
+      await refresh();
+    }
+
     document.body.addEventListener('click', async event => {
       const data = event.target.dataset;
       const menu = event.target.closest('.action-menu');
@@ -1394,12 +1402,7 @@
         if (data.editDevice) openDeviceEditor(data.editDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
-        if (data.ack) {
-          await request('ack', {id: data.ack});
-          el('incident-feedback').textContent = 'Issue moved to the acknowledged list.';
-          el('incident-feedback').classList.add('success');
-          await refresh();
-        }
+        if (data.ack) await acknowledgeIssue(data.ack);
         if (data.remove && confirm('Remove this service? Historical readings are retained.')) await performAction('remove-service', {id: data.remove});
         if (data.history) await openHistory(data.history);
       } catch (error) {

@@ -309,3 +309,7 @@ inside the border, and it hides together with the panel.
 
 Admin issue lists use the shared metric row spacing and top separator border,
 matching public status for active, acknowledged, suppressed and resolved issues.
+
+Both dashboards require a confirmation popup before acknowledging an issue.
+Cancelling sends no acknowledgement request; confirming preserves existing role,
+CSRF and status-project acknowledgement restrictions.

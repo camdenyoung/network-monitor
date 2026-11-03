@@ -280,6 +280,7 @@
     document.getElementById('incidents').onclick = async event => {
       const id = event.target.dataset.statusAck;
       if (!id || !publicState?.can_acknowledge) return;
+      if (!confirm('Acknowledge this issue? It will move to the acknowledged list. Monitoring will continue.')) return;
       event.target.disabled = true;
       try {
         const response = await fetch('/api/status-ack', {method:'POST',

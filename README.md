@@ -483,3 +483,7 @@ The status dashboard groups live hosts, display controls and filter helper text
 inside a single padded rounded border, matching the Admin dashboard. Card grids
 have 16px spacing below the helper text. Show/Hide hosts hides the entire bordered
 panel; issue lists, their controls and the update timestamp remain outside it.
+
+Both dashboards require a confirmation popup before acknowledging an issue.
+Cancelling sends no acknowledgement request; confirming preserves existing role,
+CSRF and status-project acknowledgement restrictions.

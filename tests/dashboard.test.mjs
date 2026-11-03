@@ -511,6 +511,11 @@ sortedPublic.fetch = async (path, options) => {
     }
     return {ok:true,json:async () => publicData};
 };
+sortedPublic.confirm = () => false;
+await publicNodes.get('incidents').onclick({target:{dataset:{statusAck:'42'},disabled:false}});
+assert.equal(statusAcknowledgement, undefined);
+assert.equal(publicData.incidents.length, 1);
+sortedPublic.confirm = () => true;
 await publicNodes.get('incidents').onclick({target:{dataset:{statusAck:'42'},disabled:false}});
 assert.equal(statusAcknowledgement.body.id, '42');
 assert.equal(statusAcknowledgement.headers['X-CSRF-Token'], 'status-csrf');
@@ -837,3 +842,20 @@ assert.equal(savedSessionHours, 24);
 assert.equal(sessionSettingsForm.elements.namedItem('hours').value, '24');
 assert.match(element('session-settings-feedback').textContent, /Applies to new sign-ins/);
 console.log('Admin session-duration form preserves edits and saves the configured lifetime.');
+
+let adminAcknowledgementRequests = 0;
+namedMain.confirm = () => false;
+namedMain.fetch = async (path, options) => {
+    if (path === '/api/ack') {
+        adminAcknowledgementRequests += 1;
+        assert.equal(JSON.parse(options.body).id, 42);
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return originalNamedFetch(path, options);
+};
+await namedMain.acknowledgeIssue(42);
+assert.equal(adminAcknowledgementRequests, 0);
+namedMain.confirm = () => true;
+await namedMain.acknowledgeIssue(42);
+assert.equal(adminAcknowledgementRequests, 1);
+console.log('Both dashboards require confirmation before acknowledging; Cancel sends no request.');
