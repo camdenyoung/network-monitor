@@ -36,11 +36,13 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.environment.stop()
         self.directory.cleanup()
 
-    def request(self, path, body=None, token=None, csrf=None):
+    def request(self, path, body=None, token=None, csrf=None, connection=None):
         handler = object.__new__(server.Handler)
         handler.path = path
         handler.client_address = ('127.0.0.1', 1234)
         handler.headers = {'Content-Type': 'application/json'}
+        if connection:
+            handler.headers['X-Dashboard-Connection'] = connection
         if token:
             handler.headers['Cookie'] = 'monitor_session=' + token
         if csrf:
@@ -56,6 +58,29 @@ class AccessAndNotificationTests(unittest.TestCase):
         else:
             handler.do_POST()
         return response
+
+    def test_presence_counts_anonymous_tabs_and_deduplicates_valid_users_admin_only(self):
+        from app.presence import DashboardPresence
+        with patch.object(server.presence, 'tracker', DashboardPresence()):
+            public = self.request('/api/status', connection='anonymous-status-tab')
+            self.assertNotIn('dashboard_presence', json.loads(public['content']))
+            viewer = self.request('/api/state', token=self.viewer_token, connection='viewer-dashboard-tab')
+            self.assertNotIn('dashboard_presence', json.loads(viewer['content']))
+            self.request('/api/status', token=self.viewer_token, connection='viewer-second-dashboard')
+            response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
+            counts = json.loads(response['content'])['dashboard_presence']
+            self.assertEqual(counts['connections'], 4)
+            self.assertEqual(counts['logged_in_users'], 2)
+            # Session revocation takes effect even if the old tab has not polled.
+            with server.connect() as db:
+                db.execute('DELETE FROM sessions WHERE user_id=2')
+            response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
+            self.assertEqual(json.loads(response['content'])['dashboard_presence']['logged_in_users'], 1)
+            self.assertEqual(self.request('/api/state', connection='unauthorised-tab')['status'], 401)
+            # A public poll with an expired cookie becomes an anonymous connection.
+            self.request('/api/status', token=self.viewer_token, connection='viewer-dashboard-tab')
+            response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
+            self.assertEqual(json.loads(response['content'])['dashboard_presence']['connections'], 4)
 
     def test_unauthenticated_requests_cannot_read_private_data_or_modify_it(self):
         for path in ('/api/state', '/api/backup', '/api/users', '/api/history?service=1&run=1'):

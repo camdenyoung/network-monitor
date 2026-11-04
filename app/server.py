@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability, live_updates
+from . import auth, notifications, logos, service_library, stability, live_updates, presence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -338,6 +338,7 @@ def migrate_service_lifecycle(db):
     sample_columns = {row[1] for row in db.execute('PRAGMA table_info(samples)')}
     if 'revision' not in sample_columns:
         db.execute('ALTER TABLE samples ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
+    ensure_sample_indexes(db)
     # Remember IDs before deletion, so delayed polling cannot attach to a new item.
     for table in ('devices', 'assignments', 'services', 'runs', 'incidents'):
         maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
@@ -346,6 +347,53 @@ def migrate_service_lifecycle(db):
         previous = int(setting(db, 'last_id_' + table))
         db.execute('UPDATE settings SET value=? WHERE key=?',
                    (str(max(maximum, previous)), 'last_id_' + table))
+
+
+def ensure_sample_indexes(db):
+    """Index current readings and expiry without discarding existing history.
+
+    Building these once can take time on an existing multi-million-row database.
+    Log each build so an upgrade does not look like a silently stalled startup.
+    """
+    indexes = {
+        'sample_current': 'samples(service,run,revision,id DESC)',
+        'sample_expiry': 'samples(timestamp)',
+    }
+    existing = {row[1] for row in db.execute('PRAGMA index_list(samples)')}
+    for name, columns in indexes.items():
+        if name not in existing:
+            print(f'Building history index {name}; existing readings are retained', flush=True)
+            db.execute(f'CREATE INDEX {name} ON {columns}')
+            print(f'History index {name} ready', flush=True)
+
+
+def current_samples(db, service, run, revision, since, limit=1):
+    """Read the latest IDs without walking pre-resume history to fill a limit.
+
+    The common path uses the current-reading index and stops after `limit` rows.
+    If any are from before resume, use the timestamp index to search only the
+    eligible time range. Keep ID ordering authoritative, even for unusual imports
+    whose timestamps are out of order.
+    """
+    rows = db.execute("""SELECT * FROM samples
+        WHERE service=? AND run=? AND revision=? ORDER BY id DESC LIMIT ?""",
+        (service, run, revision, limit)).fetchall()
+    if all(row['timestamp'] is not None and row['timestamp'] >= since for row in rows):
+        return rows
+    return db.execute("""SELECT * FROM samples INDEXED BY sample_lookup
+        WHERE service=? AND timestamp>=? AND run=? AND revision=?
+        ORDER BY id DESC LIMIT ?""", (service, since, run, revision, limit)).fetchall()
+
+
+def prune_samples(db, cutoff, batch_size=1000):
+    """Drain expired history in small transactions rather than blocking a poll round.
+
+    The timestamp index makes an empty expiry check cheap even with weeks of data.
+    A reduced retention setting can leave a backlog, removed over subsequent rounds.
+    """
+    return db.execute("""DELETE FROM samples WHERE id IN (
+        SELECT id FROM samples WHERE timestamp<? ORDER BY timestamp LIMIT ?
+    )""", (cutoff, batch_size)).rowcount
 
 
 def ensure_service_library(db):
@@ -577,15 +625,17 @@ def read_metric(service):
 
 def host_is_up(db, service, run):
     """Require a recent successful ping for this deployment and current address."""
-    host = db.execute("""
-        SELECT samples.status, samples.timestamp FROM samples
-        JOIN services ping ON ping.id=samples.service
+    ping = db.execute("""
+        SELECT ping.id,ping.revision,ping.monitoring_since FROM services ping
         JOIN assignments a ON a.id=ping.assignment
         JOIN devices d ON d.id=a.device
-        WHERE ping.assignment=? AND ping.kind='ping' AND samples.run=?
-          AND samples.revision=ping.revision AND samples.timestamp>=ping.monitoring_since AND d.address=?
-        ORDER BY samples.id DESC LIMIT 1
-    """, (service['assignment'], run, service['address'])).fetchone()
+        WHERE ping.assignment=? AND ping.kind='ping' AND d.address=?
+    """, (service['assignment'], service['address'])).fetchone()
+    if ping is None:
+        return False
+    # Start from the host's check, never scan other hosts' history to find its ping.
+    readings = current_samples(db, ping['id'], run, ping['revision'], ping['monitoring_since'])
+    host = readings[0] if readings else None
     return bool(host and host['status'] == 'healthy' and time.time() - host['timestamp'] <= 60)
 
 
@@ -641,9 +691,9 @@ def poll_one(service, run):
             # Preserve existing incidents without claiming recovery; blocked samples
             # break persistence streaks before services resume after host recovery.
             return
-        recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? AND timestamp>=? ORDER BY id DESC LIMIT ?',
-                            (service['id'], run, service['revision'], service['monitoring_since'], service['persistence'])).fetchall()
-        confirmed = len(recent) == service['persistence'] and all(row[0] == status for row in recent)
+        recent = current_samples(db, service['id'], run, service['revision'],
+                                 service['monitoring_since'], service['persistence'])
+        confirmed = len(recent) == service['persistence'] and all(row['status'] == status for row in recent)
         flap_event = stability.observe(db, service, run, status, confirmed, observed_at)
         if not confirmed:
             return
@@ -693,7 +743,7 @@ def poll_loop():
                         JOIN runs r ON r.project=a.project
                         WHERE r.id=? AND a.monitoring=1 AND a.removed=0 AND s.monitoring=1 AND s.enabled=1 AND d.address!='' ''', (run,))]
                     cutoff = time.time() - int(setting(db, 'retention_days')) * 86400
-                    db.execute('DELETE FROM samples WHERE timestamp<?', (cutoff,))
+                    prune_samples(db, cutoff)
                 hosts = {}
                 for service in services:
                     hosts.setdefault(service['assignment'], []).append(service)
@@ -749,12 +799,13 @@ def snapshot():
         for configuration in result['services'] + result['service_templates'] + result['device_service_defaults']:
             configuration['state_map'] = json.loads(configuration['state_map'])
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
-        result['latest'] = [dict(row) for row in db.execute('''
-            SELECT s.* FROM samples s JOIN (
-            SELECT samples.service, MAX(samples.id) id FROM samples
-            JOIN services ON services.id=samples.service
-            WHERE run=? AND samples.revision=services.revision AND samples.timestamp>=services.monitoring_since GROUP BY samples.service) latest ON s.id=latest.id''',
-            (int(result['settings']['active_run']),))]
+        # Bound lookups both during ordinary polling and immediately after
+        # resuming, when a check may have no eligible readings yet.
+        run = int(result['settings']['active_run'])
+        result['latest'] = []
+        for service in sorted(result['services'], key=lambda row: row['id']):
+            result['latest'].extend(dict(row) for row in current_samples(
+                db, service['id'], run, service['revision'], service['monitoring_since']))
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
         # Split by acknowledgement independently of recovery: acknowledged issues
@@ -1459,6 +1510,7 @@ class Handler(BaseHTTPRequestHandler):
             overview = status_overview()
             with connect() as db:
                 user = auth.session_user(db, self.headers.get('Cookie'))
+            presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)
             can_acknowledge = bool(overview['acknowledge_enabled'] and user
                 and not user['must_change_password'] and user['role'] in ('admin','operator'))
             # Return only the caller's identity, never the account list.
@@ -1504,7 +1556,14 @@ class Handler(BaseHTTPRequestHandler):
                 users = [auth.public_user(row) for row in db.execute('SELECT * FROM users ORDER BY username')]
             self.send(json.dumps(users))
         elif self.path == '/api/state':
-            self.send(json.dumps(snapshot()))
+            presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)
+            state = snapshot()
+            if user['role'] == 'admin':
+                with connect() as db:
+                    sessions = dict(db.execute('SELECT csrf,user_id FROM sessions WHERE expires>?',
+                                               (time.time(),)))
+                state['dashboard_presence'] = presence.tracker.counts(sessions)
+            self.send(json.dumps(state))
         elif self.path == '/api/library-export':
             with connect() as db:
                 payload = json.dumps(service_library.export_document(db), indent=2, ensure_ascii=False, allow_nan=False)

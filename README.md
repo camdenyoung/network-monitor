@@ -1,9 +1,35 @@
-# Network Monitor v0.3.2 · Build 44
+# Network Monitor v0.4 · Build 48
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 48 — v0.4
+
+- Merge the verified history/polling performance improvements, synthetic test harness and active user/connection counts into main.
+- Release the Raspberry Pi 5 load-tested monitoring changes and refresh-stable tab identity.
+
+
+### Build 47 — v0.3.2 (load-test improvements branch)
+
+- Keep dashboard connection identity in tab-scoped sessionStorage so refreshing or navigating between dashboards does not temporarily increase the count.
+- If browser storage is unavailable, retain the existing per-page fallback and 60-second expiry.
+
+
+### Build 46 — v0.3.2 (load-test improvements branch)
+
+- Show Admins the number of distinct active logged-in accounts and dashboard connections, including anonymous Status Dashboard tabs.
+- Refresh presence through normal dashboard polling; expire connections after 60 seconds without activity. Tabs count separately, while accounts are deduplicated across tabs/devices.
+- Counts are approximate, process-local and rebuilt after restart; they are not a list of all unexpired logins. Revoked/expired/logged-out sessions do not count as logged-in users. No additional database writes or heartbeat requests are required.
+
+
+### Build 45 — v0.3.2 (load-test improvements branch)
+
+- Integrate the history-performance fixes verified on the Raspberry Pi 5: indexed current readings, bounded retention cleanup and efficient first readings after startup/resume.
+- Preserve existing data; build missing history indexes once during startup, with progress logs. Large databases require additional free disk space and time for this upgrade.
+- Include the isolated SNMP/Modbus simulator, capacity probe and regression tests. See [LOAD_TESTING.md](LOAD_TESTING.md) for setup and the measured results.
+
 
 ### Build 44 — v0.3.2
 
@@ -247,6 +273,15 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.4
+
+- Avoid full-history scans when loading dashboards, checking host dependencies and collecting fresh readings after startup/resume. Index retention cleanup and remove expired readings in bounded batches.
+- Preserve existing data on upgrade. Missing history indexes are built once at startup with progress logs; large databases need additional disk space and startup time.
+- Include an isolated two-machine SNMP/Modbus simulator and capacity harness. Raspberry Pi 5 tests passed for 150 hosts, 750 SNMP services, three HTTP users and seven days of generated history under healthy, timeout and flapping-value scenarios. See [LOAD_TESTING.md](LOAD_TESTING.md) for results and limitations.
+- Show Admins distinct active logged-in accounts and dashboard connections, including anonymous status viewers. Normal polling updates counts; inactive connections expire after 60 seconds.
+- Preserve connection identity across refreshes and dashboard navigation using tab-scoped storage. Separately opened tabs count individually; browser Duplicate Tab may copy the identity.
+
 
 ### v0.3.2
 
