@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability
+from . import auth, notifications, logos, service_library, stability, live_updates
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -196,29 +196,85 @@ def migrate_issue_numbers(db):
 
 
 def migrate_incident_acknowledgements(db):
-    """Keep an immutable actor snapshot; legacy acknowledgements remain unattributed."""
+    """Keep current acknowledgement state separately from the immutable audit trail."""
     columns = {row[1] for row in db.execute('PRAGMA table_info(incidents)')}
     for name, kind in (('acknowledged_by_user_id', 'INTEGER'),
                        ('acknowledged_by_username', 'TEXT'),
-                       ('acknowledged_by_full_name', 'TEXT')):
+                       ('acknowledged_by_full_name', 'TEXT'),
+                       ('ack_revision', 'INTEGER NOT NULL DEFAULT 0'),
+                       ('unacknowledged_at', 'REAL')):
         if name not in columns:
             db.execute(f'ALTER TABLE incidents ADD COLUMN {name} {kind}')
+    existed = db.execute("SELECT 1 FROM sqlite_master WHERE name='incident_acknowledgement_events'").fetchone()
+    db.execute("""CREATE TABLE IF NOT EXISTS incident_acknowledgement_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        incident INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK(action IN ('acknowledged','unacknowledged')),
+        timestamp REAL NOT NULL, user_id INTEGER, username TEXT, full_name TEXT,
+        revision INTEGER NOT NULL
+    )""")
+    db.execute('CREATE INDEX IF NOT EXISTS acknowledgement_events_issue ON incident_acknowledgement_events(incident,id)')
+    if not existed:
+        # Existing snapshots are the only defensible historical evidence. Never
+        # invent an actor or replace their recorded name with a current account.
+        db.execute("""INSERT INTO incident_acknowledgement_events
+            (incident,action,timestamp,user_id,username,full_name,revision)
+            SELECT id,'acknowledged',acknowledged,acknowledged_by_user_id,
+                   acknowledged_by_username,acknowledged_by_full_name,ack_revision
+            FROM incidents WHERE acknowledged IS NOT NULL""")
 
 
-def record_acknowledgement(db, incident_id, actor):
-    """Use the authenticated account, never client-provided identity fields.
-
-    No foreign key is used: deleting or renaming an account must not rewrite
-    history. The conditional update preserves the first actor and timestamp.
-    """
+def acknowledgement_actor(db, actor):
     account = db.execute('SELECT id,username,full_name,role FROM users WHERE id=?',
                          (actor.get('id') if actor else None,)).fetchone()
     if not account or account['role'] not in ('admin', 'operator'):
         raise ValueError('An authenticated Admin or Operator is required')
-    db.execute("""UPDATE incidents SET acknowledged=?, acknowledged_by_user_id=?,
-        acknowledged_by_username=?, acknowledged_by_full_name=? WHERE id=? AND closed IS NULL AND acknowledged IS NULL""",
-        (time.time(), account['id'], account['username'],
-         account['full_name'] or account['username'], incident_id))
+    return account
+
+
+def record_acknowledgement_event(db, incident_id, action, now, account):
+    """Snapshot actors without a user FK so account deletion cannot rewrite history."""
+    db.execute("""INSERT INTO incident_acknowledgement_events
+        (incident,action,timestamp,user_id,username,full_name,revision)
+        SELECT id,?,?,?,?,?,ack_revision FROM incidents WHERE id=?""",
+        (action, now, account['id'], account['username'], account['full_name'] or account['username'], incident_id))
+    db.execute("""UPDATE notification_outbox SET state='cancelled',error='Acknowledgement changed'
+        WHERE incident=? AND event LIKE 'reminder:%' AND state='pending'""", (incident_id,))
+
+
+def record_acknowledgement(db, incident_id, actor):
+    account = acknowledgement_actor(db, actor)
+    now = time.time()
+    updated = db.execute("""UPDATE incidents SET acknowledged=?, acknowledged_by_user_id=?,
+        acknowledged_by_username=?, acknowledged_by_full_name=?,ack_revision=ack_revision+1
+        WHERE id=? AND closed IS NULL AND acknowledged IS NULL""",
+        (now, account['id'], account['username'], account['full_name'] or account['username'], incident_id))
+    if updated.rowcount:
+        record_acknowledgement_event(db, incident_id, 'acknowledged', now, account)
+        return True
+    return False
+
+
+def record_unacknowledgement(db, incident_id, actor, expected_revision):
+    """Clear current state atomically; retain recovery and all earlier audit events."""
+    account = acknowledgement_actor(db, actor)
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError('Review the current acknowledgement before removing it')
+    issue = db.execute("""SELECT i.* FROM incidents i JOIN services s ON s.id=i.service
+        JOIN assignments a ON a.id=s.assignment
+        WHERE i.id=? AND i.run=CAST((SELECT value FROM settings WHERE key='active_run') AS INTEGER)
+          AND i.acknowledged IS NOT NULL AND s.enabled=1 AND a.removed=0""", (incident_id,)).fetchone()
+    if not issue or issue['ack_revision'] != expected_revision:
+        raise ValueError('Acknowledgement changed or issue is unavailable. Refresh and review it again.')
+    now = time.time()
+    updated = db.execute("""UPDATE incidents SET acknowledged=NULL,acknowledged_by_user_id=NULL,
+        acknowledged_by_username=NULL,acknowledged_by_full_name=NULL,unacknowledged_at=?,
+        ack_revision=ack_revision+1 WHERE id=? AND acknowledged IS NOT NULL AND ack_revision=?""",
+        (now, incident_id, expected_revision))
+    if not updated.rowcount:
+        raise ValueError('Acknowledgement changed. Refresh and review it again.')
+    record_acknowledgement_event(db, incident_id, 'unacknowledged', now, account)
+    return True
 
 
 def migrate_project_settings(db):
@@ -743,11 +799,18 @@ def snapshot():
                 else:
                     visible.append(incident)
             result['incident_lists'][category] = visible
+        history = {}
+        for event in db.execute("""SELECT * FROM incident_acknowledgement_events WHERE incident IN (
+            SELECT id FROM incidents WHERE run=? OR id IN (SELECT id FROM incidents ORDER BY id DESC LIMIT 200))
+            ORDER BY id""", (run,)):
+            entry = dict(event)
+            history.setdefault(entry['incident'], []).append(entry)
         # Enrich response copies only: preserve the durable acknowledgement snapshot.
         accounts = {row['id']: dict(row) for row in db.execute('SELECT id,username,full_name FROM users')}
         for incidents in [result['incidents'], *result['incident_lists'].values()]:
             for incident in incidents:
                 incident['acknowledged_by_full_name'] = acknowledgement_display_name(incident, accounts)
+                incident['acknowledgement_history'] = history.get(incident['id'], [])
                 service = configurations.get(incident['service'])
                 # Older saved ping failures contain only an internal exception name.
                 # Their recorded Unreachable status still gives a clear host state.
@@ -870,27 +933,35 @@ def duplicate_project(db, source_id, name):
     ensure_host_checks(db)
 
 
-def acknowledge_status_incident(db, incident_id, actor):
+def change_status_acknowledgement(db, incident_id, actor, undo=False, expected_revision=None):
     """Enforce active-project opt-in and the same public incident visibility rules."""
-    row = db.execute("""SELECT i.*,s.assignment,s.kind,s.revision,s.monitoring_since,d.address
+    condition = "i.acknowledged IS NOT NULL" if undo else "i.closed IS NULL"
+    row = db.execute(f"""SELECT i.*,s.assignment,s.kind,s.revision,s.monitoring_since,d.address
         FROM incidents i JOIN services s ON s.id=i.service
         JOIN assignments a ON a.id=s.assignment JOIN projects p ON p.id=a.project
         JOIN devices d ON d.id=a.device JOIN runs r ON r.project=p.id AND r.id=i.run
         JOIN settings setting ON setting.key='active_run' AND r.id=CAST(setting.value AS INTEGER)
-        WHERE i.id=? AND i.closed IS NULL AND p.status_ack_enabled=1
+        WHERE i.id=? AND {condition} AND p.status_ack_enabled=1
           AND a.visible=1 AND a.monitoring=1 AND a.removed=0 AND s.enabled=1 AND s.monitoring=1""", (incident_id,)).fetchone()
     if not row:
         raise ValueError('Status acknowledgement disabled or issue unavailable')
-    if row['kind'] != 'ping':
+    if row['closed'] is None and row['kind'] != 'ping':
         latest = db.execute("""SELECT status FROM samples WHERE service=? AND run=? AND revision=?
             AND timestamp>=? ORDER BY id DESC LIMIT 1""",
             (row['service'], row['run'], row['revision'], row['monitoring_since'])).fetchone()
         if not host_is_up(db, row, row['run']) or not latest or latest[0] in ('blocked','paused','unknown'):
             raise ValueError('Service issue is suppressed')
-    record_acknowledgement(db, incident_id, actor)
+    if undo:
+        return record_unacknowledgement(db, incident_id, actor, expected_revision)
+    return record_acknowledgement(db, incident_id, actor)
+
+
+def acknowledge_status_incident(db, incident_id, actor):
+    return change_status_acknowledgement(db, incident_id, actor)
 
 
 def mutate(action, body, actor=None):
+    acknowledgement_changed = False
     with LOCK, connect() as db:
         if action == 'project':
             name = body['name'].strip()
@@ -914,8 +985,10 @@ def mutate(action, body, actor=None):
                                 (int(body['enabled']), int(body['project'])))
             if cursor.rowcount != 1:
                 raise ValueError('Unknown project')
+        elif action == 'status-unack':
+            acknowledgement_changed = change_status_acknowledgement(db, int(body['id']), actor, undo=True, expected_revision=body.get('expected_revision'))
         elif action == 'status-ack':
-            acknowledge_status_incident(db, int(body['id']), actor)
+            acknowledgement_changed = acknowledge_status_incident(db, int(body['id']), actor)
         elif action == 'project-edit':
             name = body['name'].strip()
             if not name or len(name) > 100:
@@ -1049,7 +1122,9 @@ def mutate(action, body, actor=None):
             if setting(db, 'paused_run') == str(target):
                 db.execute("UPDATE settings SET value='0' WHERE key='paused_run'")
         elif action == 'ack':
-            record_acknowledgement(db, int(body['id']), actor)
+            acknowledgement_changed = record_acknowledgement(db, int(body['id']), actor)
+        elif action == 'unack':
+            acknowledgement_changed = record_unacknowledgement(db, int(body['id']), actor, body.get('expected_revision'))
         elif action == 'notification-pause':
             notifications.set_paused(db, body['paused'])
         elif action == 'reminder-settings':
@@ -1173,6 +1248,10 @@ def mutate(action, body, actor=None):
                        (int(body['id']),))
         else:
             raise ValueError('Unknown action')
+    # All listeners must see committed state, including changes from other users.
+    # Duplicate acknowledgements and rejected/rolled-back actions emit nothing.
+    if acknowledgement_changed:
+        live_updates.publish_acknowledgement_change()
 
 
 def update_card_incidents(data):
@@ -1267,7 +1346,7 @@ def status_overview():
             item.update({key: incident.get(key) for key in ('trigger_value', 'trigger_display',
                          'trigger_units', 'trigger_timestamp', 'trigger_error')})
             if category == 'acknowledged':
-                item.update(acknowledged=incident['acknowledged'], closed=incident['closed'],
+                item.update(acknowledged=incident['acknowledged'], closed=incident['closed'], ack_revision=incident['ack_revision'],
                             acknowledged_by_username=incident['acknowledged_by_username'],
                             acknowledged_by_full_name=incident['acknowledged_by_full_name'])
             output.append(item)
@@ -1342,7 +1421,32 @@ class Handler(BaseHTTPRequestHandler):
             pass
         self.send('{"error":"Not found"}', status=404)
 
+    def stream_acknowledgement_changes(self):
+        """Public invalidation stream: no issue IDs, actors, credentials or metrics."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+        revision = live_updates.current_revision()
+        try:
+            # Initial state also refreshes reconnecting clients after missed events.
+            self.wfile.write(('retry: 1000\ndata: ' + json.dumps({'revision': revision}) + '\n\n').encode())
+            self.wfile.flush()
+            while True:
+                updated = live_updates.wait_for_change(revision)
+                payload = (': keepalive\n\n' if updated == revision else
+                           'data: ' + json.dumps({'revision': updated}) + '\n\n')
+                self.wfile.write(payload.encode())
+                self.wfile.flush()
+                revision = updated
+        except OSError:
+            # Disconnections are normal. EventSource reconnects automatically.
+            pass
+
     def do_GET(self):
+        if self.path == '/api/ack-events':
+            return self.stream_acknowledgement_changes()
         if self.path.startswith('/api/public-logo?'):
             return self.send_logo(public=True)
         if self.path == '/api/health':
@@ -1442,9 +1546,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"Origin rejected"}', status=403)
         user = None
         if self.path != '/api/login':
-            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password', '/api/ack', '/api/status-ack'),
+            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password', '/api/ack', '/api/status-ack', '/api/unack', '/api/status-unack'),
                                      allow_password_change=self.path in ('/api/logout', '/api/password'),
-                                     roles=('admin', 'operator') if self.path in ('/api/ack','/api/status-ack') else None)
+                                     roles=('admin', 'operator') if self.path in ('/api/ack','/api/status-ack','/api/unack','/api/status-unack') else None)
             if not user:
                 return
             if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), user['csrf']):

@@ -1244,6 +1244,52 @@ class MonitorTests(unittest.TestCase):
             saved = db.execute('SELECT kind,unit,community FROM services WHERE id=?', (self.service['id'],)).fetchone()
             self.assertEqual(tuple(saved), ('tcp', 23, 'saved-secret'))
 
+    def test_unacknowledgement_returns_blocked_service_to_suppressed(self):
+        self.poll(-80)
+        self.poll(-80)
+        issue = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('ack', {'id': issue['id']}, actor={'id': 1})
+        acknowledged = server.snapshot()['incident_lists']['acknowledged'][0]
+        with patch.object(server, 'host_is_up', return_value=False):
+            server.mutate('unack', {'id': issue['id'], 'expected_revision': acknowledged['ack_revision']}, actor={'id': 1})
+            data = server.snapshot()['incident_lists']
+            self.assertEqual(data['active'], [])
+            self.assertEqual(data['acknowledged'], [])
+            self.assertEqual(data['suppressed'][0]['id'], issue['id'])
+            self.assertIsNone(data['suppressed'][0]['closed'])
+        self.assertEqual(server.snapshot()['incident_lists']['active'][0]['id'], issue['id'])
+
+    def test_unacknowledgement_rejects_inactive_and_removed_sources(self):
+        self.poll(-80)
+        self.poll(-80)
+        issue = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('ack', {'id': issue['id']}, actor={'id': 1})
+        issue = server.snapshot()['incident_lists']['acknowledged'][0]
+        body = {'id': issue['id'], 'expected_revision': issue['ack_revision']}
+        server.mutate('activate', {'project': 1, 'description': 'Another run'})
+        with self.assertRaises(ValueError):
+            server.mutate('unack', body, actor={'id': 1})
+        with server.connect() as db:
+            db.execute("UPDATE settings SET value='1' WHERE key='active_run'")
+            db.execute('UPDATE services SET enabled=0 WHERE id=?', (self.service['id'],))
+        with self.assertRaises(ValueError):
+            server.mutate('unack', body, actor={'id': 1})
+
+    def test_status_unacknowledgement_rechecks_service_dependency(self):
+        self.poll(-80)
+        self.poll(-80)
+        issue = server.snapshot()['incident_lists']['active'][0]
+        server.mutate('ack', {'id': issue['id']}, actor={'id': 1})
+        issue = server.snapshot()['incident_lists']['acknowledged'][0]
+        server.mutate('project-status-settings', {'project': 1, 'enabled': True})
+        body = {'id': issue['id'], 'expected_revision': issue['ack_revision']}
+        with patch.object(server, 'host_is_up', return_value=False):
+            with self.assertRaises(ValueError):
+                server.mutate('status-unack', body, actor={'id': 1})
+        self.assertEqual(server.snapshot()['incident_lists']['acknowledged'][0]['id'], issue['id'])
+        server.mutate('status-unack', body, actor={'id': 1})
+        self.assertEqual(server.snapshot()['incident_lists']['active'][0]['id'], issue['id'])
+
 
 if __name__ == '__main__':
     unittest.main()

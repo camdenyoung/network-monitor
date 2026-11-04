@@ -1712,3 +1712,246 @@ assert.deepEqual(administrativeRedirects,['/login']);
 assert.equal(element('app-confirmation').open,false);
 assert.doesNotMatch(html,/\b(?:confirm|alert|prompt)\s*\(/);
 console.log('All seven admin confirmations support cancellation, target capture, inline rejection, duplicate protection and safe backup selection.');
+
+// Unacknowledgement is confirmed, revision-bound and available to Operators.
+const undoIssue = {id:501,number:7,service:202,run:1,status:'critical',opened:now-300,
+  acknowledged:now-100,ack_revision:1,acknowledged_by_full_name:'Earlier Operator',closed:null};
+const undoFixture = {...removalFixture,services:[{...stateService,id:202,assignment:101,enabled:1}],
+  incidents:[undoIssue],incident_lists:{active:[],acknowledged:[undoIssue],suppressed:[],resolved:[]}};
+const undoRequests = [];
+let rejectUndo = false;
+const undoContext = vm.createContext({document:context.document,localStorage:context.localStorage,setInterval(){},
+  fetch:async (path,options) => {
+    if (path === '/api/unack') {
+      undoRequests.push({body:JSON.parse(options.body),headers:options.headers});
+      if (rejectUndo) return {ok:false,status:400,json:async () => ({error:'Acknowledgement rejected'})};
+      undoIssue.acknowledged = null;
+      undoIssue.ack_revision += 1;
+      undoFixture.incident_lists.acknowledged = [];
+      undoFixture.incident_lists[undoIssue.closed ? 'resolved' : 'active'] = [undoIssue];
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => path === '/api/me'
+      ? {id:3,username:'operator',role:'operator',csrf:'undo-token'} : undoFixture};
+  }});
+new vm.Script(script).runInContext(undoContext);
+await undoContext.initializeSession();
+assert.match(element('acknowledged-incidents').innerHTML,/data-unack="501"/);
+undoContext.openUnacknowledgement(501);
+assert.equal(element('unacknowledgement-dialog').open,true);
+assert.match(element('unacknowledgement-context').textContent,/Issue #7/);
+assert.equal(undoRequests.length,0);
+element('cancel-unacknowledgement').onclick();
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoRequests.length,0);
+undoContext.openUnacknowledgement(501);
+element('unacknowledgement-dialog').onclose();
+element('unacknowledgement-dialog').close();
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoRequests.length,0);
+undoContext.openUnacknowledgement(501);
+rejectUndo = true;
+await element('confirm-unacknowledgement').onclick();
+assert.equal(element('unacknowledgement-dialog').open,true);
+assert.equal(element('unacknowledgement-feedback').textContent,'Acknowledgement rejected');
+assert.equal(element('confirm-unacknowledgement').disabled,false);
+element('cancel-unacknowledgement').onclick();
+rejectUndo = false;
+undoContext.openUnacknowledgement(501);
+undoIssue.ack_revision = 2;
+await undoContext.refresh();
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoRequests.length,1);
+assert.match(element('unacknowledgement-feedback').textContent,/changed/);
+element('cancel-unacknowledgement').onclick();
+undoContext.openUnacknowledgement(501);
+const undoSave = element('confirm-unacknowledgement').onclick();
+await element('confirm-unacknowledgement').onclick();
+await undoSave;
+assert.equal(undoRequests.length,2);
+assert.equal(undoRequests.at(-1).body.expected_revision,2);
+assert.equal(undoRequests.at(-1).headers['X-CSRF-Token'],'undo-token');
+assert.equal(element('unacknowledgement-dialog').open,false);
+assert.match(element('incidents').innerHTML,/Issue #7/);
+undoIssue.acknowledged = now;
+undoIssue.ack_revision = 4;
+undoFixture.incident_lists.active = [];
+undoFixture.incident_lists.acknowledged = [undoIssue];
+await undoContext.refresh();
+vm.runInContext("currentUser.role='viewer'",undoContext);
+assert.doesNotMatch(undoContext.renderIncidents([undoIssue]),/data-unack/);
+assert.throws(() => undoContext.openUnacknowledgement(501),/Admin or Operator/);
+vm.runInContext("currentUser.role='operator'",undoContext);
+undoContext.openUnacknowledgement(501);
+undoIssue.closed = now;
+await element('confirm-unacknowledgement').onclick();
+assert.equal(undoFixture.incident_lists.resolved[0].id,501);
+assert.match(element('resolved-incidents').innerHTML,/Issue #7/);
+console.log('Main Unacknowledge supports role checks, Cancel/Escape, inline errors, stale review and recovered routing.');
+
+// Public Unacknowledge follows project opt-in and rechecks it at confirmation.
+const publicUndoIssue = {id:601,number:8,device:'Switch',alias:'Stage',service:'RSSI',status:'critical',
+  opened:now-300,acknowledged:now-100,ack_revision:1,closed:null};
+const publicUndoData = {project:'Undo event',devices:[],incidents:[],acknowledged_incidents:[publicUndoIssue],updated:now,
+  acknowledge_enabled:false,can_acknowledge:false,viewer:{username:'operator',role:'operator'}};
+const publicUndoRequests = [];
+let publicUndoRejected = false;
+const publicUndoContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,setInterval(){},
+  fetch:async (path,options) => {
+    if (path === '/api/status-unack') {
+      publicUndoRequests.push({body:JSON.parse(options.body),headers:options.headers});
+      if (publicUndoRejected) return {ok:false,status:400,json:async () => ({error:'Public undo rejected'})};
+      publicUndoData.acknowledged_incidents = [];
+      if (!publicUndoIssue.closed) publicUndoData.incidents = [publicUndoIssue];
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    return {ok:true,status:200,json:async () => publicUndoData};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(publicUndoContext);
+await publicUndoContext.refresh();
+assert.doesNotMatch(publicNodes.get('acknowledged-incidents').innerHTML,/data-status-unack/);
+publicUndoData.acknowledge_enabled = true;
+publicUndoData.can_acknowledge = true;
+publicUndoData.csrf = 'public-undo-token';
+await publicUndoContext.refresh();
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML,/data-status-unack="601"/);
+publicNodes.get('acknowledged-incidents').onclick({target:{dataset:{statusUnack:'601'}}});
+assert.equal(publicNodes.get('unacknowledgement-dialog').open,true);
+publicNodes.get('cancel-unacknowledgement').onclick();
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,0);
+publicUndoContext.openUnacknowledgement(601);
+publicUndoRejected = true;
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicNodes.get('unacknowledgement-feedback').textContent,'Public undo rejected');
+assert.equal(publicNodes.get('unacknowledgement-dialog').open,true);
+publicNodes.get('cancel-unacknowledgement').onclick();
+publicUndoRejected = false;
+publicUndoContext.openUnacknowledgement(601);
+publicUndoData.can_acknowledge = false;
+await publicUndoContext.refresh();
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,1);
+assert.match(publicNodes.get('unacknowledgement-feedback').textContent,/project acknowledgement enabled/);
+publicNodes.get('cancel-unacknowledgement').onclick();
+publicUndoData.can_acknowledge = true;
+await publicUndoContext.refresh();
+publicUndoContext.openUnacknowledgement(601);
+publicUndoIssue.ack_revision = 2;
+await publicUndoContext.refresh();
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,1);
+assert.match(publicNodes.get('unacknowledgement-feedback').textContent,/changed/);
+publicNodes.get('cancel-unacknowledgement').onclick();
+publicUndoContext.openUnacknowledgement(601);
+await publicNodes.get('confirm-unacknowledgement').onclick();
+assert.equal(publicUndoRequests.length,2);
+assert.equal(publicUndoRequests.at(-1).body.expected_revision,2);
+assert.equal(publicUndoRequests.at(-1).headers['X-CSRF-Token'],'public-undo-token');
+assert.equal(publicNodes.get('unacknowledgement-dialog').open,false);
+assert.match(publicNodes.get('incidents').innerHTML,/Issue #8/);
+console.log('Public Unacknowledge requires opt-in, confirms the selected revision, preserves errors and sends the status CSRF token.');
+
+// Separate browser contexts update from server invalidations, not browser-local storage.
+let sharedAcknowledged = false;
+let sharedRevision = 0;
+let holdMainRefresh = false;
+let releaseMainRefresh;
+let mainRefreshStarted;
+let mainReads = 0;
+let concurrentMainReads = 0;
+let maximumMainReads = 0;
+const mainLiveSources = [];
+const mainLiveEvents = new Map();
+const mainLiveDocumentEvents = new Map();
+const liveIssue = () => ({...undoIssue,id:701,number:9,closed:null,
+  acknowledged:sharedAcknowledged ? now : null,ack_revision:sharedRevision});
+function liveMainData() {
+  const issue = liveIssue();
+  return {...undoFixture,incidents:[issue],incident_lists:{active:sharedAcknowledged ? [] : [issue],
+    acknowledged:sharedAcknowledged ? [issue] : [],suppressed:[],resolved:[]}};
+}
+const mainLiveContext = vm.createContext({document:{...context.document,
+  addEventListener(type,handler){mainLiveDocumentEvents.set(type,handler);}},localStorage:context.localStorage,
+  setInterval(){},addEventListener(type,handler){mainLiveEvents.set(type,handler);},
+  EventSource:class {constructor(url){this.url=url;this.closed=false;mainLiveSources.push(this);}close(){this.closed=true;}},
+  fetch:async path => {
+    if (path === '/api/me') return {ok:true,json:async () => ({id:3,username:'Alice',role:'operator',csrf:'alice-token'})};
+    const snapshot = liveMainData();
+    mainReads += 1;
+    concurrentMainReads += 1;
+    maximumMainReads = Math.max(maximumMainReads,concurrentMainReads);
+    if (holdMainRefresh) {
+      holdMainRefresh = false;
+      await new Promise(resolve => {releaseMainRefresh=resolve;mainRefreshStarted();});
+    }
+    concurrentMainReads -= 1;
+    return {ok:true,json:async () => snapshot};
+  }});
+new vm.Script(script).runInContext(mainLiveContext);
+await mainLiveContext.initializeSession();
+mainLiveContext.connectAcknowledgementUpdates();
+assert.equal(mainLiveSources.length,1);
+assert.equal(mainLiveSources[0].url,'/api/ack-events');
+sharedAcknowledged = true;
+sharedRevision = 1;
+await mainLiveSources[0].onmessage();
+assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
+
+const statusLiveSources = [];
+const statusLiveContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,
+  setInterval(){},EventSource:class {constructor(url){this.url=url;statusLiveSources.push(this);}close(){}},
+  fetch:async () => {
+    const issue = {...liveIssue(),device:'Switch',alias:'Stage',service:'Port status'};
+    return {ok:true,json:async () => ({project:'Shared project',devices:[],updated:now,
+      incidents:sharedAcknowledged ? [] : [issue],acknowledged_incidents:sharedAcknowledged ? [issue] : [],
+      viewer:{username:'Bob',role:'viewer'},can_acknowledge:false,acknowledge_enabled:true})};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(statusLiveContext);
+await statusLiveContext.refresh();
+statusLiveContext.connectAcknowledgementUpdates();
+assert.equal(statusLiveSources.length,1);
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML,/Issue #9/);
+assert.doesNotMatch(publicNodes.get('acknowledged-incidents').innerHTML,/data-status-unack/);
+sharedAcknowledged = false;
+sharedRevision = 2;
+await Promise.all([mainLiveSources[0].onmessage(),statusLiveSources[0].onmessage()]);
+assert.match(element('incidents').innerHTML,/Issue #9/);
+assert.match(publicNodes.get('incidents').innerHTML,/Issue #9/);
+assert.match(publicNodes.get('acknowledged-incidents').innerHTML,/No acknowledged issues/);
+// A server event arriving during a slow old fetch queues a fresh fetch afterwards.
+holdMainRefresh = true;
+const started = new Promise(resolve => {mainRefreshStarted=resolve;});
+const readsBeforeRace = mainReads;
+const oldRefresh = mainLiveContext.refresh();
+await started;
+sharedAcknowledged = true;
+sharedRevision = 3;
+const latestRefresh = mainLiveSources[0].onmessage();
+releaseMainRefresh();
+await Promise.all([oldRefresh,latestRefresh]);
+assert.equal(mainReads-readsBeforeRace,2);
+assert.equal(maximumMainReads,1);
+assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
+// Navigation suspends the old stream; restoring a cached page reconnects once.
+mainLiveEvents.get('pagehide')();
+assert.equal(mainLiveSources[0].closed,true);
+sharedAcknowledged = false;
+sharedRevision = 4;
+mainLiveEvents.get('pageshow')({persisted:true});
+await mainLiveContext.refresh();
+assert.equal(mainLiveSources.length,2);
+mainLiveEvents.get('pageshow')({persisted:true});
+await mainLiveContext.refresh();
+assert.equal(mainLiveSources.length,2);
+assert.match(element('incidents').innerHTML,/Issue #9/);
+sharedAcknowledged = true;
+sharedRevision = 5;
+mainLiveDocumentEvents.get('visibilitychange')();
+await mainLiveContext.refresh();
+assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
+assert.match(mainLiveContext.renderIncidents([liveIssue()]),/class="issue-action" data-unack/);
+const mainIssueStyle = html.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
+const publicIssueStyle = statusPage.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
+assert.equal(mainIssueStyle,publicIssueStyle);
+console.log('Live updates synchronise separate viewers, preserve permissions, serialize racing refreshes and reconnect after navigation; issue action buttons share styling.');

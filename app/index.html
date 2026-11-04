@@ -40,6 +40,7 @@
     #service-catalogue .service-controls { flex-shrink: 0; gap: 12px; }
     #service-catalogue .service-controls > button { margin: 0; }
     .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
+    .metric .issue-action { font-size: 15px; line-height: 20px; padding: 4px 8px; color: #e8eff8; }
     .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
     #message.success, .form-feedback.success { color: #64dfad; }
     .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
@@ -156,7 +157,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3.1 · Build 38</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3.2 · Build 44</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <div class="account-actions">
@@ -452,6 +453,16 @@
       <button id="cancel-acknowledgement" autofocus>Cancel</button>
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="unacknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="unacknowledgement-title" aria-describedby="unacknowledgement-description">
+    <h2 id="unacknowledgement-title">Unacknowledge issue?</h2>
+    <p id="unacknowledgement-context"></p>
+    <p id="unacknowledgement-description">This removes the acknowledgement. Unresolved issues return to Active, or Suppressed when monitoring is unavailable. Recovered issues move to Resolved. Eligible reminder notifications resume after the configured interval, subject to notification pause and flap protection.</p>
+    <div class="display-controls">
+      <button id="confirm-unacknowledgement" class="primary">Unacknowledge</button>
+      <button id="cancel-unacknowledgement" autofocus>Cancel</button>
+    </div>
+    <p id="unacknowledgement-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="app-confirmation" class="acknowledgement-dialog" aria-labelledby="app-confirmation-title" aria-describedby="app-confirmation-description">
     <h2 id="app-confirmation-title"></h2>
@@ -987,7 +998,51 @@
     }
     el('previous-deployment').onchange = updatePreviousDeploymentDetails;
 
-    async function refresh() {
+    let refreshPromise = null;
+    let refreshQueued = false;
+    function refresh() {
+      // Coalesce polling, local actions and live events. If an event arrives
+      // during a fetch, run another fetch afterwards instead of rendering races.
+      refreshQueued = true;
+      if (refreshPromise) return refreshPromise;
+      refreshPromise = Promise.resolve().then(async () => {
+        do {
+          refreshQueued = false;
+          await refreshDashboard();
+        } while (refreshQueued);
+      }).finally(() => {
+        refreshPromise = null;
+        if (refreshQueued) refresh().catch(report);
+      });
+      return refreshPromise;
+    }
+
+    let acknowledgementStream = null;
+    function connectAcknowledgementUpdates() {
+      if (acknowledgementStream || typeof EventSource === 'undefined') return;
+      acknowledgementStream = new EventSource('/api/ack-events');
+      acknowledgementStream.onmessage = () => refresh().catch(report);
+      // EventSource retries broken connections; ordinary polling remains a fallback.
+    }
+    document.addEventListener?.('visibilitychange', () => {
+      if (!document.hidden) {
+        connectAcknowledgementUpdates();
+        refresh().catch(report);
+      }
+    });
+    globalThis.addEventListener?.('focus', () => refresh().catch(report));
+    globalThis.addEventListener?.('pagehide', () => {
+      acknowledgementStream?.close();
+      acknowledgementStream = null;
+    });
+    globalThis.addEventListener?.('pageshow', event => {
+      if (event.persisted) {
+        connectAcknowledgementUpdates();
+        refresh().catch(report);
+      }
+    });
+
+    async function refreshDashboard() {
       const response = await fetch('/api/state');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
@@ -1186,8 +1241,8 @@
         const assignment = state.assignments.find(row => row.id === service?.assignment);
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
-          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')}`
-          : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button data-ack="${incident.id}">Acknowledge</button>` : '';
+          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-unack="${incident.id}">Unacknowledge</button>` : ''}`
+          : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
         return `<div class="metric"><strong>Issue #${escapeHtml(incident.number ?? incident.id)}</strong> · <span class="${isSuppressed ? 'blocked' : escapeHtml(incident.status)}">${escapeHtml(status)}</span>
@@ -1959,6 +2014,49 @@
       } catch (error) { report(error); }
       finally { button.disabled = false; }
     };
+    let pendingUnacknowledgement = null;
+    function openUnacknowledgement(id) {
+      if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
+      const issue = state.incident_lists.acknowledged.find(row => String(row.id) === String(id));
+      if (!issue || issue.acknowledged == null) throw new Error('Acknowledgement is no longer available. Refresh and review it again.');
+      const service = state.services.find(row => row.id === issue.service);
+      const assignment = state.assignments.find(row => row.id === service?.assignment);
+      const device = state.devices.find(row => row.id === assignment?.device);
+      pendingUnacknowledgement = {id: issue.id, expected_revision: issue.ack_revision ?? 0};
+      el('unacknowledgement-context').textContent = `Issue #${issue.number ?? issue.id} · ${device?.name || 'Device'} - ${assignment?.alias || 'Host'} / ${service?.name || 'Service'}`;
+      el('unacknowledgement-feedback').textContent = '';
+      el('unacknowledgement-dialog').showModal();
+    }
+    el('cancel-unacknowledgement').onclick = () => {
+      pendingUnacknowledgement = null;
+      el('unacknowledgement-dialog').close();
+    };
+    el('unacknowledgement-dialog').onclose = () => { pendingUnacknowledgement = null; };
+    el('unacknowledgement-dialog').oncancel = event => {
+      if (el('confirm-unacknowledgement').disabled) event.preventDefault();
+    };
+    el('confirm-unacknowledgement').onclick = async () => {
+      if (!pendingUnacknowledgement || el('confirm-unacknowledgement').disabled) return;
+      const button = el('confirm-unacknowledgement');
+      const cancel = el('cancel-unacknowledgement');
+      button.disabled = true;
+      cancel.disabled = true;
+      try {
+        if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
+        const target = pendingUnacknowledgement;
+        const issue = state.incident_lists.acknowledged.find(row => row.id === target.id);
+        if (!issue || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Acknowledgement changed. Cancel and review it again.');
+        await request('unack', target);
+        pendingUnacknowledgement = null;
+        el('unacknowledgement-dialog').close();
+        el('incident-feedback').textContent = 'Acknowledgement removed. Issue lists updated.';
+        notify('Acknowledgement removed.', true);
+        try { await refresh(); }
+        catch (error) { notify('Acknowledgement removed. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('unacknowledgement-feedback').textContent = error.message; }
+      finally { button.disabled = false; cancel.disabled = false; }
+    };
+
     let pendingAcknowledgement = null;
     function acknowledgeIssue(id) {
       pendingAcknowledgement = id;
@@ -2025,6 +2123,7 @@
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
         if (data.ack) await acknowledgeIssue(data.ack);
+        if (data.unack) openUnacknowledgement(data.unack);
         if (data.remove) openServiceRemoval(data.remove);
         if (data.history) await openHistory(data.history);
       } catch (error) {
@@ -2427,7 +2526,7 @@
       el('signed-in').textContent = (currentUser.full_name || currentUser.username) + ' · ' + (roleLabels[currentUser.role] || 'Unknown');
       await refresh();
     }
-    initializeSession().catch(report);
+    initializeSession().then(connectAcknowledgementUpdates).catch(report);
     setInterval(() => refresh().catch(report), 10000);
   </script>
 </body>

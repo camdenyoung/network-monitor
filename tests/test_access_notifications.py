@@ -743,7 +743,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(len(acknowledged), 1)
         self.assertEqual(acknowledged[0]['acknowledged_by_username'], 'admin')
         self.assertEqual(set(acknowledged[0]), {
-            'id', 'number', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name', 'trigger_value', 'trigger_display', 'trigger_units', 'trigger_timestamp', 'trigger_error'})
+            'id', 'number', 'device', 'alias', 'service', 'status', 'opened', 'acknowledged', 'closed', 'acknowledged_by_username', 'acknowledged_by_full_name', 'ack_revision', 'trigger_value', 'trigger_display', 'trigger_units', 'trigger_timestamp', 'trigger_error'})
         with server.connect() as db:
             db.execute('UPDATE assignments SET visible=0 WHERE id=1')
         self.assertEqual(server.status_overview()['acknowledged_incidents'], [])
@@ -1334,6 +1334,180 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(self.request('/api/telegram-test', {'sample_type': 'critical'}, self.admin_token, self.admin['csrf'])['status'], 400)
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox').fetchone()[0], len(types))
+
+    def test_unacknowledgement_permissions_revisions_and_actor_audit(self):
+        host, issue_id, now = self.reminder_fault()
+        operator_token, operator = self.create_operator()
+        with server.connect() as db:
+            db.execute("UPDATE users SET full_name='Operator Original' WHERE id=?", (operator['id'],))
+        server.mutate('ack', {'id': issue_id}, actor=self.admin)
+        issue = server.snapshot()['incident_lists']['acknowledged'][0]
+        body = {'id': issue_id, 'expected_revision': issue['ack_revision'], 'acknowledged_by_user_id': 999}
+        for path in ('/api/unack', '/api/status-unack'):
+            self.assertEqual(self.request(path, body)['status'], 401)
+            self.assertEqual(self.request(path, body, self.viewer_token, self.viewer['csrf'])['status'], 403)
+            self.assertEqual(self.request(path, body, operator_token)['status'], 403)
+        for value in (None, True, -1, 1.5, '1'):
+            self.assertEqual(self.request('/api/unack', {**body, 'expected_revision': value}, operator_token, operator['csrf'])['status'], 400)
+        self.assertEqual(self.request('/api/unack', body, operator_token, operator['csrf'])['status'], 200)
+        active = server.snapshot()['incident_lists']['active'][0]
+        self.assertIsNone(active['acknowledged'])
+        self.assertIsNone(active['acknowledged_by_username'])
+        self.assertEqual(active['acknowledgement_history'][-1]['full_name'], 'Operator Original')
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox').fetchone()[0], 2)
+        server.mutate('ack', {'id': issue_id}, actor=self.admin)
+        self.assertEqual(self.request('/api/unack', body, self.admin_token, self.admin['csrf'])['status'], 400)
+        newest = server.snapshot()['incident_lists']['acknowledged'][0]
+        self.assertEqual(self.request('/api/unack', {'id': issue_id, 'expected_revision': newest['ack_revision']},
+                                      self.admin_token, self.admin['csrf'])['status'], 200)
+        with server.connect() as db:
+            events = [dict(row) for row in db.execute('SELECT * FROM incident_acknowledgement_events ORDER BY id')]
+            self.assertEqual([row['action'] for row in events], ['acknowledged', 'unacknowledged', 'acknowledged', 'unacknowledged'])
+            self.assertEqual(events[1]['user_id'], operator['id'])
+            self.assertEqual([row['revision'] for row in events], [1, 2, 3, 4])
+            auth.manage_user(db, 'user-delete', {'user': operator['id']}, self.admin)
+            saved = db.execute('SELECT full_name,username FROM incident_acknowledgement_events WHERE id=?', (events[1]['id'],)).fetchone()
+            self.assertEqual(tuple(saved), ('Operator Original', 'operator'))
+
+    def test_status_unacknowledgement_opt_in_visibility_and_recovered_routing(self):
+        host, issue_id, now = self.reminder_fault()
+        server.mutate('ack', {'id': issue_id}, actor=self.admin)
+        issue = server.snapshot()['incident_lists']['acknowledged'][0]
+        body = {'id': issue_id, 'expected_revision': issue['ack_revision']}
+        self.assertEqual(self.request('/api/status-unack', body, self.admin_token, self.admin['csrf'])['status'], 400)
+        server.mutate('project-status-settings', {'project': 1, 'enabled': True})
+        server.mutate('toggle', {'id': 1, 'field': 'visible'})
+        self.assertEqual(self.request('/api/status-unack', body, self.admin_token, self.admin['csrf'])['status'], 400)
+        server.mutate('toggle', {'id': 1, 'field': 'visible'})
+        overview = server.status_overview()['acknowledged_incidents'][0]
+        self.assertEqual(overview['ack_revision'], issue['ack_revision'])
+        self.assertNotIn('acknowledgement_history', overview)
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        self.assertIsNotNone(server.snapshot()['incident_lists']['acknowledged'][0]['closed'])
+        token, operator = self.create_operator()
+        self.assertEqual(self.request('/api/status-unack', body, token, operator['csrf'])['status'], 200)
+        data = server.snapshot()
+        self.assertEqual(data['incident_lists']['active'], [])
+        self.assertEqual(data['incident_lists']['acknowledged'], [])
+        self.assertEqual(data['incident_lists']['resolved'][0]['id'], issue_id)
+        self.assertEqual(server.status_overview()['incidents'], [])
+
+    def test_unacknowledgement_restarts_reminders_without_replaying_pending(self):
+        host, issue_id, now = self.reminder_fault()
+        with patch('time.time', return_value=now), server.connect() as db:
+            notifications.enqueue_incident(db, issue_id, 'reminder:old')
+        with patch('time.time', return_value=now):
+            server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            issue = server.snapshot()['incident_lists']['acknowledged'][0]
+            server.mutate('unack', {'id': issue_id, 'expected_revision': issue['ack_revision']}, actor=self.admin)
+        with server.connect() as db:
+            self.assertTrue(all(row[0] == 'cancelled' for row in db.execute("SELECT state FROM notification_outbox WHERE event='reminder:old'")))
+            with patch('time.time', return_value=now + 59):
+                notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 0)
+            db.execute('UPDATE samples SET timestamp=? WHERE service=?', (now + 61, host['id']))
+            db.execute('UPDATE check_stability SET flapping=1 WHERE service=?', (host['id'],))
+            with patch('time.time', return_value=now + 61):
+                notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 0)
+            db.execute('UPDATE check_stability SET flapping=0 WHERE service=?', (host['id'],))
+            notifications.set_paused(db, True)
+            with patch('time.time', return_value=now + 61):
+                notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 0)
+            with patch('time.time', return_value=now + 61):
+                notifications.set_paused(db, False)
+            db.execute('UPDATE samples SET timestamp=? WHERE service=?', (now + 122, host['id']))
+            with patch('time.time', return_value=now + 122):
+                notifications.enqueue_reminders(db, server.host_is_up)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 2)
+
+    def test_ack_audit_migration_backup_and_deployment_purge(self):
+        host, issue_id, now = self.reminder_fault()
+        server.mutate('ack', {'id': issue_id}, actor=self.admin)
+        with server.connect() as db:
+            db.execute('DROP TABLE incident_acknowledgement_events')
+            server.migrate_incident_acknowledgements(db)
+            server.migrate_incident_acknowledgements(db)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM incident_acknowledgement_events').fetchone()[0], 1)
+        backup = self.request('/api/backup', token=self.admin_token)['content']
+        candidate = sqlite3.connect(':memory:')
+        try:
+            candidate.deserialize(backup)
+            server.migrate_incident_acknowledgements(candidate)
+            self.assertEqual(candidate.execute('SELECT COUNT(*) FROM incident_acknowledgement_events').fetchone()[0], 1)
+        finally:
+            candidate.close()
+        server.mutate('pause', {})
+        server.mutate('delete-deployment', {'project': 1, 'run': 1, 'expected_active_run': 0})
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM incident_acknowledgement_events').fetchone()[0], 0)
+
+    def test_live_ack_updates_publish_after_commit_and_not_for_rejected_or_noop_actions(self):
+        host, issue_id, now = self.reminder_fault()
+        observed = []
+        def observe_commit():
+            with server.connect() as db:
+                row = db.execute('SELECT acknowledged,ack_revision FROM incidents WHERE id=?', (issue_id,)).fetchone()
+                observed.append(tuple(row))
+        with patch.object(server.live_updates, 'publish_acknowledgement_change', side_effect=observe_commit):
+            with patch.object(server, 'record_acknowledgement_event', side_effect=RuntimeError('Rollback')):
+                with self.assertRaises(RuntimeError):
+                    server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            self.assertEqual(observed, [])
+            with server.connect() as db:
+                self.assertIsNone(db.execute('SELECT acknowledged FROM incidents WHERE id=?', (issue_id,)).fetchone()[0])
+            server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            self.assertIsNotNone(observed[0][0])
+            self.assertEqual(observed[0][1], 1)
+            server.mutate('ack', {'id': issue_id}, actor=self.admin)
+            self.assertEqual(len(observed), 1)
+            with self.assertRaises(ValueError):
+                server.mutate('unack', {'id': issue_id, 'expected_revision': 0}, actor=self.admin)
+            self.assertEqual(len(observed), 1)
+            server.mutate('unack', {'id': issue_id, 'expected_revision': 1}, actor=self.admin)
+            self.assertEqual(observed[1], (None, 2))
+
+    def test_multiple_users_racing_ack_and_unack_keep_first_actor_and_single_event(self):
+        import concurrent.futures
+        import threading
+        host, issue_id, now = self.reminder_fault()
+        token, operator = self.create_operator()
+        server.mutate('project-status-settings', {'project': 1, 'enabled': True})
+        barrier = threading.Barrier(2)
+        def acknowledge(actor, action):
+            barrier.wait(timeout=2)
+            server.mutate(action, {'id': issue_id}, actor=actor)
+        with patch.object(server.live_updates, 'publish_acknowledgement_change') as publish:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(acknowledge, self.admin, 'ack')
+                second = pool.submit(acknowledge, operator, 'status-ack')
+                first.result(timeout=5)
+                second.result(timeout=5)
+            self.assertEqual(publish.call_count, 1)
+            with server.connect() as db:
+                events = db.execute('SELECT user_id FROM incident_acknowledgement_events').fetchall()
+                self.assertEqual(len(events), 1)
+                saved = db.execute('SELECT acknowledged_by_user_id,ack_revision FROM incidents WHERE id=?', (issue_id,)).fetchone()
+                self.assertEqual(saved[0], events[0][0])
+                self.assertIn(saved[0], (self.admin['id'], operator['id']))
+            barrier = threading.Barrier(2)
+            def unacknowledge(actor, action):
+                barrier.wait(timeout=2)
+                try:
+                    server.mutate(action, {'id': issue_id, 'expected_revision': 1}, actor=actor)
+                    return 'changed'
+                except ValueError:
+                    return 'stale'
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                jobs = [pool.submit(unacknowledge, self.admin, 'unack'), pool.submit(unacknowledge, operator, 'status-unack')]
+                self.assertEqual(sorted(job.result(timeout=5) for job in jobs), ['changed', 'stale'])
+            self.assertEqual(publish.call_count, 2)
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM incident_acknowledgement_events').fetchone()[0], 2)
 
 
 if __name__ == '__main__':

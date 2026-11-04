@@ -1,9 +1,29 @@
-# Network Monitor v0.3.1 · Build 38
+# Network Monitor v0.3.2 · Build 44
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 44 — v0.3.2
+
+- Merge confirmed issue unacknowledgement, acknowledgement audit history and live acknowledgement updates into main.
+- Match issue action button sizing across both dashboards.
+
+
+### Build 40 — v0.3.1 (unacknowledgement branch)
+
+- Synchronise acknowledgements between connected dashboards with server-sent invalidations, including separate users, browsers and machines.
+- Match Acknowledge/Unacknowledge button sizing on both dashboards.
+- Refresh through existing permission-checked APIs; keep polling as a fallback and serialize refresh requests to avoid stale response races.
+
+
+### Build 39 — v0.3.1 (unacknowledgement branch)
+
+- Admins and Operators can Unacknowledge issues through confirmed actions on both dashboards; the Status Dashboard follows the project's acknowledgement setting.
+- Unresolved issues return to Active or Suppressed; recovered issues move to Resolved without reopening. Reminders restart after the configured interval and obey existing suppression settings.
+- Preserve an immutable acknowledgement/unacknowledgement audit trail and reject stale confirmations from earlier acknowledgement cycles.
+
 
 ### Build 38 — v0.3.1
 
@@ -227,6 +247,14 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.3.2
+
+- Admins and Operators can unacknowledge issues through app-styled confirmation dialogs. Status Dashboard actions follow the project's acknowledgement setting.
+- Preserve an acknowledgement/unacknowledgement audit trail, reject stale confirmations and restart reminder timing after unacknowledgement.
+- Synchronise acknowledgement changes across dashboards and multiple users through server-sent invalidations, with polling fallback and serialized refreshes.
+- Match Acknowledge/Unacknowledge button sizing on both dashboards.
+
 
 ### v0.3.1
 
@@ -899,3 +927,33 @@ Status attention pulses reflect severity: three yellow pulses for new Warning
 issues, three red pulses for new Critical/Unreachable issues. Red takes priority
 if both arrive together or while a critical alert is already pulsing. These
 visual alerts do not depend on Telegram/WhatsApp notification settings.
+
+
+## Unacknowledging issues
+
+Admins and Operators can use **Unacknowledge** in Acknowledged issues on the main
+dashboard. The Status Dashboard offers the same action when that project's
+acknowledgement setting is enabled and the issue is publicly visible. View Only
+and anonymous visitors cannot use it. Both pages require an app-styled confirmation.
+
+The action removes the current acknowledgement without changing the recorded
+fault or recovery: open faults return to Active, unavailable child services appear
+in Suppressed, and recovered faults move to Resolved. It does not send another
+opening notification. Eligible reminders restart after the configured interval;
+global pause, host dependencies, service pause and flap protection still apply.
+
+Each acknowledge/unacknowledge records the authenticated actor's ID, username,
+full name and timestamp in an immutable audit table in SQLite. The authenticated
+state API includes this as `acknowledgement_history`; it is included in complete
+backups and is not exposed on anonymous status. Account edits/deletion do not
+rewrite the trail. Deleting the corresponding issue/deployment/device purges its
+related audit events. Older acknowledgements are migrated using their saved actor
+snapshot; missing historical identity remains unknown. Revision checks prevent a
+stale confirmation from removing a later acknowledgement.
+
+
+Dashboard acknowledgement changes are pushed using same-origin `/api/ack-events`
+server-sent events. The stream carries only an opaque change revision; dashboards
+still fetch normal API data with their existing permissions. Reverse proxies must
+allow streaming without buffering this path. Ordinary ten-second refresh remains
+available if streaming is interrupted, and reconnect/tab-focus refresh catches up.

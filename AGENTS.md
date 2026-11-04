@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3.1, Build 38. Show it after the title on both the main and
+Current displayed release is v0.3.2, Build 44. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -559,3 +559,32 @@ Configured Services rows separate name/protocol details from right-aligned
 Pause/Actions controls with a 24px gap, wrapping safely on small screens.
 Project Assignments identifies equipment as Device ID - Alias / Address;
 resolve Device ID and IP from permanent inventory and escape all displayed text.
+
+Admins/Operators can Unacknowledge via app-styled dialogs on both dashboards.
+Main /api/unack requires the active deployment and a current acknowledged,
+enabled, non-removed source; it can undo suppressed or recovered issues.
+Status /api/status-unack additionally enforces project acknowledgement opt-in,
+public visibility/monitoring and dependency rules (skip dependency for recovered
+issues). Require CSRF and an integer expected_revision matching ack_revision;
+stale confirmations cannot undo newer cycles. Clear only current acknowledgement
+fields, preserving recovery/evidence/history; normal list predicates route to
+Active/Suppressed/Resolved. No new opening notification. Restart reminders from
+unacknowledged_at and cancel pending reminder rows on ack-state changes.
+incident_acknowledgement_events snapshots actor ID, username/full name, time,
+action and revision; retain through user rename/deletion and backup/restore,
+cascade with issue/deployment/device deletion. Migrate existing acknowledgement
+snapshots once. Authenticated state includes acknowledgement_history; public
+status allowlists only current attribution and ack_revision, not the audit table.
+
+Acknowledgement changes publish an opaque revision through /api/ack-events SSE
+only after mutate commits; rejected actions and duplicate no-op acknowledgements
+do not emit. No issue/actor/account data travels over this public stream. Each
+browser fetches its existing role-filtered API data. Connect on load/reconnect,
+refresh on visibility/focus, close on pagehide and reconnect on cached pageshow.
+Keep 10-second polling fallback. Coalesce/serialize refreshes and fetch once more
+when an event arrives in flight, preventing stale responses overwriting changes.
+Condition waits hold no SQLite connection or monitor lock; heartbeat every 15s,
+flush events immediately and disable reverse-proxy buffering via response header.
+
+Row-level acknowledgement controls use class issue-action on both dashboards
+with explicit 15px font, 20px line height and 4px/8px padding, including inside small metadata.
