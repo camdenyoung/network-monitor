@@ -1117,8 +1117,10 @@ def mutate(action, body, actor=None):
                 raise ValueError('Unknown project')
             cursor = db.execute('INSERT INTO runs(id,project,started,description) VALUES(?,?,?,?)',
                                 (next_record_id(db, 'runs'), project, time.time(), description.strip()))
-            db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(cursor.lastrowid),))
-            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
+            # Select the deployment without starting checks or sending messages.
+            # The existing global Resume action is the explicit monitoring opt-in.
+            db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (str(cursor.lastrowid),))
             # Each deployment requires an explicit decision to enable delivery.
             notifications.set_paused(db, True)
         elif action == 'pause':
@@ -1152,8 +1154,8 @@ def mutate(action, body, actor=None):
             # issue counters and history, but invalidate stale/in-flight readings.
             db.execute("""UPDATE services SET monitoring_since=? WHERE assignment IN
                 (SELECT id FROM assignments WHERE project=?)""", (time.time(), run['project']))
-            db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(run['id']),))
-            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
+            db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (str(run['id']),))
             notifications.set_paused(db, True)
         elif action == 'delete-deployment':
             active = int(setting(db, 'active_run'))

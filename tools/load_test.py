@@ -93,6 +93,8 @@ def seed(database, simulator, hosts=150, services=5, modbus_services=0, history_
                     server.insert_service(db, host, server.service_details(definition))
             server.ensure_host_checks(db)
         server.mutate('activate', {'project': 1, 'description': 'Isolated synthetic capacity test'})
+        # Benchmarks explicitly opt into polling after the normal paused selection.
+        server.mutate('resume', {'project': 1})
         with server.connect() as db:
             db.execute('UPDATE services SET monitoring_since=?', (started,))
             db.execute('UPDATE runs SET started=? WHERE id=1', (started,))

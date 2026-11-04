@@ -1,9 +1,16 @@
-# Network Monitor v0.4 · Build 50
+# Network Monitor v0.4 · Build 51
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 51 — v0.4 (acknowledged recovery fix branch)
+
+- Pulse Resume notifications while global notification delivery is paused, matching paused monitoring and respecting reduced-motion preferences.
+- Creating a deployment or selecting a previous deployment leaves monitoring and notifications paused. Explicitly choose Resume all monitoring to begin checks, then Resume notifications when ready.
+- Preserve deployment history and individual host/service monitoring flags. The synthetic seeder explicitly resumes its disposable monitoring deployment for capacity testing.
+
 
 ### Build 50 — v0.4 (acknowledged recovery fix branch)
 
@@ -475,8 +482,8 @@ without login; this does not create the future public-facing relay.
    may appear in multiple saved projects.
 3. Host ping is configured automatically on assignment. Add any additional services
    using verified OIDs or register addresses.
-4. Activate the project. Activation creates a new deployment run and switches the
-   sole active project. Pausing stops collection without deleting configuration.
+4. Activate the project. Activation creates a new deployment run with monitoring and notifications paused.
+   Choose Resume all monitoring to begin checks and Resume notifications when ready. Pausing stops collection without deleting configuration.
 5. Read current metrics, recent readings, and issues in the dashboard.
 
 Numeric thresholds may be above or below a value. Critical is evaluated first;

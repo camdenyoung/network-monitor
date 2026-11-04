@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4, Build 50. Show it after the title on both the main and
+Current displayed release is v0.4, Build 51. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -260,7 +260,7 @@ main heading, following the AxisPy reference; do not render them at heading size
 Pause all monitoring retains paused_run. Resume all monitoring continues that same
 deployment for the selected paused project; it never creates a run or resets history,
 issues or per-service pause flags. New deployment remains a separate action and
-clears paused_run. Resume requires fresh reads and invalidates pre-pause in-flight
+selects its new run in paused_run with active_run=0. Resume requires fresh reads and invalidates pre-pause in-flight
 results. Paused deployment survives restart; restore remains paused but resumable.
 
 Pause/Resume all monitoring is one toggle button. Running uses the active green
@@ -642,3 +642,11 @@ migration is needed: existing recovered/acknowledged records route to Resolved.
 Resolved issues display acknowledgement attribution but no Unacknowledge button.
 Only unresolved acknowledged issues can open/confirm that dashboard dialog. If
 recovery arrives while the dialog is open, reject submission and request review.
+
+Deployment selection defaults to paused monitoring and notifications: activate and
+resume-deployment set active_run=0 and paused_run to the selected run. Only global
+resume starts checks (without unpausing notifications). Retain per-service/host
+flags, metadata, history and counters; invalidate in-flight reads when switching.
+Both pause buttons pulse while paused, with prefers-reduced-motion disabling the
+animation. Confirmations explain the two explicit resume steps. Benchmark seeding
+opts into global resume after activation so the harness still measures polling.

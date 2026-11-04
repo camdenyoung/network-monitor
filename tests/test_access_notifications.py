@@ -150,6 +150,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('device', {'name': 'Switch-1', 'model': 'Switch', 'address': '192.168.1.1'})
         server.mutate('assignment', {'project': 1, 'device': 1, 'alias': 'Stage switch'})
         server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
+        server.mutate('resume', {'project': 1})
         # Most tests exercise normal opted-in notification delivery.
         server.mutate('notification-pause', {'paused': False})
         with server.connect() as db:
@@ -317,6 +318,9 @@ class AccessAndNotificationTests(unittest.TestCase):
     def test_notifications_use_deployment_issue_number_with_global_ack_id(self):
         host, old_issue, now = self.reminder_fault()
         server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
+        server.mutate('resume', {'project': 1})
+        with server.connect() as db:
+            host.update(dict(db.execute('SELECT * FROM services WHERE id=?', (host['id'],)).fetchone()))
         server.mutate('notification-pause', {'paused': False})
         with patch.object(server, 'read_metric', side_effect=TimeoutError):
             server.poll_one(host, 2)
@@ -522,6 +526,9 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertFalse(notifications.are_paused(db))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM notification_outbox WHERE state='pending'").fetchone()[0], 2)
         server.mutate('activate', {'project': 1, 'description': 'New event setup'})
+        server.mutate('resume', {'project': 1})
+        with server.connect() as db:
+            host.update(dict(db.execute('SELECT * FROM services WHERE id=?', (host['id'],)).fetchone()))
         state = server.snapshot()
         self.assertEqual(state['settings']['active_run'], '2')
         self.assertEqual(state['settings']['notifications_paused'], '1')
@@ -552,6 +559,7 @@ class AccessAndNotificationTests(unittest.TestCase):
     def test_selected_deployment_delete_requires_admin_and_csrf(self):
         self.create_host()
         server.mutate('activate', {'project': 1, 'description': 'Keep active deployment'})
+        server.mutate('resume', {'project': 1})
         body = {'project': 1, 'run': 1, 'expected_active_run': 2}
         token, operator = self.create_operator()
         for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
@@ -564,13 +572,15 @@ class AccessAndNotificationTests(unittest.TestCase):
     def test_resuming_selected_deployment_requires_admin_and_csrf(self):
         self.create_host()
         server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
+        server.mutate('resume', {'project': 1})
         body = {'project': 1, 'run': 1, 'expected_active_run': 2}
         token, operator = self.create_operator()
         for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
             self.assertEqual(self.request('/api/resume-deployment', body, actor_token, actor['csrf'])['status'], 403)
         self.assertEqual(self.request('/api/resume-deployment', body, self.admin_token)['status'], 403)
         self.assertEqual(self.request('/api/resume-deployment', body, self.admin_token, self.admin['csrf'])['status'], 200)
-        self.assertEqual(server.snapshot()['settings']['active_run'], '1')
+        self.assertEqual(server.snapshot()['settings']['active_run'], '0')
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '1')
         self.assertEqual(server.snapshot()['settings']['notifications_paused'], '1')
 
     def test_library_export_and_import_require_admin_and_import_csrf(self):
@@ -785,6 +795,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             server.mutate('toggle', {'id': 1, 'field': field})
         server.mutate('project', {'name': 'Other deployment'})
         server.mutate('activate', {'project': 2, 'description': 'Test deployment'})
+        server.mutate('resume', {'project': 2})
         self.assertEqual(server.status_overview()['incidents'], [])
         server.mutate('pause', {})
         self.assertEqual(server.status_overview()['incidents'], [])

@@ -28,9 +28,17 @@ class MonitorTests(unittest.TestCase):
             'assignment': 1, 'name': 'RSSI', 'kind': 'snmp', 'target': '.1.2.3',
             'direction': 'below', 'warning': '-65', 'critical': '-75',
         })
-        server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
+        self.start_deployment({'project': 1, 'description': 'Test deployment'})
         with server.connect() as db:
             self.service = dict(db.execute("SELECT s.*,d.address FROM services s JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device WHERE s.kind='snmp'").fetchone())
+
+    def start_deployment(self, details):
+        server.mutate('activate', details)
+        server.mutate('resume', {'project': details['project']})
+        if hasattr(self, 'service'):
+            with server.connect() as db:
+                self.service.update(dict(db.execute('SELECT * FROM services WHERE id=?',
+                                                    (self.service['id'],)).fetchone()))
 
     def tearDown(self):
         server.DB = self.previous_db
@@ -39,6 +47,27 @@ class MonitorTests(unittest.TestCase):
     def poll(self, value, run=1):
         with patch.object(server, 'read_metric', return_value=value):
             server.poll_one(self.service, run)
+
+    def test_new_deployment_waits_for_explicit_monitoring_and_notification_resume(self):
+        server.mutate('notification-pause', {'paused': False})
+        self.poll(-55)
+        with server.connect() as db:
+            before = db.execute('SELECT COUNT(*) FROM samples').fetchone()[0]
+        server.mutate('activate', {'project': 1, 'description': 'Prepare without polling'})
+        settings = server.snapshot()['settings']
+        self.assertEqual(settings['active_run'], '0')
+        self.assertEqual(settings['paused_run'], '2')
+        self.assertEqual(settings['notifications_paused'], '1')
+        self.poll(-80, run=2)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], before)
+        server.initialize()
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '2')
+        server.mutate('resume', {'project': 1})
+        settings = server.snapshot()['settings']
+        self.assertEqual(settings['active_run'], '2')
+        self.assertEqual(settings['paused_run'], '0')
+        self.assertEqual(settings['notifications_paused'], '1')
 
     def test_large_history_snapshot_uses_bounded_current_reading_lookups(self):
         # A VM instruction budget catches full-history scans without depending on
@@ -142,7 +171,7 @@ class MonitorTests(unittest.TestCase):
         self.poll(-70)
         first = sorted(server.snapshot()['incidents'], key=lambda row: row['id'])
         self.assertEqual([row['number'] for row in first], [1, 2])
-        server.mutate('activate', {'project': 1, 'description': 'Second event'})
+        self.start_deployment({'project': 1, 'description': 'Second event'})
         self.poll(-80, run=2)
         self.poll(-80, run=2)
         issue = server.snapshot()['incident_lists']['active'][0]
@@ -169,7 +198,7 @@ class MonitorTests(unittest.TestCase):
         self.poll(-80)
         self.poll(-70)
         self.poll(-70)
-        server.mutate('activate', {'project': 1, 'description': 'Second event'})
+        self.start_deployment({'project': 1, 'description': 'Second event'})
         self.poll(-80, run=2)
         self.poll(-80, run=2)
         with server.connect() as db:
@@ -187,7 +216,7 @@ class MonitorTests(unittest.TestCase):
                 server.mutate('activate', {'project': 1, 'description': value})
         with self.assertRaises(ValueError):
             server.mutate('activate', {'project': 1})
-        server.mutate('activate', {'project': 1, 'description': '  Reopening stage network  '})
+        self.start_deployment({'project': 1, 'description': '  Reopening stage network  '})
         before = server.snapshot()['runs'][-1]
         self.assertEqual(before['description'], 'Reopening stage network')
         server.mutate('pause', {})
@@ -199,7 +228,7 @@ class MonitorTests(unittest.TestCase):
         self.poll(-80)
         issue1 = server.snapshot()['incident_lists']['active'][0]['id']
         server.mutate('ack', {'id': issue1}, actor={'id': 1})
-        server.mutate('activate', {'project': 1, 'description': 'Keep this deployment'})
+        self.start_deployment({'project': 1, 'description': 'Keep this deployment'})
         self.poll(-70, run=2)
         self.poll(-70, run=2)
         issue2 = server.snapshot()['incident_lists']['active'][0]['id']
@@ -229,7 +258,7 @@ class MonitorTests(unittest.TestCase):
     def test_deleting_paused_deployment_clears_resume_pointer_and_never_reuses_ids(self):
         self.poll(-80)
         self.poll(-80)
-        server.mutate('activate', {'project': 1, 'description': 'Delete latest deployment'})
+        self.start_deployment({'project': 1, 'description': 'Delete latest deployment'})
         self.poll(-80, run=2)
         self.poll(-80, run=2)
         highest_issue = max(row['id'] for row in server.snapshot()['incidents'])
@@ -237,7 +266,7 @@ class MonitorTests(unittest.TestCase):
         server.mutate('delete-deployment', {'project': 1, 'run': 2, 'expected_active_run': 0})
         self.assertEqual(server.snapshot()['settings']['paused_run'], '0')
         server.initialize()
-        server.mutate('activate', {'project': 1, 'description': 'New unique deployment'})
+        self.start_deployment({'project': 1, 'description': 'New unique deployment'})
         self.assertEqual(server.snapshot()['settings']['active_run'], '3')
         self.poll(-80, run=3)
         self.poll(-80, run=3)
@@ -247,7 +276,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn(1, [row['id'] for row in server.snapshot()['runs']])
 
     def test_deployment_delete_rejects_active_stale_and_wrong_project_selections(self):
-        server.mutate('activate', {'project': 1, 'description': 'Active second run'})
+        self.start_deployment({'project': 1, 'description': 'Active second run'})
         server.mutate('project', {'name': 'Other project'})
         before = server.snapshot()
         for body in (
@@ -262,7 +291,7 @@ class MonitorTests(unittest.TestCase):
     def test_deployment_delete_rolls_back_if_database_rejects_run_removal(self):
         self.poll(-80)
         self.poll(-80)
-        server.mutate('activate', {'project': 1, 'description': 'Keep active run'})
+        self.start_deployment({'project': 1, 'description': 'Keep active run'})
         before = server.snapshot()
         with server.connect() as db:
             db.execute("""CREATE TRIGGER reject_run_delete BEFORE DELETE ON runs
@@ -274,7 +303,7 @@ class MonitorTests(unittest.TestCase):
     def test_selecting_old_deployment_preserves_history_metadata_and_issue_sequence(self):
         self.poll(-80)
         self.poll(-80)
-        server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
+        self.start_deployment({'project': 1, 'description': 'Second deployment'})
         server.mutate('notification-pause', {'paused': False})
         self.poll(-70, run=2)
         self.poll(-70, run=2)
@@ -288,7 +317,10 @@ class MonitorTests(unittest.TestCase):
                 VALUES(?,'opened','telegram','Pending old notification',1,0,0)""", (issue_id,))
         server.mutate('resume-deployment', {'project': 1, 'run': 1, 'expected_active_run': 2})
         state = server.snapshot()
-        self.assertEqual(state['settings']['active_run'], '1')
+        self.assertEqual(state['settings']['active_run'], '0')
+        self.assertEqual(state['settings']['paused_run'], '1')
+        server.mutate('resume', {'project': 1})
+        state = server.snapshot()
         self.assertEqual(state['settings']['notifications_paused'], '1')
         self.assertEqual(state['latest'], [])
         retained = state['incident_lists']['active'] + state['incident_lists']['suppressed']
@@ -324,7 +356,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_old_deployment_resume_discards_read_that_spans_switch_away_and_back(self):
         def read_during_switch(service):
-            server.mutate('activate', {'project': 1, 'description': 'Temporary second run'})
+            self.start_deployment({'project': 1, 'description': 'Temporary second run'})
             server.mutate('resume-deployment', {'project': 1, 'run': 1, 'expected_active_run': 2})
             return -80
         with patch.object(server, 'read_metric', side_effect=read_during_switch):
@@ -337,13 +369,13 @@ class MonitorTests(unittest.TestCase):
         server.mutate('service-monitoring', {'service': self.service['id'], 'monitoring': False})
         server.mutate('project', {'name': 'Other project'})
         server.mutate('assignment', {'project': 2, 'device': 1, 'alias': 'Other event'})
-        server.mutate('activate', {'project': 2, 'description': 'Other run'})
+        self.start_deployment({'project': 2, 'description': 'Other run'})
         server.mutate('pause', {})
         with server.connect() as db:
             other_services = [tuple(row) for row in db.execute('SELECT * FROM services WHERE assignment=2')]
         server.mutate('resume-deployment', {'project': 1, 'run': 1, 'expected_active_run': 0})
-        self.assertEqual(server.snapshot()['settings']['active_run'], '1')
-        self.assertEqual(server.snapshot()['settings']['paused_run'], '0')
+        self.assertEqual(server.snapshot()['settings']['active_run'], '0')
+        self.assertEqual(server.snapshot()['settings']['paused_run'], '1')
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT monitoring FROM services WHERE id=?', (self.service['id'],)).fetchone()[0], 0)
             self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM services WHERE assignment=2')], other_services)
@@ -372,7 +404,7 @@ class MonitorTests(unittest.TestCase):
         server.mutate('pause', {})
         with self.assertRaises(ValueError):
             server.mutate('resume', {'project': 999})
-        server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
+        self.start_deployment({'project': 1, 'description': 'Test deployment'})
         self.assertEqual(server.snapshot()['settings']['paused_run'], '0')
         self.assertEqual(len(server.snapshot()['runs']), 2)
 
@@ -399,7 +431,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNotNone(server.snapshot()['incidents'][0]['closed'])
 
     def test_previous_deployment_results_are_discarded(self):
-        server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
+        self.start_deployment({'project': 1, 'description': 'Test deployment'})
         self.poll(-80, run=1)
         self.assertEqual(server.snapshot()['latest'], [])
         self.poll(-50, run=2)
@@ -746,7 +778,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(lists['active'], [])
         self.assertEqual(lists['acknowledged'], [])
         self.assertEqual(len(lists['resolved']), 1)
-        server.mutate('activate', {'project': 1, 'description': 'Test deployment'})
+        self.start_deployment({'project': 1, 'description': 'Test deployment'})
         self.assertEqual(server.snapshot()['incident_lists']['resolved'], [])
 
     def add_copy_target(self):
@@ -1374,7 +1406,7 @@ class MonitorTests(unittest.TestCase):
         server.mutate('ack', {'id': issue['id']}, actor={'id': 1})
         issue = server.snapshot()['incident_lists']['acknowledged'][0]
         body = {'id': issue['id'], 'expected_revision': issue['ack_revision']}
-        server.mutate('activate', {'project': 1, 'description': 'Another run'})
+        self.start_deployment({'project': 1, 'description': 'Another run'})
         with self.assertRaises(ValueError):
             server.mutate('unack', body, actor={'id': 1})
         with server.connect() as db:
