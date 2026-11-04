@@ -1,9 +1,25 @@
-# Network Monitor v0.4.3 · Build 60
+# Network Monitor v0.4.4 · Build 63
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 63 — v0.4.4
+
+- Merge current-project selection and the Admin Dashboard logo placeholder into main.
+
+
+### Build 62 — v0.4.3 (current-project selection branch)
+
+- Fill the Admin Dashboard's reserved logo slot with a themed network icon and No project logo placeholder when the selected project has no uploaded image.
+
+
+### Build 61 — v0.4.3 (current-project selection branch)
+
+- Initially select the active deployment's project, then the paused deployment's project, then the first available project on the Admin Dashboard.
+- Preserve valid manual project selections during refreshes; use the same fallback if a selected project becomes unavailable.
+
 
 ### Build 60 — v0.4.3
 
@@ -343,6 +359,13 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.4.4
+
+- On Admin Dashboard load, select the active deployment's project, then the paused deployment's project, then the first available project. Resume all monitoring is immediately available for the selected paused deployment.
+- Preserve valid manual selections during refresh and handle missing or empty project lists.
+- Show a themed network-icon placeholder in the existing logo slot when the selected project has no logo, preserving toolbar alignment.
+
 
 ### v0.4.3
 

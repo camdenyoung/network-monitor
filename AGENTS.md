@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.3, Build 60. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 63. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -679,3 +679,12 @@ field-monitor.main.host-sort independently from field-monitor.status.host-sort.
 Use fresh ping status via readingStatus for ordering and server incident_status
 for severity; numeric, case-insensitive hostname comparison breaks ties. Sorting
 applies after filtering to both Cards/List and never changes issue/config lists.
+
+Initial Admin project selection follows active_run's project, then paused_run's
+project, then the first available project. Validate that the project still exists.
+Never overwrite a valid manual selection on polling/focus/SSE refresh. Use the
+same fallback if a selected project becomes unavailable; handle empty inventory.
+
+Admin project toolbar's fixed logo slot shows a themed network-icon placeholder
+when the selected project has no logo; hide it when an image is present. With no
+project, label it Select a project. Keep toolbar dimensions/alignment unchanged.
