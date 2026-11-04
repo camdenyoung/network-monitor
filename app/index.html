@@ -147,6 +147,8 @@
       .project-selector, .project-actions, .deployment-controls label, .deployment-actions, .deployment-controls small { grid-column: 1; }
       .project-actions, .deployment-actions { padding-top: 0; }
     }
+    .project-logo-placeholder { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #435b78; border-radius: 6px; background: #101b29; color: #a9bad0; font-size: 12px; }
+    .project-logo-placeholder svg { width: 24px; height: 24px; color: #7cddd0; }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .account-nav { justify-content: flex-start; }
     .account-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
@@ -174,7 +176,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.3 · Build 61</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.3 · Build 62</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -189,6 +191,15 @@
   <section class="toolbar project-toolbar">
     <div class="project-logo-slot">
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
+      <div id="project-logo-placeholder" class="project-logo-placeholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <rect x="8" y="2" width="8" height="6" rx="1.5"/>
+          <path d="M12 8v5M5 16v-3h14v3"/>
+          <rect x="2" y="16" width="6" height="6" rx="1.5"/>
+          <rect x="16" y="16" width="6" height="6" rx="1.5"/>
+        </svg>
+        <span id="project-logo-placeholder-label">No project logo</span>
+      </div>
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
     <div data-admin class="project-actions">
@@ -1260,6 +1271,8 @@
       const project = state.projects.find(row => String(row.id) === selectedProject);
       const image = el('project-logo');
       image.hidden = !project?.logo_url;
+      el('project-logo-placeholder').hidden = Boolean(project?.logo_url);
+      el('project-logo-placeholder-label').textContent = project ? 'No project logo' : 'Select a project';
       if (project?.logo_url && image.getAttribute('src') !== project.logo_url) image.setAttribute('src', project.logo_url);
       image.alt = project ? project.name + ' logo' : 'Project logo';
       el('project-settings-context').textContent = project ? 'Editing: ' + project.name : 'Choose a project above to edit its settings.';

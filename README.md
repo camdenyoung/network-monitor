@@ -1,9 +1,14 @@
-# Network Monitor v0.4.3 · Build 61
+# Network Monitor v0.4.3 · Build 62
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 62 — v0.4.3 (current-project selection branch)
+
+- Fill the Admin Dashboard's reserved logo slot with a themed network icon and No project logo placeholder when the selected project has no uploaded image.
+
 
 ### Build 61 — v0.4.3 (current-project selection branch)
 
