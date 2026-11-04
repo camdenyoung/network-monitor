@@ -367,6 +367,24 @@ def ensure_sample_indexes(db):
             print(f'History index {name} ready', flush=True)
 
 
+def current_samples(db, service, run, revision, since, limit=1):
+    """Read the latest IDs without walking pre-resume history to fill a limit.
+
+    The common path uses the current-reading index and stops after `limit` rows.
+    If any are from before resume, use the timestamp index to search only the
+    eligible time range. Keep ID ordering authoritative, even for unusual imports
+    whose timestamps are out of order.
+    """
+    rows = db.execute("""SELECT * FROM samples
+        WHERE service=? AND run=? AND revision=? ORDER BY id DESC LIMIT ?""",
+        (service, run, revision, limit)).fetchall()
+    if all(row['timestamp'] is not None and row['timestamp'] >= since for row in rows):
+        return rows
+    return db.execute("""SELECT * FROM samples INDEXED BY sample_lookup
+        WHERE service=? AND timestamp>=? AND run=? AND revision=?
+        ORDER BY id DESC LIMIT ?""", (service, since, run, revision, limit)).fetchall()
+
+
 def prune_samples(db, cutoff, batch_size=1000):
     """Drain expired history in small transactions rather than blocking a poll round.
 
@@ -616,10 +634,8 @@ def host_is_up(db, service, run):
     if ping is None:
         return False
     # Start from the host's check, never scan other hosts' history to find its ping.
-    host = db.execute("""SELECT status,timestamp FROM samples
-        WHERE service=? AND run=? AND revision=? AND timestamp>=?
-        ORDER BY id DESC LIMIT 1""",
-        (ping['id'], run, ping['revision'], ping['monitoring_since'])).fetchone()
+    readings = current_samples(db, ping['id'], run, ping['revision'], ping['monitoring_since'])
+    host = readings[0] if readings else None
     return bool(host and host['status'] == 'healthy' and time.time() - host['timestamp'] <= 60)
 
 
@@ -675,9 +691,9 @@ def poll_one(service, run):
             # Preserve existing incidents without claiming recovery; blocked samples
             # break persistence streaks before services resume after host recovery.
             return
-        recent = db.execute('SELECT status FROM samples WHERE service=? AND run=? AND revision=? AND timestamp>=? ORDER BY id DESC LIMIT ?',
-                            (service['id'], run, service['revision'], service['monitoring_since'], service['persistence'])).fetchall()
-        confirmed = len(recent) == service['persistence'] and all(row[0] == status for row in recent)
+        recent = current_samples(db, service['id'], run, service['revision'],
+                                 service['monitoring_since'], service['persistence'])
+        confirmed = len(recent) == service['persistence'] and all(row['status'] == status for row in recent)
         flap_event = stability.observe(db, service, run, status, confirmed, observed_at)
         if not confirmed:
             return
@@ -783,15 +799,13 @@ def snapshot():
         for configuration in result['services'] + result['service_templates'] + result['device_service_defaults']:
             configuration['state_map'] = json.loads(configuration['state_map'])
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
-        # One indexed lookup per configured check; grouping the entire history
-        # here made both dashboards stall once a deployment had millions of rows.
-        result['latest'] = [dict(row) for row in db.execute('''
-            SELECT reading.* FROM services configured JOIN samples reading ON reading.id=(
-                SELECT id FROM samples
-                WHERE service=configured.id AND run=? AND revision=configured.revision
-                  AND timestamp>=configured.monitoring_since
-                ORDER BY id DESC LIMIT 1)
-            ORDER BY reading.service''', (int(result['settings']['active_run']),))]
+        # Bound lookups both during ordinary polling and immediately after
+        # resuming, when a check may have no eligible readings yet.
+        run = int(result['settings']['active_run'])
+        result['latest'] = []
+        for service in sorted(result['services'], key=lambda row: row['id']):
+            result['latest'].extend(dict(row) for row in current_samples(
+                db, service['id'], run, service['revision'], service['monitoring_since']))
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
         # Split by acknowledgement independently of recovery: acknowledged issues

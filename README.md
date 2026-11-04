@@ -1,9 +1,14 @@
-# Network Monitor v0.3.1 · Build 42
+# Network Monitor v0.3.1 · Build 43
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 43 — v0.3.1 (synthetic load-test branch)
+
+- Bound current-reading and consecutive-reading lookups immediately after resuming a deployment, including checks still waiting for their first or second fresh reading.
+- Reuse Build 42 indexes; no additional index build or history regeneration required.
 
 ### Build 42 — v0.3.1 (synthetic load-test branch)
 

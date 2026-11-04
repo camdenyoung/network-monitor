@@ -81,6 +81,35 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(next(row['value'] for row in latest
                               if row['service'] == self.service['id']), -56)
 
+    def test_resume_with_zero_or_one_fresh_reading_does_not_scan_old_history(self):
+        with server.connect() as db:
+            db.executemany("""INSERT INTO samples
+                (run,service,timestamp,value,status,revision) VALUES(1,?,1,-55,'healthy',1)""",
+                ((self.service['id'],) for _ in range(30000)))
+            db.execute('UPDATE services SET monitoring_since=100 WHERE id=?', (self.service['id'],))
+            calls = 0
+
+            def progress():
+                nonlocal calls
+                calls += 1
+                return int(calls > 100)
+
+            db.set_progress_handler(progress, 1000)
+            self.assertEqual(server.current_samples(db, self.service['id'], 1, 1, 100), [])
+            db.execute("""INSERT INTO samples(run,service,timestamp,value,status,revision)
+                VALUES(1,?,101,-56,'healthy',1)""", (self.service['id'],))
+            rows = server.current_samples(db, self.service['id'], 1, 1, 100, limit=2)
+            self.assertEqual([row['value'] for row in rows], [-56])
+            db.set_progress_handler(None, 0)
+
+    def test_current_samples_keep_id_order_with_out_of_order_timestamps(self):
+        with server.connect() as db:
+            for timestamp, value in ((105, -55), (103, -56), (99, -57)):
+                db.execute("""INSERT INTO samples(run,service,timestamp,value,status,revision)
+                    VALUES(1,?, ?,?,'healthy',1)""", (self.service['id'], timestamp, value))
+            rows = server.current_samples(db, self.service['id'], 1, 1, 100, limit=2)
+            self.assertEqual([row['value'] for row in rows], [-56, -55])
+
     def test_retention_is_bounded_and_keeps_boundary_and_current_readings(self):
         with server.connect() as db:
             db.executemany("""INSERT INTO samples(run,service,timestamp,status)

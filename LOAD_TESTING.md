@@ -26,8 +26,9 @@ Notifications are disabled in the benchmark dataset.
 
 ## Updating an existing week-history test
 
-Build 42 fixes full-history scans that could leave both dashboards empty while
-SQLite occupied a CPU core. Keep the generated database; do not seed again or
+Builds 42–43 fix full-history scans that could leave both dashboards empty or
+showing Unknown / paused while SQLite occupied a CPU core. Build 43 also bounds
+the first readings after a deployment is resumed. Keep the generated database; do not seed again or
 start a new deployment. On the Pi, from the repository directory:
 
 ```sh
