@@ -1,15 +1,21 @@
-# Network Monitor v0.4 · Build 49
+# Network Monitor v0.4 · Build 50
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
 
+### Build 50 — v0.4 (acknowledged recovery fix branch)
+
+- Remove Unacknowledge from resolved issues while keeping acknowledgement attribution visible.
+- Prevent the dashboard's unacknowledgement dialog submitting an issue that has recovered during review.
+
+
 ### Build 49 — v0.4 (acknowledged recovery fix branch)
 
 - Automatically move recovered issues to Resolved even when acknowledged. Keep acknowledgement names, timestamps and audit history intact.
 - Limit Acknowledged to unresolved issues on both dashboards; existing recovered records follow the corrected lists immediately, without a database migration.
-- Preserve authorised unacknowledgement for recovered issues on the Admin Dashboard without reopening them.
+- Preserve acknowledgement attribution and audit history in Resolved.
 
 
 ### Build 48 — v0.4

@@ -1785,8 +1785,9 @@ vm.runInContext("currentUser.role='operator'",undoContext);
 undoContext.openUnacknowledgement(501);
 undoIssue.closed = now;
 await element('confirm-unacknowledgement').onclick();
-assert.equal(undoFixture.incident_lists.resolved[0].id,501);
-assert.match(element('resolved-incidents').innerHTML,/Issue #7/);
+assert.match(element('unacknowledgement-feedback').textContent,/recovered/);
+assert.equal(undoRequests.length,2);
+element('cancel-unacknowledgement').onclick();
 console.log('Main Unacknowledge supports role checks, Cancel/Escape, inline errors, stale review and recovered routing.');
 
 // Public Unacknowledge follows project opt-in and rechecks it at confirmation.
@@ -1999,8 +2000,7 @@ assert.match(identityFor(html, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
 assert.match(identityFor(statusPage, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
 console.log('Connection identity survives refresh/navigation, separates fresh tabs and tolerates denied storage.');
 
-// Recovered acknowledgements retain attribution in Resolved; their existing
-// authorised undo control must still find the issue after the list change.
+// Recovered acknowledgements retain attribution in Resolved without an undo action.
 mainLiveContext.recoveredListIssue = {...liveIssue(),closed:now,acknowledged:now-100,
   acknowledged_by_full_name:'Alice Example',acknowledged_by_username:'alice'};
 vm.runInContext(`state.incident_lists.acknowledged=[];
@@ -2008,8 +2008,6 @@ vm.runInContext(`state.incident_lists.acknowledged=[];
 const recoveredMarkup = mainLiveContext.renderIncidents([mainLiveContext.recoveredListIssue]);
 assert.match(recoveredMarkup,/Recovered/);
 assert.match(recoveredMarkup,/Alice Example/);
-assert.match(recoveredMarkup,/data-unack/);
-mainLiveContext.openUnacknowledgement(mainLiveContext.recoveredListIssue.id);
-assert.equal(element('unacknowledgement-dialog').open,true);
-element('cancel-unacknowledgement').onclick();
-console.log('Resolved acknowledged issues retain attribution and authorised undo controls.');
+assert.doesNotMatch(recoveredMarkup,/data-unack/);
+assert.throws(() => mainLiveContext.openUnacknowledgement(mainLiveContext.recoveredListIssue.id),/recovered/);
+console.log('Resolved acknowledged issues retain attribution without Unacknowledge controls.');

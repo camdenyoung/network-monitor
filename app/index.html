@@ -157,7 +157,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4 · Build 49</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4 · Build 50</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -1265,7 +1265,7 @@
         const assignment = state.assignments.find(row => row.id === service?.assignment);
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
-          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-unack="${incident.id}">Unacknowledge</button>` : ''}`
+          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${!incident.closed && ['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-unack="${incident.id}">Unacknowledge</button>` : ''}`
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
@@ -2041,8 +2041,8 @@
     let pendingUnacknowledgement = null;
     function openUnacknowledgement(id) {
       if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
-      const issue = [...state.incident_lists.acknowledged, ...state.incident_lists.resolved].find(row => String(row.id) === String(id));
-      if (!issue || issue.acknowledged == null) throw new Error('Acknowledgement is no longer available. Refresh and review it again.');
+      const issue = state.incident_lists.acknowledged.find(row => String(row.id) === String(id));
+      if (!issue || issue.closed || issue.acknowledged == null) throw new Error('Issue has recovered or acknowledgement is no longer available. Refresh and review it again.');
       const service = state.services.find(row => row.id === issue.service);
       const assignment = state.assignments.find(row => row.id === service?.assignment);
       const device = state.devices.find(row => row.id === assignment?.device);
@@ -2068,8 +2068,8 @@
       try {
         if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
         const target = pendingUnacknowledgement;
-        const issue = [...state.incident_lists.acknowledged, ...state.incident_lists.resolved].find(row => row.id === target.id);
-        if (!issue || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Acknowledgement changed. Cancel and review it again.');
+        const issue = state.incident_lists.acknowledged.find(row => row.id === target.id);
+        if (!issue || issue.closed || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Issue recovered or acknowledgement changed. Cancel and review it again.');
         await request('unack', target);
         pendingUnacknowledgement = null;
         el('unacknowledgement-dialog').close();
