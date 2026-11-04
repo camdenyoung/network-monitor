@@ -157,17 +157,24 @@
     .connection-dialog { width: 520px; max-width: calc(100vw - 32px); padding: 24px; box-sizing: border-box; border: 1px solid #df6578; border-radius: 10px; }
     .connection-dialog::backdrop { background: #000a; }
     .reconnecting-status { display: flex; align-items: center; gap: 12px; }
-    .connection-spinner { width: 18px; height: 18px; flex: 0 0 18px; border: 3px solid #435b78; border-top-color: #7cddd0; border-radius: 50%; }
-    .connection-dialog[open] .connection-spinner { animation: reconnect-spin 1s linear infinite; }
-    @keyframes reconnect-spin { to { transform: rotate(360deg); } }
+    /* A quiet activity pulse uses the same teal accent as the app's controls. */
+    .connection-activity { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .connection-activity span { width: 7px; height: 7px; border-radius: 50%; background: #7cddd0; opacity: 0.35; }
+    .connection-dialog[open] .connection-activity span { animation: reconnect-pulse 1.4s ease-in-out infinite; }
+    .connection-dialog[open] .connection-activity span:nth-child(2) { animation-delay: 0.16s; }
+    .connection-dialog[open] .connection-activity span:nth-child(3) { animation-delay: 0.32s; }
+    @keyframes reconnect-pulse {
+      0%, 60%, 100% { opacity: 0.35; transform: scale(0.85); }
+      30% { opacity: 1; transform: scale(1.1); }
+    }
     @media (prefers-reduced-motion: reduce) {
-      .connection-dialog[open] .connection-spinner { animation: none; }
+      .connection-dialog[open] .connection-activity span { animation: none; opacity: 0.7; transform: none; }
     }
     #connection-notice { color: #ffcb69; }
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.1 · Build 56</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.1 · Build 57</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -686,7 +693,7 @@
   <dialog id="connection-lost" class="connection-dialog" aria-labelledby="connection-lost-title" aria-describedby="connection-lost-description" tabindex="-1">
     <h2 id="connection-lost-title">Server connection lost</h2>
     <p id="connection-lost-description">No successful dashboard refresh for 30 seconds. Controls are locked because displayed information may be out of date.</p>
-    <p class="reconnecting-status" role="status"><span class="connection-spinner" aria-hidden="true"></span><span>Reconnecting automatically…</span></p>
+    <p class="reconnecting-status" role="status"><span class="connection-activity" aria-hidden="true"><span></span><span></span><span></span></span><span>Reconnecting automatically…</span></p>
     <p>Controls will unlock when fresh dashboard data is loaded.</p>
   </dialog>
   <script>

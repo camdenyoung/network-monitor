@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.1, Build 56. Show it after the title on both the main and
+Current displayed release is v0.4.1, Build 57. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -663,9 +663,10 @@ SSE after a successful refresh, including startup recovery. Test both dashboard
 scripts using tests/dashboard.test.mjs and tests/connection.test.mjs (fake network,
 clock, timeout, stalled JSON body, blocked writes, recovery and preserved drafts).
 
-Both disconnect dialogs show a CSS spinner next to Reconnecting automatically.
-Animate only while the dialog is open; disable rotation under reduced motion.
-Keep the decorative spinner aria-hidden and retain accessible status text.
+Both disconnect dialogs show three softly pulsing teal dots next to Reconnecting
+automatically, using the app accent colour. Animate only while the dialog is open;
+show static dots under reduced motion. Keep decorative dots aria-hidden and retain
+accessible status text.
 
 Status Dashboard connection-notice sits immediately below summary near the top,
 so the initial retry notice appears beneath Failed to fetch before issue/host lists.

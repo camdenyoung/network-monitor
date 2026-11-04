@@ -1,9 +1,14 @@
-# Network Monitor v0.4.1 · Build 56
+# Network Monitor v0.4.1 · Build 57
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 57 — v0.4.1 (dashboard connection recovery branch)
+
+- Replace the reconnect spinner with three softly pulsing teal dots matching the app's accent colour, with a static reduced-motion presentation.
+
 
 ### Build 56 — v0.4.1 (dashboard connection recovery branch)
 
