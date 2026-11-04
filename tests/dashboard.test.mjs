@@ -1015,6 +1015,7 @@ console.log('Inventory service defaults editor, library copy and project adoptio
 const pulseClasses = new Set();
 let pulseStarts = 0;
 let pulseTimerId = 0;
+let networkTimerId = 10000;
 const pulseTimers = new Map();
 const pulseData = {project:'Attention event',deployment:11,monitoring_paused:false,updated:now,devices:[],
     incidents:[{id:1,number:1,status:'critical',opened:now}],acknowledged_incidents:[]};
@@ -1025,7 +1026,14 @@ const pulseContext = vm.createContext({
     }}},
     localStorage:publicContext.localStorage,
     fetch:async () => ({ok:true,json:async () => pulseData}),setInterval(){},
-    setTimeout(callback, delay){assert.equal(delay,2700);pulseTimers.set(++pulseTimerId,callback);return pulseTimerId;},
+    setTimeout(callback, delay){
+      if (delay === 2700) {
+        pulseTimers.set(++pulseTimerId,callback);
+        return pulseTimerId;
+      }
+      assert.ok([8000,60000].includes(delay));
+      return ++networkTimerId;
+    },
     clearTimeout(id){pulseTimers.delete(id);},
 });
 new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(pulseContext);
@@ -1979,7 +1987,7 @@ const presenceHeaders = presenceRequests.filter(row => row.path === '/api/state'
 assert.equal(presenceHeaders.length,2);
 assert.equal(presenceHeaders[0],presenceHeaders[1]);
 assert.match(presenceHeaders[0],/^[A-Za-z0-9-]{16,80}$/);
-assert.match(statusPage,/fetch\('\/api\/status', \{headers: \{'X-Dashboard-Connection': dashboardConnection\}\}\)/);
+assert.match(statusPage,/dashboardFetch\('\/api\/status', \{headers: \{'X-Dashboard-Connection': dashboardConnection\}\}\)/);
 console.log('Presence badge shows separate account/tab counts with a stable polling identity.');
 
 // Reload and dashboard navigation share tab storage; independent tabs do not.
@@ -2021,3 +2029,29 @@ assert.match(html, /#notifications-toggle\.notifications-paused \{[^}]*animation
 assert.match(html, /#monitoring-toggle\.monitoring-paused, #notifications-toggle\.notifications-paused \{ animation: none;/);
 assert.match(html, /Monitoring and notifications start paused/);
 console.log('Notification pause pulses with reduced-motion support; selected deployments wait for Resume all monitoring.');
+
+// Exercise full Admin refresh recovery, including clearing the old global error.
+const recoveredFetch = mainLiveContext.fetch;
+mainLiveContext.fetch = async () => {throw new TypeError('Failed to fetch');};
+await mainLiveContext.refresh().catch(mainLiveContext.report);
+assert.equal(element('message').textContent,'Failed to fetch — Server connection lost');
+const advancedTime = Date.now() + 31000;
+mainLiveContext.Date = class extends Date {static now(){return advancedTime;}};
+vm.runInContext('connectionGuard.check()',mainLiveContext);
+assert.equal(element('connection-lost').open,true);
+mainLiveContext.fetch = recoveredFetch;
+await mainLiveContext.refresh();
+assert.equal(element('connection-lost').open,false);
+assert.equal(element('message').textContent,'');
+assert.equal(element('connection-notice').hidden,true);
+console.log('A successful full Admin refresh clears Failed to fetch and unlocks controls.');
+
+// A failed initial session lookup must recover through ordinary polling too.
+vm.runInContext('currentUser=null',mainLiveContext);
+mainLiveContext.fetch = async () => {throw new TypeError('Failed to fetch');};
+await mainLiveContext.initializeSession().catch(mainLiveContext.report);
+mainLiveContext.fetch = recoveredFetch;
+await mainLiveContext.refresh();
+assert.match(element('signed-in').textContent,/Alice/);
+assert.equal(element('message').textContent,'');
+console.log('Initial session lookup failures recover without reloading the browser.');

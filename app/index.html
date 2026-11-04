@@ -154,10 +154,27 @@
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
     button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
+    .connection-dialog { width: 520px; max-width: calc(100vw - 32px); padding: 24px; box-sizing: border-box; border: 1px solid #df6578; border-radius: 10px; }
+    .connection-dialog::backdrop { background: #000a; }
+    .reconnecting-status { display: flex; align-items: center; gap: 12px; }
+    /* A quiet activity pulse uses the same teal accent as the app's controls. */
+    .connection-activity { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .connection-activity span { width: 7px; height: 7px; border-radius: 50%; background: #7cddd0; opacity: 0.35; }
+    .connection-dialog[open] .connection-activity span { animation: reconnect-pulse 1.4s ease-in-out infinite; }
+    .connection-dialog[open] .connection-activity span:nth-child(2) { animation-delay: 0.16s; }
+    .connection-dialog[open] .connection-activity span:nth-child(3) { animation-delay: 0.32s; }
+    @keyframes reconnect-pulse {
+      0%, 60%, 100% { opacity: 0.35; transform: scale(0.85); }
+      30% { opacity: 1; transform: scale(1.1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .connection-dialog[open] .connection-activity span { animation: none; opacity: 0.7; transform: none; }
+    }
+    #connection-notice { color: #ffcb69; }
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.1 · Build 52</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.2 · Build 58</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -672,7 +689,105 @@
     </form>
     <p id="alias-edit-feedback" role="status"></p>
   </dialog>
+  <p id="connection-notice" role="status" hidden></p>
+  <dialog id="connection-lost" class="connection-dialog" aria-labelledby="connection-lost-title" aria-describedby="connection-lost-description" tabindex="-1">
+    <h2 id="connection-lost-title">Server connection lost</h2>
+    <p id="connection-lost-description">No successful dashboard refresh for 30 seconds. Controls are locked because displayed information may be out of date.</p>
+    <p class="reconnecting-status" role="status"><span class="connection-activity" aria-hidden="true"><span></span><span></span><span></span></span><span>Reconnecting automatically…</span></p>
+    <p>Controls will unlock when fresh dashboard data is loaded.</p>
+  </dialog>
   <script>
+    // BEGIN dashboard connection recovery (keep identical on both dashboards).
+    function createConnectionGuard() {
+      const staleAfter = 30000;
+      let lastRefresh = Date.now();
+      let locked = false;
+      const failureMessages = new Set();
+      const inertBeforeLock = new Map();
+      const dialog = document.getElementById('connection-lost');
+      const notice = document.getElementById('connection-notice');
+
+      function check() {
+        if (locked || Date.now() - lastRefresh < staleAfter) return;
+        locked = true;
+        // Keep forms and any existing confirmation dialogs intact but inert.
+        for (const child of document.body.children || []) {
+          if (child === dialog) continue;
+          inertBeforeLock.set(child, child.inert);
+          child.inert = true;
+        }
+        if (!dialog.open) dialog.showModal();
+      }
+      function failed(error) {
+        failureMessages.add(error.message);
+        failureMessages.add(error.message + ' — Server connection lost');
+        notice.textContent = 'Server connection lost. Displayed information may be stale. Retrying automatically…';
+        notice.hidden = false;
+        check();
+      }
+      function healthy() {
+        lastRefresh = Date.now();
+        // Clear only connectivity errors, preserving unrelated validation feedback.
+        const message = document.getElementById('message');
+        if (message && failureMessages.has(message.textContent)) message.textContent = '';
+        failureMessages.clear();
+        notice.textContent = '';
+        notice.hidden = true;
+        locked = false;
+        for (const [child, previous] of inertBeforeLock) child.inert = previous;
+        inertBeforeLock.clear();
+        if (dialog.open) dialog.close();
+      }
+      dialog.oncancel = event => event.preventDefault();
+      // Capture handlers block links/local controls too, including open dialogs.
+      for (const type of ['click', 'submit']) {
+        document.addEventListener?.(type, event => {
+          check();
+          if (locked) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+      }
+      setInterval(check, 1000);
+      return {check, failed, healthy, isLocked: () => locked,
+        isFailure: error => failureMessages.has(error.message)};
+    }
+    const connectionGuard = createConnectionGuard();
+
+    async function dashboardFetch(path, options) {
+      connectionGuard.check();
+      if (connectionGuard.isLocked() && options?.method && options.method !== 'GET') {
+        throw new Error('Server unavailable. Wait for the dashboard to reconnect before making changes.');
+      }
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timeout = options?.method && options.method !== 'GET' ? 60000 : 8000;
+      async function bounded(operation) {
+        let timer;
+        try {
+          if (typeof setTimeout !== 'function') return await operation();
+          return await Promise.race([operation(), new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              controller?.abort();
+              reject(new Error('Server request timed out. Retrying dashboard connection…'));
+            }, timeout);
+          })]);
+        } catch (error) {
+          connectionGuard.failed(error);
+          throw error;
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      }
+      const response = await bounded(() => fetch(path, controller
+        ? {...options, signal: controller.signal} : options));
+      // A stalled JSON body must not leave refreshPromise pending indefinitely.
+      const readJson = response.json.bind(response);
+      response.json = () => bounded(readJson);
+      return response;
+    }
+    // END dashboard connection recovery.
+
     // sessionStorage keeps the same tab identity through refreshes and navigation
     // between dashboards. This opaque ID is not a credential or a user identity.
     const dashboardConnection = (() => {
@@ -714,7 +829,7 @@
     let transferSource = null;
 
     async function request(path, body) {
-      const response = await fetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': currentUser?.csrf || ''}, body: JSON.stringify(body)});
+      const response = await dashboardFetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': currentUser?.csrf || ''}, body: JSON.stringify(body)});
       const result = await response.json();
       if (response.status === 401) { location.assign('/login'); throw new Error('Please sign in again.'); }
       if (!response.ok) throw new Error(result.error);
@@ -1030,6 +1145,9 @@
           refreshQueued = false;
           await refreshDashboard();
         } while (refreshQueued);
+      }).catch(error => {
+        connectionGuard.failed(error);
+        throw error;
       }).finally(() => {
         refreshPromise = null;
         if (refreshQueued) refresh().catch(report);
@@ -1063,7 +1181,8 @@
     });
 
     async function refreshDashboard() {
-      const response = await fetch('/api/state', {headers: {'X-Dashboard-Connection': dashboardConnection}});
+      if (!currentUser && !await loadSession()) return;
+      const response = await dashboardFetch('/api/state', {headers: {'X-Dashboard-Connection': dashboardConnection}});
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
       state = await response.json();
@@ -1163,6 +1282,8 @@
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
+      connectionGuard.healthy();
+      connectAcknowledgementUpdates();
     }
 
     let inventoryLimit = 50;
@@ -1281,7 +1402,9 @@
       el('message').classList.toggle('success', success);
     }
 
-    function report(error) { notify(error.message); }
+    function report(error) {
+      notify(connectionGuard.isFailure(error) ? error.message + ' — Server connection lost' : error.message);
+    }
 
     function updateValueMode(form) {
       const stateMode = form.elements.namedItem('value_type').value === 'state';
@@ -1823,7 +1946,7 @@
     async function openHistory(id) {
       const service = state.services.find(row => row.id === Number(id));
       if (!service) throw new Error('Service no longer exists.');
-      const response = await fetch(`/api/history?service=${id}&run=${state.settings.active_run}`);
+      const response = await dashboardFetch(`/api/history?service=${id}&run=${state.settings.active_run}`);
       if (!response.ok) throw new Error('Could not load service history.');
       const rows = await response.json();
       el('history-title').textContent = service.name + ' — history';
@@ -1888,7 +2011,7 @@
         const fits = image.width <= 4096 && image.height <= 4096;
         image.close();
         if (!fits) throw new Error('Logo dimensions must be at most 4096 pixels per side.');
-        const response = await fetch('/api/project-logo?project=' + project, {
+        const response = await dashboardFetch('/api/project-logo?project=' + project, {
           method: 'POST', headers: {'Content-Type': file.type, 'X-CSRF-Token': currentUser.csrf}, body: file,
         });
         if (!response.ok) throw new Error('Logo upload failed. Check the image and your session.');
@@ -2272,7 +2395,7 @@
             description: 'This replaces all current configuration, users and monitoring data with the backup and pauses monitoring. Existing sessions will be signed out. Back up the current installation first if you need to keep its data.',
             label: 'Replace data and restore',
             run: async () => {
-              const response = await fetch('/api/restore', {method: 'POST',
+              const response = await dashboardFetch('/api/restore', {method: 'POST',
                 headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser.csrf}, body: file});
               if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
             },
@@ -2373,7 +2496,7 @@
       } catch (error) { report(error); }
     };
     async function loadAdmin() {
-      const responses = await Promise.all([fetch('/api/users'), fetch('/api/telegram'), fetch('/api/whatsapp')]);
+      const responses = await Promise.all([dashboardFetch('/api/users'), dashboardFetch('/api/telegram'), dashboardFetch('/api/whatsapp')]);
       if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
       users = await responses[0].json();
       el('users').innerHTML = users.map(user => `<div class="user-entry"><span class="user-details">${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}</span>
@@ -2485,7 +2608,7 @@
     };
     el('telegram-chats').onclick = async () => {
       try {
-        const response = await fetch('/api/telegram-chats');
+        const response = await dashboardFetch('/api/telegram-chats');
         const groups = await response.json();
         if (!response.ok) throw new Error(groups.error);
         el('telegram-group-list').innerHTML = groups.map(group =>
@@ -2541,14 +2664,18 @@
       await request('logout', {});
       location.assign('/login');
     };
-    async function initializeSession() {
-      const response = await fetch('/api/me');
-      if (!response.ok) return location.assign('/login');
+    async function loadSession() {
+      const response = await dashboardFetch('/api/me');
+      if (response.status === 401 || response.status === 403) { location.assign('/login'); return false; }
+      if (!response.ok) throw new Error('Cannot read your session.');
       currentUser = await response.json();
       if (currentUser.must_change_password) return location.assign('/login');
       document.body.dataset.role = currentUser.role;
       el('signed-in').textContent = (currentUser.full_name || currentUser.username) + ' · ' + (roleLabels[currentUser.role] || 'Unknown');
-      await refresh();
+      return true;
+    }
+    async function initializeSession() {
+      if (await loadSession()) await refresh();
     }
     initializeSession().then(connectAcknowledgementUpdates).catch(report);
     setInterval(() => refresh().catch(report), 10000);

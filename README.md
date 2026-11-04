@@ -1,9 +1,42 @@
-# Network Monitor v0.4.1 · Build 52
+# Network Monitor v0.4.2 · Build 58
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 58 — v0.4.2
+
+- Merge dashboard connection-loss locking, automatic recovery and the reconnect popup refinements into main.
+
+
+### Build 57 — v0.4.1 (dashboard connection recovery branch)
+
+- Replace the reconnect spinner with three softly pulsing teal dots matching the app's accent colour, with a static reduced-motion presentation.
+
+
+### Build 56 — v0.4.1 (dashboard connection recovery branch)
+
+- Append Server connection lost to the Admin Dashboard's connectivity error text, and clear the full message automatically after recovery.
+
+
+### Build 55 — v0.4.1 (dashboard connection recovery branch)
+
+- Place the Status Dashboard's initial connection-loss notice directly below the top summary/error message.
+
+
+### Build 54 — v0.4.1 (dashboard connection recovery branch)
+
+- Add a rotating reconnect indicator to both disconnect popups, with a static indicator for reduced-motion preferences.
+
+
+### Build 53 — v0.4.1 (dashboard connection recovery branch)
+
+- Lock both dashboards with an app-styled connection-loss dialog after 30 seconds without a completed refresh. Existing readings remain visible as stale; controls unlock only after fresh data is rendered.
+- Bound read requests and JSON bodies to eight seconds so hung connections cannot block polling retries. Writes have a 60-second deadline and are never automatically retried; new writes are blocked while offline.
+- Clear connectivity notices and the Admin Dashboard's Failed to fetch message after recovery, preserving unrelated validation feedback and unsaved forms. Retry session initialization if the first load failed, and reconnect live updates after recovery.
+- UI checks: `node tests/dashboard.test.mjs` and `node tests/connection.test.mjs`.
+
 
 ### Build 52 — v0.4.1
 
@@ -299,6 +332,14 @@ This is a runnable development foundation, not the completed production system.
   continue increasing across version releases.
 
 ## Release notes
+
+### v0.4.2
+
+- Lock dashboard interaction after 30 seconds without a completed refresh, showing an app-styled reconnect popup while automatic retries continue.
+- Bound stalled read requests and JSON bodies so polling can recover. Block new writes while locked and never automatically replay mutations.
+- Unlock after fresh data renders, preserve unsaved forms, clear connectivity errors and recover from an initial failed session lookup.
+- Clarify Admin Dashboard errors with Server connection lost, position the public status notice beneath the top error, and show softly pulsing teal reconnect dots with reduced-motion support.
+
 
 ### v0.4.1
 
