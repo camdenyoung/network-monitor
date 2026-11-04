@@ -24,6 +24,28 @@ are independent of the normal `compose.yaml` installation. The seeder refuses to
 write an existing database, and the HTTP probe refuses an unmarked installation.
 Notifications are disabled in the benchmark dataset.
 
+## Updating an existing week-history test
+
+Build 42 fixes full-history scans that could leave both dashboards empty while
+SQLite occupied a CPU core. Keep the generated database; do not seed again or
+start a new deployment. On the Pi, from the repository directory:
+
+```sh
+sudo docker compose -p network-monitor-loadtest -f compose.loadtest.yaml stop benchmark-monitor
+git pull origin codex/synthetic-load-test
+sudo docker compose -p network-monitor-loadtest -f compose.loadtest.yaml up -d --build benchmark-monitor
+sudo docker compose -p network-monitor-loadtest -f compose.loadtest.yaml logs -f benchmark-monitor
+```
+
+The first upgraded startup builds `sample_current` and `sample_expiry` indexes.
+A large database needs additional free disk space for the indexes and SQLite's
+build workspace. Duration depends on storage and dataset size; CPU/disk activity
+is expected. Wait for both `History index ... ready` messages and successful API
+responses before measuring. Press Ctrl+C to leave the log view; this does not
+stop the container. Subsequent restarts reuse the indexes. The same named volume
+retains users, hosts, project, deployment and all unexpired generated history.
+Never use `down -v` unless you intend to delete that test database.
+
 ## 1. Start synthetic devices on the other computer
 
 From this repository on a laptop/server on the same LAN:

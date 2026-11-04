@@ -40,6 +40,72 @@ class MonitorTests(unittest.TestCase):
         with patch.object(server, 'read_metric', return_value=value):
             server.poll_one(self.service, run)
 
+    def test_large_history_snapshot_uses_bounded_current_reading_lookups(self):
+        # A VM instruction budget catches full-history scans without depending on
+        # the speed of the machine running the test. Seed before applying it.
+        with server.connect() as db:
+            db.executemany("""INSERT INTO samples
+                (run,service,timestamp,value,status,revision) VALUES(1,?,1,-55,'healthy',1)""",
+                ((self.service['id'],) for _ in range(30000)))
+        self.poll(-56)
+        original_connect = server.connect
+
+        def bounded_connect():
+            db = original_connect()
+            calls = 0
+
+            def progress():
+                nonlocal calls
+                calls += 1
+                return int(calls > 200)
+
+            db.set_progress_handler(progress, 1000)
+            return db
+
+        with patch.object(server, 'connect', side_effect=bounded_connect):
+            state = server.snapshot()
+        reading = next(row for row in state['latest'] if row['service'] == self.service['id'])
+        self.assertEqual(reading['value'], -56)
+        self.assertEqual(state['projects'][0]['name'], 'Festival')
+
+    def test_latest_reading_excludes_other_runs_revisions_and_pre_resume_samples(self):
+        with server.connect() as db:
+            db.execute('UPDATE services SET revision=2,monitoring_since=100 WHERE id=?',
+                       (self.service['id'],))
+            for run, revision, timestamp, value in (
+                    (1, 2, 101, -56), (1, 2, 99, -57), (2, 2, 102, -58), (1, 1, 103, -59)):
+                db.execute("""INSERT INTO samples(run,service,timestamp,value,status,revision)
+                    VALUES(?,?,?,?,'healthy',?)""",
+                    (run, self.service['id'], timestamp, value, revision))
+        latest = server.snapshot()['latest']
+        self.assertEqual(next(row['value'] for row in latest
+                              if row['service'] == self.service['id']), -56)
+
+    def test_retention_is_bounded_and_keeps_boundary_and_current_readings(self):
+        with server.connect() as db:
+            db.executemany("""INSERT INTO samples(run,service,timestamp,status)
+                VALUES(1,?,?,'healthy')""",
+                ((self.service['id'], timestamp) for timestamp in range(12)))
+            self.assertEqual(server.prune_samples(db, 10, batch_size=3), 3)
+            self.assertEqual(db.execute('SELECT MIN(timestamp) FROM samples').fetchone()[0], 3)
+            self.assertEqual(server.prune_samples(db, 10), 7)
+            self.assertEqual([row[0] for row in db.execute('SELECT timestamp FROM samples ORDER BY timestamp')],
+                             [10, 11])
+            self.assertEqual(server.prune_samples(db, 10), 0)
+
+    def test_history_index_upgrade_preserves_data_and_is_repeatable(self):
+        self.poll(-55)
+        with server.connect() as db:
+            before = [tuple(row) for row in db.execute('SELECT * FROM samples')]
+            db.execute('DROP INDEX sample_current')
+            db.execute('DROP INDEX sample_expiry')
+        server.initialize()
+        server.initialize()
+        with server.connect() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM samples')], before)
+            indexes = {row[1] for row in db.execute('PRAGMA index_list(samples)')}
+            self.assertTrue({'sample_current', 'sample_expiry'} <= indexes)
+
     def test_issue_labels_restart_for_each_deployment_but_ack_uses_internal_id(self):
         self.poll(-80)
         self.poll(-80)

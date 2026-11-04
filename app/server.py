@@ -338,6 +338,7 @@ def migrate_service_lifecycle(db):
     sample_columns = {row[1] for row in db.execute('PRAGMA table_info(samples)')}
     if 'revision' not in sample_columns:
         db.execute('ALTER TABLE samples ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
+    ensure_sample_indexes(db)
     # Remember IDs before deletion, so delayed polling cannot attach to a new item.
     for table in ('devices', 'assignments', 'services', 'runs', 'incidents'):
         maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
@@ -346,6 +347,35 @@ def migrate_service_lifecycle(db):
         previous = int(setting(db, 'last_id_' + table))
         db.execute('UPDATE settings SET value=? WHERE key=?',
                    (str(max(maximum, previous)), 'last_id_' + table))
+
+
+def ensure_sample_indexes(db):
+    """Index current readings and expiry without discarding existing history.
+
+    Building these once can take time on an existing multi-million-row database.
+    Log each build so an upgrade does not look like a silently stalled startup.
+    """
+    indexes = {
+        'sample_current': 'samples(service,run,revision,id DESC)',
+        'sample_expiry': 'samples(timestamp)',
+    }
+    existing = {row[1] for row in db.execute('PRAGMA index_list(samples)')}
+    for name, columns in indexes.items():
+        if name not in existing:
+            print(f'Building history index {name}; existing readings are retained', flush=True)
+            db.execute(f'CREATE INDEX {name} ON {columns}')
+            print(f'History index {name} ready', flush=True)
+
+
+def prune_samples(db, cutoff, batch_size=1000):
+    """Drain expired history in small transactions rather than blocking a poll round.
+
+    The timestamp index makes an empty expiry check cheap even with weeks of data.
+    A reduced retention setting can leave a backlog, removed over subsequent rounds.
+    """
+    return db.execute("""DELETE FROM samples WHERE id IN (
+        SELECT id FROM samples WHERE timestamp<? ORDER BY timestamp LIMIT ?
+    )""", (cutoff, batch_size)).rowcount
 
 
 def ensure_service_library(db):
@@ -577,15 +607,19 @@ def read_metric(service):
 
 def host_is_up(db, service, run):
     """Require a recent successful ping for this deployment and current address."""
-    host = db.execute("""
-        SELECT samples.status, samples.timestamp FROM samples
-        JOIN services ping ON ping.id=samples.service
+    ping = db.execute("""
+        SELECT ping.id,ping.revision,ping.monitoring_since FROM services ping
         JOIN assignments a ON a.id=ping.assignment
         JOIN devices d ON d.id=a.device
-        WHERE ping.assignment=? AND ping.kind='ping' AND samples.run=?
-          AND samples.revision=ping.revision AND samples.timestamp>=ping.monitoring_since AND d.address=?
-        ORDER BY samples.id DESC LIMIT 1
-    """, (service['assignment'], run, service['address'])).fetchone()
+        WHERE ping.assignment=? AND ping.kind='ping' AND d.address=?
+    """, (service['assignment'], service['address'])).fetchone()
+    if ping is None:
+        return False
+    # Start from the host's check, never scan other hosts' history to find its ping.
+    host = db.execute("""SELECT status,timestamp FROM samples
+        WHERE service=? AND run=? AND revision=? AND timestamp>=?
+        ORDER BY id DESC LIMIT 1""",
+        (ping['id'], run, ping['revision'], ping['monitoring_since'])).fetchone()
     return bool(host and host['status'] == 'healthy' and time.time() - host['timestamp'] <= 60)
 
 
@@ -693,7 +727,7 @@ def poll_loop():
                         JOIN runs r ON r.project=a.project
                         WHERE r.id=? AND a.monitoring=1 AND a.removed=0 AND s.monitoring=1 AND s.enabled=1 AND d.address!='' ''', (run,))]
                     cutoff = time.time() - int(setting(db, 'retention_days')) * 86400
-                    db.execute('DELETE FROM samples WHERE timestamp<?', (cutoff,))
+                    prune_samples(db, cutoff)
                 hosts = {}
                 for service in services:
                     hosts.setdefault(service['assignment'], []).append(service)
@@ -749,12 +783,15 @@ def snapshot():
         for configuration in result['services'] + result['service_templates'] + result['device_service_defaults']:
             configuration['state_map'] = json.loads(configuration['state_map'])
         result['settings'] = dict(db.execute('SELECT key,value FROM settings'))
+        # One indexed lookup per configured check; grouping the entire history
+        # here made both dashboards stall once a deployment had millions of rows.
         result['latest'] = [dict(row) for row in db.execute('''
-            SELECT s.* FROM samples s JOIN (
-            SELECT samples.service, MAX(samples.id) id FROM samples
-            JOIN services ON services.id=samples.service
-            WHERE run=? AND samples.revision=services.revision AND samples.timestamp>=services.monitoring_since GROUP BY samples.service) latest ON s.id=latest.id''',
-            (int(result['settings']['active_run']),))]
+            SELECT reading.* FROM services configured JOIN samples reading ON reading.id=(
+                SELECT id FROM samples
+                WHERE service=configured.id AND run=? AND revision=configured.revision
+                  AND timestamp>=configured.monitoring_since
+                ORDER BY id DESC LIMIT 1)
+            ORDER BY reading.service''', (int(result['settings']['active_run']),))]
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
         # Split by acknowledgement independently of recovery: acknowledged issues

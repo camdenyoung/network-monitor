@@ -1,9 +1,15 @@
-# Network Monitor v0.3.1 · Build 41
+# Network Monitor v0.3.1 · Build 42
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 42 — v0.3.1 (synthetic load-test branch)
+
+- Replace full-history dashboard aggregation with indexed current-reading lookups.
+- Index host dependency checks and retention cleanup; remove expired readings in batches of 1,000 per polling round.
+- Existing databases retain their data. The first upgrade builds two history indexes before serving requests; large databases need additional disk space and startup time. Index progress is logged.
 
 ### Build 41 — v0.3.1 (synthetic load-test branch)
 

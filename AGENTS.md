@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3.1, Build 41. Show it after the title on both the main and
+Current displayed release is v0.3.1, Build 42. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -605,3 +605,11 @@ Notifications remain disabled; inspection is read-only and requires the marker.
 
 Docker build context excludes database files, live data, local environment files
 and bytecode caches so generated multi-gigabyte test history is never copied into images.
+
+History performance: ensure_sample_indexes runs through lifecycle migration on startup
+and restore. sample_current supports service/run/revision/latest-ID lookups;
+sample_expiry supports bounded retention. Snapshot uses one indexed latest-ID lookup
+per service, respecting revision and monitoring_since. host_is_up resolves ping first.
+Never group all samples for live state. prune_samples removes at most 1,000 expired
+rows per polling cycle, so retention reductions drain gradually. First index creation
+on large existing databases takes time and disk space; logs identify each build.
