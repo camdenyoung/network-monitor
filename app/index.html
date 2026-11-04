@@ -174,7 +174,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.3 · Build 60</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.3 · Build 61</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -1240,7 +1240,14 @@
         sessionSettingsLoaded = true;
       }
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
-      if (!selectedProject) selectedProject = String(run?.project || state.projects[0]?.id || '');
+      const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
+      // Choose the current deployment once; polling must preserve manual choices.
+      // A selected paused deployment is still the current project during setup.
+      if (!state.projects.some(project => String(project.id) === selectedProject)) {
+        const preferred = [run?.project, pausedRun?.project, state.projects[0]?.id]
+          .find(id => state.projects.some(project => project.id === id));
+        selectedProject = preferred == null ? '' : String(preferred);
+      }
       el('project').innerHTML = options(state.projects, row => row.name);
       el('project').value = selectedProject;
       const previousRuns = state.runs.filter(row => String(row.project) === selectedProject).sort((a, b) => b.id - a.id);
@@ -1270,7 +1277,6 @@
         editingProject = selectedProject;
         el('project-feedback').textContent = '';
       }
-      const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
       const displayedRun = run || pausedRun;
       el('deployment-details').textContent = displayedRun
         ? `Deployment #${displayedRun.id} · Started ${date(displayedRun.started)} · ${displayedRun.description || 'No description recorded'}` : '';

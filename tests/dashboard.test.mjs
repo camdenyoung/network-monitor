@@ -2113,3 +2113,36 @@ await reloadedAdminSort.initializeSession();
 assert.equal(element('host-sort').value,'severity');
 assertAdminOrder(['SW1','SW10']);
 console.log('Admin host sorting supports all six modes in Cards/List, combines with filters and persists independently.');
+
+// Initial project follows the active/paused deployment, independent of list order.
+async function projectSelectionContext(settings, projects) {
+  const data = {...fixture,projects:projects || [{id:1,name:'First'},{id:2,name:'Running'},{id:3,name:'Paused'}],
+    runs:[{id:12,project:2},{id:13,project:3}],settings:{...fixture.settings,...settings}};
+  const browser = vm.createContext({document:context.document,setInterval(){},
+    localStorage:{getItem(){return null;},setItem(){}},
+    fetch:async path => ({ok:true,json:async () => path === '/api/me'
+      ? {id:1,role:'operator',username:'selector'} : data})});
+  new vm.Script(script).runInContext(browser);
+  await browser.initializeSession();
+  return {browser,data};
+}
+for (const [settings, expected] of [
+  [{active_run:'12',paused_run:'13'},'2'],
+  [{active_run:'0',paused_run:'13'},'3'],
+  [{active_run:'0',paused_run:'0'},'1'],
+  [{active_run:'0',paused_run:'999'},'1'],
+]) {
+  const {browser} = await projectSelectionContext(settings);
+  assert.equal(element('project').value,expected);
+  element('project').value='1';
+  element('project').onchange();
+  await browser.refresh();
+  assert.equal(element('project').value,'1');
+}
+const unavailableProject = await projectSelectionContext({active_run:'12',paused_run:'13'});
+unavailableProject.data.projects = [{id:1,name:'First'},{id:3,name:'Paused'}];
+await unavailableProject.browser.refresh();
+assert.equal(element('project').value,'3');
+await projectSelectionContext({active_run:'0',paused_run:'0'},[]);
+assert.equal(element('project').value,'');
+console.log('Initial project selection prefers active/paused deployments, preserves manual choices and handles missing/empty projects.');

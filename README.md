@@ -1,9 +1,15 @@
-# Network Monitor v0.4.3 · Build 60
+# Network Monitor v0.4.3 · Build 61
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 61 — v0.4.3 (current-project selection branch)
+
+- Initially select the active deployment's project, then the paused deployment's project, then the first available project on the Admin Dashboard.
+- Preserve valid manual project selections during refreshes; use the same fallback if a selected project becomes unavailable.
+
 
 ### Build 60 — v0.4.3
 
