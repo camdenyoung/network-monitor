@@ -79,7 +79,8 @@
     .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     @media (max-width: 760px) { #service-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 480px) { #service-edit-form { grid-template-columns: minmax(0, 1fr); } }
-    #history { width: 880px; box-sizing: border-box; }
+    #history { width: 1040px; max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; }
+    #history #readings { max-height: 420px; overflow: auto; }
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
@@ -176,7 +177,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 64</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 65</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -188,6 +189,7 @@
     </div>
   </nav>
   <p id="message" role="status"></p>
+  <p id="project-deletion-notice" data-admin role="status" hidden></p>
   <section class="toolbar project-toolbar">
     <div class="project-logo-slot">
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
@@ -337,6 +339,13 @@
             <label>New project name<input name="name" required maxlength="100"></label>
             <div class="project-panel-actions"><button>Create duplicate</button></div>
           </form>
+        </div>
+        <div class="project-settings-panel">
+          <h3>Delete project</h3>
+          <p>Permanently remove this project's deployments, readings, issues and assignments. Permanent inventory and reusable services are kept.</p>
+          <div class="project-panel-actions"><button id="delete-project" class="danger" type="button">Delete project</button></div>
+          <p id="project-delete-reason"></p>
+          <div id="project-deletion-jobs" role="status"></div>
         </div>
       </div>
       <p id="project-feedback" class="project-settings-feedback" role="status"></p>
@@ -560,12 +569,32 @@
     <button id="close-history">Close</button>
     <h2 id="history-title">Service history</h2>
     <p id="history-description"></p>
+    <form id="history-range-form" class="display-controls">
+      <label>Deployment<select id="history-deployment"></select></label>
+      <label>Period<select id="history-period">
+        <option value="900">Last 15 minutes</option><option value="3600" selected>Last hour</option>
+        <option value="21600">Last 6 hours</option><option value="86400">Last 24 hours</option>
+        <option value="604800">Last 7 days</option><option value="custom">Custom range</option>
+      </select></label>
+      <label>From<input id="history-start" type="datetime-local" step="1" required></label>
+      <label>To<input id="history-end" type="datetime-local" step="1" required></label>
+      <button id="history-apply" class="primary">Apply range</button>
+    </form>
+    <p>Times use this browser's timezone. Select up to 31 days per request.</p>
+    <p id="history-feedback" class="form-feedback" role="status"></p>
     <div class="view-tabs" role="group" aria-label="History view">
       <button id="show-history-graph" aria-pressed="true">Graph</button>
       <button id="show-history-table" aria-pressed="false">Table</button>
     </div>
     <div id="history-graph"></div>
-    <div id="readings" class="scroll" hidden></div>
+    <div id="history-table" hidden>
+      <div id="readings" class="scroll"></div>
+      <div class="display-controls">
+        <button id="history-newer" type="button" disabled>Newer readings</button>
+        <button id="history-older" type="button" disabled>Older readings</button>
+        <span id="history-page"></span>
+      </div>
+    </div>
   </dialog>
   <dialog id="user-editor" aria-labelledby="user-editor-title">
     <h2 id="user-editor-title">Edit user</h2>
@@ -777,7 +806,7 @@
         throw new Error('Server unavailable. Wait for the dashboard to reconnect before making changes.');
       }
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timeout = options?.method && options.method !== 'GET' ? 60000 : 8000;
+      const timeout = options?.method && options.method !== 'GET' ? 60000 : path.startsWith('/api/history?') ? 30000 : 8000;
       async function bounded(operation) {
         let timer;
         try {
@@ -1164,6 +1193,26 @@
       restoreActionMenu();
     }
 
+    function updateProjectDeletion(project, run) {
+      const jobs = state.project_deletions || [];
+      const unfinished = jobs.find(job => job.state !== 'completed');
+      const selectedJob = jobs.find(job => job.project === project?.id);
+      const running = run?.project === project?.id;
+      el('delete-project').disabled = !project || running || Boolean(unfinished &&
+        (unfinished.project !== project.id || unfinished.state !== 'failed'));
+      el('delete-project').textContent = selectedJob?.state === 'failed' ? 'Retry project deletion' : 'Delete project';
+      el('project-delete-reason').textContent = running ? 'Pause monitoring before deleting this project.' : '';
+      el('project-deletion-notice').hidden = !unfinished;
+      el('project-deletion-notice').textContent = unfinished
+        ? `${unfinished.project_name}: deletion ${unfinished.state}. Configuration changes and backups are unavailable until deletion finishes or is retried. Monitoring and issue acknowledgements continue.` : '';
+      el('project-deletion-jobs').innerHTML = jobs.slice(0, 5).map(job =>
+        `<p><strong>${escapeHtml(job.project_name)}</strong> · ${escapeHtml(formatStatus(job.state))} · ${Number(job.deleted_samples).toLocaleString()} readings removed${job.phase === 'deployment history' ? ' · checking deployment history: ' + Number(job.checked_samples).toLocaleString() + ' readings checked' : ''}${job.error ? ' · ' + escapeHtml(job.error) : ''}</p>`).join('');
+    }
+    el('delete-project').onclick = () => {
+      try { openAdministrativeConfirmation('delete-project', {project: selectedProject}); }
+      catch (error) { report(error); }
+    };
+
     function previewNewProjectLogo() {
       const source = state?.projects.find(row => String(row.id) === el('new-project-logo').value);
       const image = el('new-project-logo-preview');
@@ -1269,6 +1318,7 @@
       updateOptions('new-project-logo', state.projects.filter(row => row.logo_url), row => row.name, 'No logo');
       previewNewProjectLogo();
       const project = state.projects.find(row => String(row.id) === selectedProject);
+      updateProjectDeletion(project, run);
       const image = el('project-logo');
       image.hidden = !project?.logo_url;
       el('project-logo-placeholder').hidden = Boolean(project?.logo_url);
@@ -1920,6 +1970,7 @@
     function historyView(graph) {
       el('history-graph').hidden = !graph;
       el('readings').hidden = graph;
+      el('history-table').hidden = graph;
       el('show-history-graph').setAttribute('aria-pressed', String(graph));
       el('show-history-table').setAttribute('aria-pressed', String(!graph));
     }
@@ -1927,12 +1978,12 @@
     el('show-history-graph').onclick = () => historyView(true);
     el('show-history-table').onclick = () => historyView(false);
 
-    function historyGraph(rows, service) {
+    function historyGraph(rows, service, range = null) {
       // Keep configuration revisions separate: a changed OID/scale/state mode may
       // describe a different quantity. The table still includes older revisions.
       const samples = rows.filter(row => row.revision === service.revision).slice().reverse();
       const valid = row => row.value !== null && Number.isFinite(row.value) &&
-        Number.isFinite(row.timestamp) && !['blocked', 'unreachable'].includes(row.status);
+        Number.isFinite(row.timestamp) && !['blocked', 'unreachable', 'paused', 'unknown'].includes(row.status);
       const points = samples.filter(valid);
       if (!points.length) return '<p>No usable readings for the current service configuration yet.</p>';
       const width = 800, height = 330;
@@ -1952,8 +2003,8 @@
         minValue -= padding;
         maxValue += padding;
       }
-      let minTime = Math.min(...samples.map(row => row.timestamp));
-      let maxTime = Math.max(...samples.map(row => row.timestamp));
+      let minTime = range?.start ?? Math.min(...samples.map(row => row.timestamp));
+      let maxTime = range?.end ?? Math.max(...samples.map(row => row.timestamp));
       if (minTime === maxTime) { minTime -= 7.5; maxTime += 7.5; }
       const x = time => margin.left + (time - minTime) / (maxTime - minTime) * plotWidth;
       const y = value => height - margin.bottom - (value - minValue) / (maxValue - minValue) * plotHeight;
@@ -1962,7 +2013,7 @@
         ? (service.state_map[String(value)]?.label || String(value))
         : Number(value.toPrecision(5)).toString();
       let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(service.name)} history graph">
-        <title>${escapeHtml(service.name)}: recent readings, gaps indicate missing or suppressed checks</title>`;
+        <title>${escapeHtml(service.name)}: readings in the selected range, gaps indicate missing or suppressed checks</title>`;
       for (const tick of ticks) {
         svg += `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="#314257"/>
           <text x="${margin.left - 10}" y="${y(tick) + 4}" fill="#a9bad0" font-size="12" text-anchor="end">${escapeHtml(labelFor(tick))}</text>`;
@@ -1970,7 +2021,9 @@
       svg += `<text x="${margin.left}" y="16" fill="#a9bad0" font-size="12">${escapeHtml(stateMode ? 'State' : service.units || 'Value')}</text>`;
       for (let i = 0; i < 3; i++) {
         const time = minTime + (maxTime - minTime) * i / 2;
-        const label = new Date(time * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        const label = maxTime - minTime > 86400
+          ? new Date(time * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+          : new Date(time * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
         svg += `<text x="${x(time)}" y="${height - 20}" fill="#a9bad0" font-size="12" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}">${escapeHtml(label)}</text>`;
       }
       if (!stateMode) {
@@ -1989,7 +2042,7 @@
       for (const row of samples) {
         // Explicit missing readings and long collection gaps must not be bridged.
         if (!valid(row)) { flush(); continue; }
-        if (previous && row.timestamp - previous.timestamp > 60) flush();
+        if (previous && (row.gap_before || (!row.aggregated && row.timestamp - previous.timestamp > 60))) flush();
         path += !previous ? `M ${x(row.timestamp)} ${y(row.value)} `
           : stateMode ? `H ${x(row.timestamp)} V ${y(row.value)} ` : `L ${x(row.timestamp)} ${y(row.value)} `;
         previous = row;
@@ -2003,20 +2056,126 @@
       return svg + '</svg><small>Hover over a point for its reading. Gaps indicate missing or suppressed checks. Dashed lines show thresholds within the plotted range.</small>';
     }
 
+    let historyContext = null;
+    let historyRequest = 0;
+    let historyCursors = [null];
+    let historyPage = 0;
+    let historyNext = null;
+
+    function localHistoryTime(timestamp) {
+      const value = new Date(timestamp * 1000);
+      return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+    }
+    function setHistoryPreset() {
+      const seconds = Number(el('history-period').value);
+      if (!Number.isFinite(seconds) || seconds <= 0) return;
+      const end = Date.now() / 1000;
+      el('history-start').value = localHistoryTime(end - seconds);
+      el('history-end').value = localHistoryTime(end);
+    }
+    function historyUrl(context, mode, cursor = null) {
+      let url = `/api/history?service=${context.service.id}&run=${context.run}&start=${context.start}&end=${context.end}&mode=${mode}`;
+      if (cursor) url += `&before_time=${cursor.before_time}&before_id=${cursor.before_id}`;
+      return url;
+    }
+    async function historyResponse(url) {
+      const response = await dashboardFetch(url);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not load history.');
+      return data;
+    }
+    function renderHistoryTable(data) {
+      el('readings').innerHTML = data.rows.length ? '<table><tr><th>Time</th><th>Value</th><th>Status</th><th>Configuration</th></tr>' + data.rows.map(row =>
+        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td><td>${escapeHtml(row.revision)}</td></tr>`
+      ).join('') + '</table>' : '<p>No retained readings in this time range.</p>';
+      historyNext = data.next;
+      el('history-newer').disabled = historyPage === 0;
+      el('history-older').disabled = !historyNext;
+      el('history-page').textContent = `Page ${historyPage + 1} · ${data.rows.length} exact readings, newest first`;
+    }
+    async function loadHistoryRange() {
+      if (!historyContext) return;
+      const requestId = ++historyRequest;
+      const start = new Date(el('history-start').value).getTime() / 1000;
+      const end = new Date(el('history-end').value).getTime() / 1000;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= end || end - start > 31 * 86400) {
+        el('history-feedback').textContent = 'Choose valid From/To dates, up to 31 days apart.';
+        return;
+      }
+      const context = {...historyContext, run:Number(el('history-deployment').value), start, end};
+      el('history-apply').disabled = true;
+      el('history-newer').disabled = true;
+      el('history-older').disabled = true;
+      el('history-feedback').textContent = 'Loading history…';
+      try {
+        const [graph, table] = await Promise.all([
+          historyResponse(historyUrl(context,'graph')), historyResponse(historyUrl(context,'table')),
+        ]);
+        if (requestId !== historyRequest || !el('history').open) return;
+        historyContext = context;
+        historyCursors = [null]; historyPage = 0;
+        el('history-graph').innerHTML = historyGraph(graph.rows, context.service, context);
+        renderHistoryTable(table);
+        el('history-description').textContent = `${date(start)} – ${date(end)} · ${graph.total.toLocaleString()} retained readings. Graph uses the current configuration; table includes every configuration.`;
+        el('history-feedback').textContent = (graph.total ? graph.aggregated
+          ? context.service.value_type === 'state' && !graph.state_overflow
+            ? 'Graph shows retained state transitions and collection gaps. Table pages contain exact readings.'
+            : 'Graph summarised for performance; bucket extremes and collection gaps are retained. Table pages contain exact readings.' : ''
+          : 'No retained readings in this range. Try another period or deployment.') +
+          (graph.state_overflow ? ' Too many state changes for an exact graph: shorten the range or inspect the table.' : '') +
+          ` Retention is ${graph.retention_days} days; older readings may already have been removed.`;
+      } catch (error) {
+        if (requestId === historyRequest) el('history-feedback').textContent = error.message;
+      } finally {
+        if (requestId === historyRequest) el('history-apply').disabled = false;
+      }
+    }
+    async function changeHistoryPage(direction) {
+      if (!historyContext || el('history-apply').disabled) return;
+      const page = historyPage + direction;
+      if (page < 0 || (direction > 0 && !historyNext)) return;
+      const requestId = ++historyRequest;
+      if (direction > 0) historyCursors[page] = historyNext;
+      el('history-newer').disabled = true; el('history-older').disabled = true;
+      try {
+        const data = await historyResponse(historyUrl(historyContext,'table',historyCursors[page]));
+        if (requestId !== historyRequest || !el('history').open) return;
+        historyPage = page;
+        renderHistoryTable(data);
+      } catch (error) {
+        if (requestId === historyRequest) {
+          el('history-feedback').textContent = error.message;
+          el('history-newer').disabled = historyPage === 0;
+          el('history-older').disabled = !historyNext;
+        }
+      }
+    }
+    el('history-newer').onclick = () => changeHistoryPage(-1);
+    el('history-older').onclick = () => changeHistoryPage(1);
+    el('history-range-form').onsubmit = event => { event.preventDefault(); return loadHistoryRange(); };
+    el('history-period').onchange = () => { setHistoryPreset(); return loadHistoryRange(); };
+    el('history-deployment').onchange = () => loadHistoryRange();
+    for (const id of ['history-start','history-end']) el(id).oninput = () => { el('history-period').value = 'custom'; };
+    el('history').onclose = () => { historyRequest++; historyContext = null; };
+
     async function openHistory(id) {
       const service = state.services.find(row => row.id === Number(id));
       if (!service) throw new Error('Service no longer exists.');
-      const response = await dashboardFetch(`/api/history?service=${id}&run=${state.settings.active_run}`);
-      if (!response.ok) throw new Error('Could not load service history.');
-      const rows = await response.json();
+      const assignment = state.assignments.find(row => row.id === service.assignment);
+      const runs = state.runs.filter(row => row.project === assignment?.project).sort((a,b) => b.id-a.id);
+      if (!runs.length) throw new Error('No deployments are available for this service.');
+      const preferred = [Number(state.settings.active_run),Number(state.settings.paused_run)]
+        .find(run => runs.some(row => row.id === run)) || runs[0].id;
+      historyContext = {service,run:preferred};
+      el('history-deployment').innerHTML = options(runs, row => `#${row.id} · ${row.description || date(row.started)}`);
+      el('history-deployment').value = String(preferred);
       el('history-title').textContent = service.name + ' — history';
-      el('history-description').textContent = 'Latest 200 readings from the active deployment. Graph uses the current configuration; table includes earlier configurations.';
-      el('history-graph').innerHTML = historyGraph(rows, service);
-      el('readings').innerHTML = '<table><tr><th>Time</th><th>Value</th><th>Status</th></tr>' + rows.map(row =>
-        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td></tr>`
-      ).join('') + '</table>';
+      el('history-description').textContent = '';
+      el('history-graph').innerHTML = ''; el('readings').innerHTML = '';
+      el('history-period').value = '3600'; setHistoryPreset();
       historyView(true);
       el('history').showModal();
+      await loadHistoryRange();
     }
 
     function removeDevice(id) {
@@ -2398,6 +2557,18 @@
       const device = state.devices.find(row => row.id === Number(target.device));
       const assignment = state.assignments.find(row => row.id === Number(target.assignment) && !row.removed);
       switch (action) {
+        case 'delete-project': {
+          const project = state.projects.find(row => row.id === Number(target.project));
+          const active = state.runs.find(row => row.id === Number(state.settings.active_run));
+          if (!project) throw new Error('Project no longer exists.');
+          if (active?.project === project.id) throw new Error('Pause monitoring before deleting this project.');
+          configuration = {title: 'Permanently delete project?', context: project.name,
+            description: 'This deletes all deployments, readings, issues, acknowledgement history, services, assignments and the logo belonging to this project. Permanent inventory, reusable services and other projects are kept. Deletion runs in the background and cannot be undone without a backup.',
+            label: 'Delete project and all history',
+            ...mutation('project-delete', {project: project.id, expected_name: project.name},
+              'Project deletion queued. Progress appears in Project configuration.', 'project-feedback')};
+          break;
+        }
         case 'delete-device': {
           if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
           const count = state.assignments.filter(row => row.device === device.id).length;

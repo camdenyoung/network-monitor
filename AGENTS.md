@@ -150,7 +150,7 @@ contains historical records which can include currently suppressed child faults.
 
 Service monitor cards use a compact native details/summary Actions menu. Retain
 open menu state during background refreshes; close on choosing an action.
-History supports graph/table views over the latest 200 readings. Numeric graphs
+History supports graph/table views over selected deployment/time ranges (legacy API retains latest 200). Numeric graphs
 use lines; states use labeled steps. Preserve explicit/long gaps; never connect
 readings from different configuration revisions. No external chart dependencies.
 Optional UI logic checks: `node tests/dashboard.test.mjs` (Node 18+).
@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 64. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 65. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -691,3 +691,30 @@ project, label it Select a project. Keep toolbar dimensions/alignment unchanged.
 
 Keep build history and release notes in CHANGELOG.md, linked near the top of
 README.md. README.md contains setup/usage guidance, not duplicated release logs.
+
+Project deletion: app/project_deletion.py owns a durable project_deletions job table.
+Admin/CSRF project-delete queues a named/captured project, rejects a running target,
+quarantines assignments/services and clears a matching paused_run. Worker batches
+1,000 samples per transaction, purges service-owned issues/outbox/audit/stability,
+then scans a captured row-ID horizon in bounded chunks for legacy orphan readings
+owned by the project's deployments. Finally remove runs/assignments/logo/project.
+Preserve devices, defaults, library, accounts and other projects. Keep completed
+job metadata. Persist project ID counters through next_record_id to prevent reuse.
+Resume queued/running jobs on startup; failed jobs require explicit retry. While
+unfinished, reject configuration changes and backup downloads. Block restore
+while queued/running; allow restoring a prior backup as recovery from a failed job. Operational pause,
+notification pause and acknowledgement remain available. Status/progress is Admin-only
+in /api/state. Restore migrates the job table; never delete shared inventory.
+
+History ranges: app/history.py validates service/run project ownership, finite
+start/end and a 31-day maximum. Query sample_lookup in timestamp-keyed batches
+without LOCK, cap concurrency at four and graph work at 20s. Short graphs <=2,000
+points are exact; numeric summaries retain first/last/min/max in 300 buckets.
+State transitions are exact until the cap, then explicitly flag summary overflow.
+Segment IDs preserve invalid/missing/revision gaps; aggregated points must not
+create false gaps just because points are farther than 60s apart. Table mode uses
+200 exact readings per page with timestamp/id cursors. Keep the legacy no-range
+API response for older clients. Browser history GET timeout is 30s; other reads
+remain 8s. Dialog presets/custom datetime-local ranges use browser timezone and
+all project deployments, including paused/previous runs. Request tokens reject
+stale/closed-dialog responses; graph and exact table use the same interval.

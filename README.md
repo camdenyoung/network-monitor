@@ -1,4 +1,4 @@
-# Network Monitor v0.4.4 · Build 64
+# Network Monitor v0.4.4 · Build 65
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -132,7 +132,7 @@ are independent; notification flags enable or mute outbound messages per host.
   and optional credential replacement. Blank edited credentials stay unchanged.
 - Warning/critical thresholds, configurable persistence, issue recovery and local
   acknowledgement; unknown/stale status after 60 seconds without a reading.
-- Recent metric table (latest 200 readings per service/run), retention in days.
+- Service history with time presets/custom dates, deployment selection, bounded graphs and exact-reading table pages; retention in days.
 - Consistent SQLite backup and validated restore with polling paused afterwards.
 - Local web UI, Compose health check, non-root container, persistent volume.
 
@@ -176,8 +176,7 @@ CLI recovery command and versioned encrypted archives remain planned.
   Networks that block ICMP will show hosts as offline and suppress their child services.
 - Inventory creation/editing/deletion and service creation/editing/removal are present; multi-service device profiles, project cloning, and project readiness
   checks remain to be added.
-- History graphs cover the latest 200 readings in the active deployment. A full
-  historical run selector and longer-range graph queries remain to be added.
+- History supports up to 31 days per request. Long graphs are summarised; exact readings remain available through table pages. Requests have bounded work/concurrency; choose a shorter range if a slow-storage query reaches its time budget.
 - No hysteresis, upstream network dependencies, maintenance windows, configurable polling intervals,
   or notification reminders yet. Recovery uses the same thresholds as triggering.
 - No scheduled/off-site/encrypted backups, pre-upgrade backup automation, schema
@@ -619,3 +618,45 @@ server-sent events. The stream carries only an opaque change revision; dashboard
 still fetch normal API data with their existing permissions. Reverse proxies must
 allow streaming without buffering this path. Ordinary ten-second refresh remains
 available if streaming is interrupted, and reconnect/tab-focus refresh catches up.
+
+## Delete a project
+
+Admins can use **Project configuration → Edit selected project → Delete project**.
+Pause monitoring first if this is the running project. The app-styled confirmation
+names the project and explains the permanent deletion before starting a background
+job. Progress appears in Project configuration; interrupted jobs continue after
+restart. If a database error stops a job, check storage and use Retry project deletion.
+
+Deletion removes the project's assignments, services, deployments, readings,
+issues, acknowledgement audit, notification outbox entries and logo. It preserves
+permanent equipment, inventory service defaults, reusable library definitions,
+users and other projects. Legacy orphan readings are removed by deployment too.
+Completed job metadata remains available to report the result. Physical SQLite
+file space is reused; deleting rows does not automatically shrink the file.
+
+Small deletion batches allow monitoring and acknowledgements for other projects
+to continue. Configuration changes and complete backup downloads are unavailable
+while deletion is unfinished. Restore is blocked while a deletion is running;
+a failed job can be retried or replaced by restoring an earlier complete backup. Deletion cannot be cancelled
+once confirmed; recover deleted project data by restoring an earlier complete backup.
+
+## Service history periods
+
+Open **History / graph** for a service. Choose its deployment and a preset:
+15 minutes, one hour, six hours, 24 hours or seven days. Alternatively choose custom
+From/To dates and Apply range. Times use the browser's local timezone. A single
+request can cover up to 31 days; retention still applies globally by reading age.
+The dialog explains empty ranges and the configured retention period.
+
+The graph uses the current configuration revision, while the table includes
+retained readings from every configuration in the selected deployment/range.
+Short graphs show up to 2,000 exact points. Longer numeric graphs retain first,
+last, minimum and maximum values per time bucket; collection/revision gaps remain
+broken. State graphs preserve transitions up to the point limit, then explicitly
+warn when a shorter period/table is needed to see every state change. The table
+shows exact readings in pages of 200, with Newer/Older controls.
+
+History reads use the existing service/time index in short batches and never
+hold the global monitor lock. Up to four range requests run concurrently, with a
+20-second graph work budget and a 30-second browser read timeout. These new range
+queries have regression coverage but have not been capacity-tested on the Pi.

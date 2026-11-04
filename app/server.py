@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability, live_updates, presence
+from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -86,6 +86,7 @@ def initialize():
             THEN CAST(COALESCE(MAX(id),0) AS TEXT) ELSE '0' END FROM runs""")
         migrate_inventory_addresses(db)
         migrate_service_lifecycle(db)
+        project_deletion.ensure_table(db)
         ensure_service_library(db)
         ensure_inventory_services(db)
         migrate_value_types(db)
@@ -340,7 +341,7 @@ def migrate_service_lifecycle(db):
         db.execute('ALTER TABLE samples ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
     ensure_sample_indexes(db)
     # Remember IDs before deletion, so delayed polling cannot attach to a new item.
-    for table in ('devices', 'assignments', 'services', 'runs', 'incidents'):
+    for table in ('projects', 'devices', 'assignments', 'services', 'runs', 'incidents'):
         maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
         db.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',
                    ('last_id_' + table, str(maximum)))
@@ -356,6 +357,7 @@ def ensure_sample_indexes(db):
     Log each build so an upgrade does not look like a silently stalled startup.
     """
     indexes = {
+        'sample_lookup': 'samples(service,timestamp)',
         'sample_current': 'samples(service,run,revision,id DESC)',
         'sample_expiry': 'samples(timestamp)',
     }
@@ -479,7 +481,7 @@ def display_value(service, value):
 
 def next_record_id(db, table):
     """Allocate a durable ID even after the highest existing record is deleted."""
-    if table not in ('devices', 'assignments', 'services', 'runs', 'incidents'):
+    if table not in ('projects', 'devices', 'assignments', 'services', 'runs', 'incidents'):
         raise ValueError('Unsupported record type')
     maximum = db.execute(f'SELECT COALESCE(MAX(id), 0) FROM {table}').fetchone()[0]
     value = max(maximum, int(setting(db, 'last_id_' + table))) + 1
@@ -966,8 +968,9 @@ def duplicate_project(db, source_id, name):
     source = db.execute('SELECT * FROM projects WHERE id=?', (source_id,)).fetchone()
     if source is None:
         raise ValueError('Unknown source project')
-    project = db.execute('INSERT INTO projects(name,status_ack_enabled) VALUES(?,?)',
-                         (name, source['status_ack_enabled'])).lastrowid
+    project = next_record_id(db, 'projects')
+    db.execute('INSERT INTO projects(id,name,status_ack_enabled) VALUES(?,?,?)',
+               (project, name, source['status_ack_enabled']))
     db.execute("""INSERT INTO project_logos(project,image,mime,digest)
         SELECT ?,image,mime,digest FROM project_logos WHERE project=?""", (project, source_id))
     for assignment in db.execute('SELECT * FROM assignments WHERE project=? AND removed=0', (source_id,)).fetchall():
@@ -1014,11 +1017,20 @@ def acknowledge_status_incident(db, incident_id, actor):
 def mutate(action, body, actor=None):
     acknowledgement_changed = False
     with LOCK, connect() as db:
-        if action == 'project':
+        deletion = project_deletion.unfinished(db)
+        operational = ('ack', 'status-ack', 'unack', 'status-unack', 'pause', 'resume', 'notification-pause', 'project-delete')
+        if deletion and (action not in operational or
+                         (action == 'resume' and int(body['project']) == deletion['project'])):
+            raise project_deletion.DeletionError('Project deletion is in progress. Configuration changes are unavailable until it finishes or is retried.')
+        if action == 'project-delete':
+            job = project_deletion.request(db, int(body['project']), body['expected_name'])
+            return {'job': job}
+        elif action == 'project':
             name = body['name'].strip()
             if not name or len(name) > 100:
                 raise ValueError('Project names must contain 1–100 characters')
-            project = db.execute('INSERT INTO projects(name) VALUES(?)', (name,)).lastrowid
+            project = next_record_id(db, 'projects')
+            db.execute('INSERT INTO projects(id,name) VALUES(?,?)', (project, name))
             source_logo = body.get('logo_project')
             if source_logo not in (None, ''):
                 # Copy image data, not a link to another project's mutable branding.
@@ -1565,6 +1577,9 @@ class Handler(BaseHTTPRequestHandler):
                     sessions = dict(db.execute('SELECT csrf,user_id FROM sessions WHERE expires>?',
                                                (time.time(),)))
                 state['dashboard_presence'] = presence.tracker.counts(sessions)
+                with connect() as db:
+                    state['project_deletions'] = [dict(row) for row in db.execute(
+                        'SELECT * FROM project_deletions ORDER BY id DESC LIMIT 20')]
             self.send(json.dumps(state))
         elif self.path == '/api/library-export':
             with connect() as db:
@@ -1575,6 +1590,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/api/backup':
             # Exclude live sessions from portable backups.
             with LOCK, connect() as source:
+                if project_deletion.unfinished(source):
+                    return self.send(json.dumps({'error': 'Finish or retry project deletion before downloading a backup.'}), status=409)
                 destination = sqlite3.connect(':memory:')
                 source.backup(destination)
                 destination.execute('DELETE FROM sessions')
@@ -1590,12 +1607,19 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import parse_qs, urlsplit
             try:
                 query = parse_qs(urlsplit(self.path).query)
-                with connect() as db:
-                    rows = db.execute('SELECT timestamp,value,status,display_value,revision FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
-                                      (int(query['service'][0]), int(query['run'][0]))).fetchall()
-                self.send(json.dumps([dict(row) for row in rows]))
-            except (KeyError, ValueError):
-                self.send('{"error":"Invalid history request"}', status=400)
+                if 'start' in query or 'end' in query:
+                    result = history.read(connect, query)
+                else:
+                    # Keep the legacy latest-200 response for older clients.
+                    with connect() as db:
+                        result = [dict(row) for row in db.execute(
+                            'SELECT timestamp,value,status,display_value,revision FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
+                            (int(query['service'][0]), int(query['run'][0])))]
+                self.send(json.dumps(result))
+            except history.HistoryError as error:
+                self.send(json.dumps({'error': str(error)}), status=400)
+            except (KeyError, ValueError, OverflowError):
+                self.send('{"error":"Choose an available service/deployment and a valid time range of up to 31 days."}', status=400)
         else:
             self.send('{"error":"Not found"}', status=404)
 
@@ -1625,6 +1649,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/project-logo?'):
                 project = int(parse_qs(urlsplit(self.path).query)['project'][0])
                 with LOCK, connect() as db:
+                    if project_deletion.unfinished(db):
+                        raise project_deletion.DeletionError('Finish project deletion before changing logos.')
                     logos.save(db, project, payload)
             elif self.path == '/api/restore':
                 if self.headers.get('Content-Type') != 'application/octet-stream':
@@ -1632,6 +1658,10 @@ class Handler(BaseHTTPRequestHandler):
                 candidate = sqlite3.connect(':memory:')
                 try:
                     candidate.deserialize(payload)
+                    with LOCK, connect() as current:
+                        job = project_deletion.unfinished(current)
+                        if job and job['state'] != 'failed':
+                            raise project_deletion.DeletionError('Wait for running project deletion before restoring a backup.')
                     if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise ValueError('Invalid backup')
                     required = {'projects', 'devices', 'assignments', 'services', 'runs', 'settings', 'samples', 'incidents'}
@@ -1646,6 +1676,7 @@ class Handler(BaseHTTPRequestHandler):
                     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
                     migrate_inventory_addresses(candidate)
                     migrate_service_lifecycle(candidate)
+                    project_deletion.ensure_table(candidate)
                     ensure_service_library(candidate)
                     ensure_inventory_services(candidate)
                     migrate_value_types(candidate)
@@ -1675,6 +1706,9 @@ class Handler(BaseHTTPRequestHandler):
                     candidate.execute('DELETE FROM login_attempts')
                     candidate.commit()
                     with LOCK, connect() as destination:
+                        job = project_deletion.unfinished(destination)
+                        if job and job['state'] != 'failed':
+                            raise project_deletion.DeletionError('Wait for running project deletion before restoring a backup.')
                         candidate.backup(destination)
                 finally:
                     candidate.close()
@@ -1725,6 +1759,8 @@ class Handler(BaseHTTPRequestHandler):
                     if result is not None:
                         return self.send(json.dumps({'ok': True, **result}))
             self.send('{"ok":true}')
+        except project_deletion.DeletionError as error:
+            self.send(json.dumps({'error': str(error)}), status=400)
         except service_library.LibraryImportError as error:
             self.send(json.dumps({'error': str(error)}), status=400)
         except (ValueError, KeyError, sqlite3.Error, OverflowError, TypeError):
@@ -1734,6 +1770,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     initialize()
     threading.Thread(target=poll_loop, daemon=True).start()
+    threading.Thread(target=project_deletion.worker, args=(connect, LOCK), daemon=True).start()
     threading.Thread(target=notifications.worker, args=(connect, LOCK, host_is_up), daemon=True).start()
     print('Local monitor listening on port 8080', flush=True)
     ThreadingHTTPServer((os.environ.get('MONITOR_HOST', '0.0.0.0'), 8080), Handler).serve_forever()

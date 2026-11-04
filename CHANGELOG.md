@@ -4,6 +4,14 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 65 — v0.4.4 (project deletion and history ranges branch)
+
+- Add Admin-only confirmed project deletion with persistent background progress, bounded cleanup, restart/retry support and shared inventory/library preservation.
+- Prevent deleting a running project; quarantine queued data and temporarily block configuration/backups while deletion is unfinished and restore while queued/running. Retain completed job metadata and never reuse deleted project IDs.
+- Add history deployment selection, time presets and custom local date ranges up to 31 days. Use bounded graph summaries with preserved numeric extremes/gaps, state-transition handling and exact-reading table pagination.
+- Keep range queries indexed and separate from the monitor lock, with bounded concurrency/work and stale-response protection. Preserve the legacy latest-200 API for older clients.
+
+
 ### Build 64 — v0.4.4
 
 - Move build history and release notes from README.md into CHANGELOG.md, with a README link and updated release-maintenance instructions.

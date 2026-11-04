@@ -2146,3 +2146,104 @@ assert.equal(element('project').value,'3');
 await projectSelectionContext({active_run:'0',paused_run:'0'},[]);
 assert.equal(element('project').value,'');
 console.log('Initial project selection prefers active/paused deployments, preserves manual choices and handles missing/empty projects.');
+
+// Project deletion uses the shared captured-target confirmation and reports a job.
+const deleteProjectData = {...fixture, projects:[{id:1,name:'<Delete & project>'},{id:2,name:'Keep project'}],
+  settings:{...fixture.settings,active_run:'1',paused_run:'0'},project_deletions:[]};
+const projectDeleteRequests = [];
+const projectDeleteContext = vm.createContext({document:context.document,setInterval(){},
+  localStorage:{getItem(){return null;},setItem(){}},
+  fetch:async (path, options) => {
+    if (path === '/api/project-delete') {
+      projectDeleteRequests.push(JSON.parse(options.body));
+      deleteProjectData.project_deletions=[{id:1,project:1,project_name:'<Delete & project>',state:'queued',deleted_samples:0,error:''}];
+      return {ok:true,json:async () => ({ok:true,job:1})};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'admin',username:'admin'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : deleteProjectData};
+  }});
+new vm.Script(script).runInContext(projectDeleteContext);
+await projectDeleteContext.initializeSession();
+assert.equal(element('delete-project').disabled,true);
+assert.throws(() => projectDeleteContext.openAdministrativeConfirmation('delete-project',{project:1}),/Pause monitoring/);
+deleteProjectData.settings.active_run='0'; deleteProjectData.settings.paused_run='1';
+await projectDeleteContext.refresh();
+assert.equal(element('delete-project').disabled,false);
+element('delete-project').onclick();
+assert.equal(element('app-confirmation-context').textContent,'<Delete & project>');
+assert.match(element('app-confirmation-description').textContent,/Permanent inventory, reusable services and other projects are kept/);
+element('cancel-app-action').onclick();
+assert.equal(projectDeleteRequests.length,0);
+element('delete-project').onclick();
+element('project').value='2'; element('project').onchange();
+await projectDeleteContext.refresh();
+await element('confirm-app-action').onclick();
+assert.equal(projectDeleteRequests.length,1);
+assert.equal(projectDeleteRequests[0].project,1);
+assert.equal(projectDeleteRequests[0].expected_name,'<Delete & project>');
+assert.equal(element('project-deletion-notice').hidden,false);
+assert.match(element('project-deletion-jobs').innerHTML,/&lt;Delete &amp; project&gt;/);
+deleteProjectData.projects=[{id:2,name:'Keep project'}];
+deleteProjectData.project_deletions[0].state='completed';
+await projectDeleteContext.refresh();
+assert.equal(element('project-deletion-notice').hidden,true);
+console.log('Project deletion confirms a fixed target, protects active projects, preserves shared-data wording and displays progress.');
+
+// History ranges share one deployment/time scope across graph and exact table pages.
+const historyRequests = [];
+const historyData = {...fixture,settings:{...fixture.settings,active_run:'0',paused_run:'1'},
+  services:fixture.services.map(service => service.id === 2 ? {...service,value_type:'metric',units:'dBm'} : service)};
+let historyGraphReply;
+const rangeHistoryContext = vm.createContext({document:context.document,setInterval(){},
+  localStorage:{getItem(){return null;},setItem(){}},
+  fetch:async path => {
+    if (path.startsWith('/api/history?')) {
+      const query = new URL(path,'http://monitor.test').searchParams;
+      historyRequests.push(query);
+      const rows = [{id:2,timestamp:now-30,value:-55,status:'healthy',display_value:'-55',revision:1},
+        {id:1,timestamp:now-60,value:-80,status:'critical',display_value:'-80',revision:1}];
+      const data = query.get('mode') === 'graph'
+        ? {rows,total:2,aggregated:false,retention_days:30}
+        : {rows:query.has('before_id') ? rows.slice(1) : rows,next:query.has('before_id') ? null : {before_id:1,before_time:now-60}};
+      if (query.get('mode') === 'graph' && historyGraphReply) await historyGraphReply;
+      return {ok:true,json:async () => data};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:2,role:'viewer',username:'reader'} : historyData};
+  }});
+new vm.Script(script).runInContext(rangeHistoryContext);
+await rangeHistoryContext.initializeSession();
+await rangeHistoryContext.openHistory(2);
+assert.equal(element('history').open,true);
+assert.equal(element('history-deployment').value,'1');
+assert.match(element('history-description').textContent,/2 retained readings/);
+assert.match(element('history-graph').innerHTML,/<svg/);
+assert.equal(historyRequests[0].get('run'),'1');
+assert.equal(historyRequests[0].get('start'),historyRequests[1].get('start'));
+element('show-history-table').onclick();
+assert.equal(element('history-table').hidden,false);
+await element('history-older').onclick();
+assert.match(element('history-page').textContent,/Page 2/);
+await element('history-newer').onclick();
+assert.match(element('history-page').textContent,/Page 1/);
+element('history-start').value='2026-11-01T00:00:00';
+element('history-end').value='2026-11-02T00:00:00';
+element('history-start').oninput();
+assert.equal(element('history-period').value,'custom');
+await rangeHistoryContext.loadHistoryRange();
+assert.equal(historyRequests.at(-1).get('start'),String(new Date('2026-11-01T00:00:00').getTime()/1000));
+const beforeInvalidRange = historyRequests.length;
+element('history-end').value='2026-10-01T00:00:00';
+await rangeHistoryContext.loadHistoryRange();
+assert.equal(historyRequests.length,beforeInvalidRange);
+assert.match(element('history-feedback').textContent,/Choose valid/);
+// Closing a dialog makes an in-flight response ineligible to repaint it.
+element('history-end').value='2026-11-02T00:00:00';
+let releaseHistory;
+historyGraphReply = new Promise(resolve => {releaseHistory=resolve;});
+const pendingHistory = rangeHistoryContext.loadHistoryRange();
+element('history').close(); element('history').onclose();
+const priorGraph = element('history-graph').innerHTML;
+releaseHistory(); await pendingHistory;
+assert.equal(element('history-graph').innerHTML,priorGraph);
+console.log('History presets/custom dates, paused deployment selection, graph/table paging, validation and stale-response cancellation passed.');
