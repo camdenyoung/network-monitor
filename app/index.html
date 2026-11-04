@@ -167,7 +167,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.1 · Build 55</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.1 · Build 56</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -713,6 +713,7 @@
       }
       function failed(error) {
         failureMessages.add(error.message);
+        failureMessages.add(error.message + ' — Server connection lost');
         notice.textContent = 'Server connection lost. Displayed information may be stale. Retrying automatically…';
         notice.hidden = false;
         check();
@@ -742,7 +743,8 @@
         }, true);
       }
       setInterval(check, 1000);
-      return {check, failed, healthy, isLocked: () => locked};
+      return {check, failed, healthy, isLocked: () => locked,
+        isFailure: error => failureMessages.has(error.message)};
     }
     const connectionGuard = createConnectionGuard();
 
@@ -1393,7 +1395,9 @@
       el('message').classList.toggle('success', success);
     }
 
-    function report(error) { notify(error.message); }
+    function report(error) {
+      notify(connectionGuard.isFailure(error) ? error.message + ' — Server connection lost' : error.message);
+    }
 
     function updateValueMode(form) {
       const stateMode = form.elements.namedItem('value_type').value === 'state';

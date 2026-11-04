@@ -1,9 +1,14 @@
-# Network Monitor v0.4.1 · Build 55
+# Network Monitor v0.4.1 · Build 56
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 56 — v0.4.1 (dashboard connection recovery branch)
+
+- Append Server connection lost to the Admin Dashboard's connectivity error text, and clear the full message automatically after recovery.
+
 
 ### Build 55 — v0.4.1 (dashboard connection recovery branch)
 

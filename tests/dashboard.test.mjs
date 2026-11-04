@@ -2034,7 +2034,7 @@ console.log('Notification pause pulses with reduced-motion support; selected dep
 const recoveredFetch = mainLiveContext.fetch;
 mainLiveContext.fetch = async () => {throw new TypeError('Failed to fetch');};
 await mainLiveContext.refresh().catch(mainLiveContext.report);
-assert.equal(element('message').textContent,'Failed to fetch');
+assert.equal(element('message').textContent,'Failed to fetch — Server connection lost');
 const advancedTime = Date.now() + 31000;
 mainLiveContext.Date = class extends Date {static now(){return advancedTime;}};
 vm.runInContext('connectionGuard.check()',mainLiveContext);

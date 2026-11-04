@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.1, Build 55. Show it after the title on both the main and
+Current displayed release is v0.4.1, Build 56. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -669,3 +669,6 @@ Keep the decorative spinner aria-hidden and retain accessible status text.
 
 Status Dashboard connection-notice sits immediately below summary near the top,
 so the initial retry notice appears beneath Failed to fetch before issue/host lists.
+
+Admin report appends — Server connection lost only for errors recorded by the
+connection guard. Recovery clears both the original and annotated error messages.
