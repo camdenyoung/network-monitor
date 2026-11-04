@@ -2247,3 +2247,42 @@ const priorGraph = element('history-graph').innerHTML;
 releaseHistory(); await pendingHistory;
 assert.equal(element('history-graph').innerHTML,priorGraph);
 console.log('History presets/custom dates, paused deployment selection, graph/table paging, validation and stale-response cancellation passed.');
+
+// Action groups move together at their measured fit boundary, independently.
+let toolbarRight = 1600;
+const projectActionWidths = [280,190,180];
+const deploymentActionWidths = [220,210];
+const toolbarNodes = new Map();
+for (const [id,widths] of [['project-actions',projectActionWidths],['deployment-actions',deploymentActionWidths]]) {
+  const classes = new Set();
+  toolbarNodes.set(id,{classes,classList:{toggle(name,on){if(on)classes.add(name);else classes.delete(name);}},
+    querySelectorAll:() => widths.map(width => ({getBoundingClientRect:() => ({width})}))});
+}
+toolbarNodes.set('deployment-toolbar',{getBoundingClientRect:() => ({right:toolbarRight})});
+toolbarNodes.set('project',{getBoundingClientRect:() => ({right:568})});
+const toolbarContext = vm.createContext({el:id => toolbarNodes.get(id),
+  getComputedStyle:() => ({paddingRight:'16px',borderRightWidth:'1px',columnGap:'12px'})});
+const toolbarFunction = script.match(/    function updateToolbarLayout\(\) \{[\s\S]+?\n    \}/)[0];
+new vm.Script(toolbarFunction).runInContext(toolbarContext);
+const isBelow = id => toolbarNodes.get(id).classes.has('controls-below');
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),false);
+assert.equal(isBelow('deployment-actions'),false);
+toolbarRight = 1271; // Exactly 674px is available for the three-button group.
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),false);
+toolbarRight = 1270;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),true);
+assert.equal(isBelow('deployment-actions'),false);
+toolbarRight = 1038;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('deployment-actions'),true);
+toolbarRight = 1300;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),false);
+projectActionWidths[0] = 330; projectActionWidths[1] = 210; projectActionWidths[2] = 195;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),true);
+assert.equal(isBelow('deployment-actions'),false);
+console.log('Toolbar groups move below dropdowns at their fit boundaries and react to longer Pause/Resume labels.');

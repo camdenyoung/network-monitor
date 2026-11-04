@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 66 — v0.4.4 (project deletion and history ranges branch)
+
+- Move each complete deployment action group below its dropdown as soon as the buttons no longer fit alongside it. Re-evaluate on resize and button-label changes; preserve aligned dropdowns and narrow-screen wrapping.
+
+
 ### Build 65 — v0.4.4 (project deletion and history ranges branch)
 
 - Add Admin-only confirmed project deletion with persistent background progress, bounded cleanup, restart/retry support and shared inventory/library preservation.

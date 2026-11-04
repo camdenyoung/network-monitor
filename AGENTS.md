@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 65. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 66. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -718,3 +718,11 @@ API response for older clients. Browser history GET timeout is 30s; other reads
 remain 8s. Dialog presets/custom datetime-local ranges use browser timezone and
 all project deployments, including paused/previous runs. Request tokens reject
 stale/closed-dialog responses; graph and exact table use the same interval.
+
+Admin project toolbar measures complete button groups against the shared action
+column's available width. If the three project actions do not fit, move the whole
+group below Selected project. Independently move both previous-deployment actions
+below their dropdown if they do not fit. Keep groups nowrap until moved; allow
+narrow-screen wrapping afterward. ResizeObserver watches toolbar/buttons and
+refresh/resize also update placement; no fixed desktop breakpoint or DOM moves.
+Preserve logo reservation, dropdown edges, button listeners and keyboard order.

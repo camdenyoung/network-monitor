@@ -110,9 +110,13 @@
     /* Reserve the logo column even when hidden; both selector/action rows align. */
     .project-toolbar { display: grid; grid-template-columns: 180px minmax(0, 360px) minmax(0, 1fr); align-items: start; }
     .project-toolbar > small { grid-column: 1 / -1; }
-    /* Reserve one label line so the first action still aligns if buttons wrap. */
-    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: wrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
-    .project-actions > button, .deployment-actions > button { min-height: 38px; }
+    /* Keep each action group intact until its full natural width no longer fits. */
+    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: nowrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
+    .project-actions > button, .deployment-actions > button { min-height: 38px; flex-shrink: 0; max-width: none; white-space: nowrap; }
+    .project-actions.controls-below { grid-column: 2 / -1; }
+    .deployment-actions.controls-below { grid-column: 1 / -1; }
+    .project-actions.controls-below, .deployment-actions.controls-below { padding-top: 0; flex-wrap: wrap; }
+    .controls-below > button { max-width: 100%; white-space: normal; }
     .project-selector, .deployment-controls label { grid-template-rows: 16px auto; gap: 5px; line-height: 16px; }
     .project-selector select, .deployment-controls select { height: 38px; font-size: 15px; }
     .deployment-controls { display: contents; }
@@ -147,6 +151,7 @@
       .project-settings-grid, .project-toolbar { grid-template-columns: minmax(0, 1fr); }
       .project-selector, .project-actions, .deployment-controls label, .deployment-actions, .deployment-controls small { grid-column: 1; }
       .project-actions, .deployment-actions { padding-top: 0; }
+      .project-actions.controls-below, .deployment-actions.controls-below { grid-column: 1; }
     }
     .project-logo-placeholder { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #435b78; border-radius: 6px; background: #101b29; color: #a9bad0; font-size: 12px; }
     .project-logo-placeholder svg { width: 24px; height: 24px; color: #7cddd0; }
@@ -177,7 +182,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 65</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 66</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -190,7 +195,7 @@
   </nav>
   <p id="message" role="status"></p>
   <p id="project-deletion-notice" data-admin role="status" hidden></p>
-  <section class="toolbar project-toolbar">
+  <section id="deployment-toolbar" class="toolbar project-toolbar">
     <div class="project-logo-slot">
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
       <div id="project-logo-placeholder" class="project-logo-placeholder">
@@ -204,7 +209,7 @@
       </div>
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
-    <div data-admin class="project-actions">
+    <div id="project-actions" data-admin class="project-actions">
       <button id="activate" class="primary">Activate / start new deployment</button>
       <button id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
       <button id="notifications-toggle" aria-pressed="true">Pause notifications</button>
@@ -213,7 +218,7 @@
     <small id="deployment-details"></small>
     <div data-admin class="deployment-controls">
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
-      <div class="deployment-actions">
+      <div id="deployment-actions" class="deployment-actions">
         <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
         <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
       </div>
@@ -983,7 +988,7 @@
     document.addEventListener?.('scroll', event => {
       if (!event.target.closest?.('.menu-buttons')) closeActionMenus();
     }, true);
-    globalThis.addEventListener?.('resize', closeActionMenus);
+    globalThis.addEventListener?.('resize', () => { closeActionMenus(); updateToolbarLayout(); });
 
     // Configuration areas are exclusive tabs. Start closed on each page load.
     const configurationSections = [
@@ -1193,6 +1198,28 @@
       restoreActionMenu();
     }
 
+    function updateToolbarLayout() {
+      const toolbar = el('deployment-toolbar');
+      if (typeof toolbar.getBoundingClientRect !== 'function' || typeof getComputedStyle !== 'function') return;
+      const style = getComputedStyle(toolbar);
+      const right = toolbar.getBoundingClientRect().right - (parseFloat(style.paddingRight) || 0)
+        - (parseFloat(style.borderRightWidth) || 0);
+      const available = Math.max(0, right - el('project').getBoundingClientRect().right
+        - (parseFloat(style.columnGap) || 0));
+      // Measure all groups before changing classes to avoid repeated layout work.
+      const changes = ['project-actions','deployment-actions'].map(id => {
+        const group = el(id);
+        const widths = [...group.querySelectorAll('button')].map(button => button.getBoundingClientRect().width);
+        if (!widths.some(width => width > 0)) return null; // Hidden for non-Admins.
+        const gap = parseFloat(getComputedStyle(group).columnGap) || 0;
+        const required = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
+        return {group, below: required > available + 0.5};
+      });
+      for (const change of changes) {
+        if (change) change.group.classList.toggle('controls-below', change.below);
+      }
+    }
+
     function updateProjectDeletion(project, run) {
       const jobs = state.project_deletions || [];
       const unfinished = jobs.find(job => job.state !== 'completed');
@@ -1392,6 +1419,7 @@
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
+      updateToolbarLayout();
       connectionGuard.healthy();
       connectAcknowledgementUpdates();
     }
@@ -2907,6 +2935,14 @@
     }
     async function initializeSession() {
       if (await loadSession()) await refresh();
+    }
+    if (typeof ResizeObserver === 'function') {
+      // Width changes include browser zoom, font changes and Pause/Resume labels.
+      const toolbarObserver = new ResizeObserver(updateToolbarLayout);
+      toolbarObserver.observe(el('deployment-toolbar'));
+      for (const id of ['project-actions','deployment-actions']) {
+        for (const button of el(id).querySelectorAll('button')) toolbarObserver.observe(button);
+      }
     }
     initializeSession().then(connectAcknowledgementUpdates).catch(report);
     setInterval(() => refresh().catch(report), 10000);
