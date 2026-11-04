@@ -1173,7 +1173,8 @@ const resumeContext = vm.createContext({document:context.document,localStorage:c
             const body = JSON.parse(options.body);
             resumeRequests.push(body);
             if (rejectResume) return {ok:false,json:async () => ({error:'Cannot resume deployment'})};
-            deploymentFixture.settings.active_run = String(body.run);
+            deploymentFixture.settings.active_run = '0';
+            deploymentFixture.settings.paused_run = String(body.run);
             deploymentFixture.settings.notifications_paused = '1';
             return {ok:true,json:async () => ({ok:true})};
         }
@@ -1224,7 +1225,8 @@ element('resume-selected-deployment').onclick();
 rejectResume = false;
 await element('confirm-resume-deployment').onclick();
 assert.equal(element('resume-deployment-dialog').open, false);
-assert.equal(element('resume-selected-deployment').disabled, true);
+assert.equal(element('monitoring-toggle').textContent, 'Resume all monitoring');
+assert.equal(element('monitoring-toggle').disabled, false);
 assert.equal(element('notifications-toggle').textContent, 'Resume notifications');
 assert.match(element('deployment-details').textContent, /Original setup/);
 element('project').value = '2';
@@ -1240,6 +1242,9 @@ assert.match(element('previous-deployment').innerHTML, /No previous deployments/
 assert.equal(element('resume-selected-deployment').disabled, true);
 console.log('Previous deployments can be reviewed and resumed with project filtering, cancellation and stale-state protection.');
 
+// Model the user explicitly resuming monitoring before testing active-run deletion protection.
+deploymentFixture.settings.active_run = '1';
+deploymentFixture.settings.paused_run = '0';
 const deleteRequests = [];
 let rejectDeploymentDelete = false;
 const previousDeleteFetch = resumeContext.fetch;
@@ -1785,8 +1790,9 @@ vm.runInContext("currentUser.role='operator'",undoContext);
 undoContext.openUnacknowledgement(501);
 undoIssue.closed = now;
 await element('confirm-unacknowledgement').onclick();
-assert.equal(undoFixture.incident_lists.resolved[0].id,501);
-assert.match(element('resolved-incidents').innerHTML,/Issue #7/);
+assert.match(element('unacknowledgement-feedback').textContent,/recovered/);
+assert.equal(undoRequests.length,2);
+element('cancel-unacknowledgement').onclick();
 console.log('Main Unacknowledge supports role checks, Cancel/Escape, inline errors, stale review and recovered routing.');
 
 // Public Unacknowledge follows project opt-in and rechecks it at confirmation.
@@ -1998,3 +2004,20 @@ const deniedStorage = {getItem(){throw new Error('Storage denied');}};
 assert.match(identityFor(html, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
 assert.match(identityFor(statusPage, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
 console.log('Connection identity survives refresh/navigation, separates fresh tabs and tolerates denied storage.');
+
+// Recovered acknowledgements retain attribution in Resolved without an undo action.
+mainLiveContext.recoveredListIssue = {...liveIssue(),closed:now,acknowledged:now-100,
+  acknowledged_by_full_name:'Alice Example',acknowledged_by_username:'alice'};
+vm.runInContext(`state.incident_lists.acknowledged=[];
+  state.incident_lists.resolved=[recoveredListIssue];`,mainLiveContext);
+const recoveredMarkup = mainLiveContext.renderIncidents([mainLiveContext.recoveredListIssue]);
+assert.match(recoveredMarkup,/Recovered/);
+assert.match(recoveredMarkup,/Alice Example/);
+assert.doesNotMatch(recoveredMarkup,/data-unack/);
+assert.throws(() => mainLiveContext.openUnacknowledgement(mainLiveContext.recoveredListIssue.id),/recovered/);
+console.log('Resolved acknowledged issues retain attribution without Unacknowledge controls.');
+
+assert.match(html, /#notifications-toggle\.notifications-paused \{[^}]*animation: paused-monitoring/);
+assert.match(html, /#monitoring-toggle\.monitoring-paused, #notifications-toggle\.notifications-paused \{ animation: none;/);
+assert.match(html, /Monitoring and notifications start paused/);
+console.log('Notification pause pulses with reduced-motion support; selected deployments wait for Resume all monitoring.');

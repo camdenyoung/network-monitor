@@ -84,6 +84,7 @@ class ServiceLibraryTransferTests(unittest.TestCase):
         server.mutate('template-apply', {'assignment': 1, 'template': template_id})
         server.mutate('device-default-from-template', {'device': 1, 'template': template_id})
         server.mutate('activate', {'project': 1, 'description': 'Keep existing history'})
+        server.mutate('resume', {'project': 1})
         with server.connect() as db:
             service = db.execute("SELECT id FROM services WHERE kind='snmp'").fetchone()[0]
             db.execute("INSERT INTO samples(run,service,timestamp,value,status) VALUES(1,?,1,-80,'critical')", (service,))

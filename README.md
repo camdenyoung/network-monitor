@@ -1,9 +1,35 @@
-# Network Monitor v0.4 · Build 48
+# Network Monitor v0.4.1 · Build 52
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 52 — v0.4.1
+
+- Merge the acknowledged recovery correction and paused deployment defaults into main.
+- Release the matching notification-pause pulse and dashboard control updates.
+
+
+### Build 51 — v0.4 (acknowledged recovery fix branch)
+
+- Pulse Resume notifications while global notification delivery is paused, matching paused monitoring and respecting reduced-motion preferences.
+- Creating a deployment or selecting a previous deployment leaves monitoring and notifications paused. Explicitly choose Resume all monitoring to begin checks, then Resume notifications when ready.
+- Preserve deployment history and individual host/service monitoring flags. The synthetic seeder explicitly resumes its disposable monitoring deployment for capacity testing.
+
+
+### Build 50 — v0.4 (acknowledged recovery fix branch)
+
+- Remove Unacknowledge from resolved issues while keeping acknowledgement attribution visible.
+- Prevent the dashboard's unacknowledgement dialog submitting an issue that has recovered during review.
+
+
+### Build 49 — v0.4 (acknowledged recovery fix branch)
+
+- Automatically move recovered issues to Resolved even when acknowledged. Keep acknowledgement names, timestamps and audit history intact.
+- Limit Acknowledged to unresolved issues on both dashboards; existing recovered records follow the corrected lists immediately, without a database migration.
+- Preserve acknowledgement attribution and audit history in Resolved.
+
 
 ### Build 48 — v0.4
 
@@ -274,6 +300,15 @@ This is a runnable development foundation, not the completed production system.
 
 ## Release notes
 
+### v0.4.1
+
+- Move all recovered issues to Resolved, including acknowledged ones, while preserving acknowledgement attribution and audit history. Existing recovered records follow the corrected lists automatically.
+- Remove Unacknowledge from resolved issues and reject dashboard submissions when an issue recovers during confirmation.
+- Default new and selected previous deployments to paused monitoring and notifications. Use Resume all monitoring to begin checks, then Resume notifications independently.
+- Pulse Resume notifications while delivery is paused, matching the monitoring control and respecting reduced-motion preferences.
+- Preserve the v0.4 load-testing improvements; the benchmark seeder explicitly resumes its disposable deployment for measurement.
+
+
 ### v0.4
 
 - Avoid full-history scans when loading dashboards, checking host dependencies and collecting fresh readings after startup/resume. Index retention cleanup and remove expired readings in bounded batches.
@@ -462,15 +497,15 @@ without login; this does not create the future public-facing relay.
    may appear in multiple saved projects.
 3. Host ping is configured automatically on assignment. Add any additional services
    using verified OIDs or register addresses.
-4. Activate the project. Activation creates a new deployment run and switches the
-   sole active project. Pausing stops collection without deleting configuration.
+4. Activate the project. Activation creates a new deployment run with monitoring and notifications paused.
+   Choose Resume all monitoring to begin checks and Resume notifications when ready. Pausing stops collection without deleting configuration.
 5. Read current metrics, recent readings, and issues in the dashboard.
 
 Numeric thresholds may be above or below a value. Critical is evaluated first;
 a configurable number of consecutive identical statuses open or recover an issue
 (default two). Acknowledgement
 records a timestamp without clearing the issue and moves it into the acknowledged
-list. It stays there after recovery. Unacknowledged recoveries appear in the resolved
+list while the fault is open. All recovered issues appear in the resolved
 list. All three lists are scoped to the active deployment. The three assignment controls
 are independent; notification flags enable or mute outbound messages per host.
 

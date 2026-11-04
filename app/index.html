@@ -133,14 +133,14 @@
     .project-logo-preview { height: 88px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; border: 1px dashed #435b78; border-radius: 6px; color: #a9bad0; }
     .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
     #monitoring-toggle[aria-pressed="true"], #notifications-toggle[aria-pressed="true"] { background: #176959; }
-    #notifications-toggle.notifications-paused { background: #765019; border-color: #ffcb69; }
+    #notifications-toggle.notifications-paused { background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
     #monitoring-toggle.monitoring-paused { background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
     @keyframes paused-monitoring {
       0%, 100% { background: #765019; }
       50% { background: #352819; }
     }
     @media (prefers-reduced-motion: reduce) {
-      #monitoring-toggle.monitoring-paused { animation: none; }
+      #monitoring-toggle.monitoring-paused, #notifications-toggle.notifications-paused { animation: none; }
     }
     @media (max-width: 760px) {
       .project-settings-grid, .project-toolbar { grid-template-columns: minmax(0, 1fr); }
@@ -157,7 +157,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4 · Build 48</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.1 · Build 52</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -459,7 +459,7 @@
   <dialog id="unacknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="unacknowledgement-title" aria-describedby="unacknowledgement-description">
     <h2 id="unacknowledgement-title">Unacknowledge issue?</h2>
     <p id="unacknowledgement-context"></p>
-    <p id="unacknowledgement-description">This removes the acknowledgement. Unresolved issues return to Active, or Suppressed when monitoring is unavailable. Recovered issues move to Resolved. Eligible reminder notifications resume after the configured interval, subject to notification pause and flap protection.</p>
+    <p id="unacknowledgement-description">This removes the acknowledgement. Unresolved issues return to Active, or Suppressed when monitoring is unavailable. Recovered issues remain in Resolved. Eligible reminder notifications resume after the configured interval, subject to notification pause and flap protection.</p>
     <div class="display-controls">
       <button id="confirm-unacknowledgement" class="primary">Unacknowledge</button>
       <button id="cancel-unacknowledgement" autofocus>Cancel</button>
@@ -502,7 +502,7 @@
     <p id="resume-deployment-context"></p>
     <p id="resume-deployment-current"></p>
     <p>This continues the deployment's retained history and issue numbering using the project's current device and service configuration. Fresh checks are required.</p>
-    <p>Notifications start paused. Choose Resume notifications when the deployment is ready.</p>
+    <p>Monitoring and notifications start paused. Choose Resume all monitoring to begin checks, then Resume notifications when ready.</p>
     <div class="display-controls">
       <button id="confirm-resume-deployment" class="primary">Resume deployment</button>
       <button id="cancel-resume-deployment" autofocus>Cancel</button>
@@ -515,7 +515,7 @@
     <label>Deployment description<textarea id="deployment-description" rows="3" maxlength="500" required placeholder="When / why is this deployment being started?"></textarea></label>
     <p>This starts a new deployment with a fresh monitoring history and issue list.
       Previous deployment data remains stored, but is no longer shown in the current dashboard.</p>
-    <p>Notifications start paused. Once the deployment is ready, explicitly choose Resume notifications to enable Telegram and WhatsApp delivery.</p>
+    <p>Monitoring and notifications start paused. Choose Resume all monitoring to begin checks, then Resume notifications to enable Telegram and WhatsApp delivery.</p>
     <p>To continue a paused deployment with its existing history, choose Cancel and use Resume all monitoring.</p>
     <div class="display-controls">
       <button id="confirm-deployment" class="primary">Continue</button>
@@ -1265,7 +1265,7 @@
         const assignment = state.assignments.find(row => row.id === service?.assignment);
         const recovery = incident.closed ? `Recovered ${date(incident.closed)}` : 'Still open';
         const acknowledgement = incident.acknowledged
-          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-unack="${incident.id}">Unacknowledge</button>` : ''}`
+          ? `Acknowledged ${date(incident.acknowledged)} by ${escapeHtml(incident.acknowledged_by_full_name || incident.acknowledged_by_username || 'Unknown user (legacy)')} ${!incident.closed && ['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-unack="${incident.id}">Unacknowledge</button>` : ''}`
           : allowAcknowledgement && ['admin', 'operator'].includes(currentUser?.role) ? `<button class="issue-action" data-ack="${incident.id}">Acknowledge</button>` : '';
         const isSuppressed = suppressed || incident.suppressed;
         const status = isSuppressed ? (incident.suppressed_reason || 'Suppressed — awaiting host / service check') : formatStatus(incident.status);
@@ -1983,9 +1983,9 @@
         pendingDeploymentResume = null;
         selectedProject = String(selection.project);
         el('resume-deployment-dialog').close();
-        notify(`Deployment #${selection.run} resumed. Notifications are paused.`, true);
+        notify(`Deployment #${selection.run} selected. Monitoring and notifications are paused.`, true);
         try { await refresh(); }
-        catch (error) { notify('Deployment resumed. Dashboard refresh failed; reload to see changes.'); }
+        catch (error) { notify('Deployment selected with monitoring and notifications paused. Dashboard refresh failed; reload to see changes.'); }
       } catch (error) { el('resume-deployment-feedback').textContent = error.message; }
       finally { button.disabled = false; cancel.disabled = false; }
     };
@@ -2042,7 +2042,7 @@
     function openUnacknowledgement(id) {
       if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
       const issue = state.incident_lists.acknowledged.find(row => String(row.id) === String(id));
-      if (!issue || issue.acknowledged == null) throw new Error('Acknowledgement is no longer available. Refresh and review it again.');
+      if (!issue || issue.closed || issue.acknowledged == null) throw new Error('Issue has recovered or acknowledgement is no longer available. Refresh and review it again.');
       const service = state.services.find(row => row.id === issue.service);
       const assignment = state.assignments.find(row => row.id === service?.assignment);
       const device = state.devices.find(row => row.id === assignment?.device);
@@ -2069,7 +2069,7 @@
         if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
         const target = pendingUnacknowledgement;
         const issue = state.incident_lists.acknowledged.find(row => row.id === target.id);
-        if (!issue || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Acknowledgement changed. Cancel and review it again.');
+        if (!issue || issue.closed || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Issue recovered or acknowledgement changed. Cancel and review it again.');
         await request('unack', target);
         pendingUnacknowledgement = null;
         el('unacknowledgement-dialog').close();
