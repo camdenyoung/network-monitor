@@ -152,7 +152,7 @@ console.log('Public incident overview smoke tests passed.');
 // an administrator allows the user to keep their assigned password.
 let submittedUser;
 context.fetch = async (path, options) => {
-    if (options) submittedUser = { path, body: JSON.parse(options.body) };
+    if (options?.method === 'POST') submittedUser = { path, body: JSON.parse(options.body) };
     let data = {};
     if (path === '/api/users') data = [{ id: 2, username: 'reader', email: 'reader@example.com', role: 'viewer', must_change_password: 0 }];
     if (path === '/api/telegram' || path === '/api/whatsapp') data = { configuration: {}, outbox: [] };
@@ -547,7 +547,7 @@ assert.equal(publicNodes.get('status-ack-note').hidden, false);
 
 let projectSubmission;
 hostOnlyMain.fetch = async (path, options) => {
-    if (options) {
+    if (options?.method === 'POST') {
         projectSubmission = {path,body:JSON.parse(options.body)};
         return {ok:true,json:async () => ({ok:true})};
     }
@@ -739,7 +739,7 @@ console.log('Resume controls preserve paused deployment identity.');
 const monitoringRequests = [];
 const originalNamedFetch = namedMain.fetch;
 namedMain.fetch = async (path, options) => {
-    if (options) {
+    if (options?.method === 'POST') {
         monitoringRequests.push({path,body:JSON.parse(options.body)});
         fixture.settings.active_run = path === '/api/pause' ? '0' : '1';
         fixture.settings.paused_run = path === '/api/pause' ? '1' : '0';
@@ -769,7 +769,7 @@ assert.equal(publicNodes.get('summary').textContent, 'Monitoring paused');
 const deploymentRequests = [];
 let rejectDeployment = false;
 namedMain.fetch = async (path, options) => {
-    if (options) {
+    if (options?.method === 'POST') {
         deploymentRequests.push({path,body:JSON.parse(options.body)});
         return {ok:!rejectDeployment,json:async () => rejectDeployment
             ? {error:'Cannot start deployment'} : {ok:true}};
@@ -961,7 +961,7 @@ const defaultsContext = vm.createContext({
     document:context.document,localStorage:context.localStorage,FormData:context.FormData,
     confirm:() => true,setInterval(){},
     fetch:async (path, options) => {
-        if (options) {
+        if (options?.method === 'POST') {
             defaultSubmission = {path,body:JSON.parse(options.body)};
             return {ok:!rejectDefaultSave,json:async () => rejectDefaultSave ? {error:'Duplicate service name'} : {ok:true}};
         }
@@ -1955,3 +1955,23 @@ const mainIssueStyle = html.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
 const publicIssueStyle = statusPage.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
 assert.equal(mainIssueStyle,publicIssueStyle);
 console.log('Live updates synchronise separate viewers, preserve permissions, serialize racing refreshes and reconnect after navigation; issue action buttons share styling.');
+
+// Presence uses one stable per-page header on normal polling, with no extra endpoint.
+const presenceRequests = [];
+const originalPresenceFetch = mainLiveContext.fetch;
+mainLiveContext.fetch = async (path, options) => {
+  presenceRequests.push({path, options});
+  const response = await originalPresenceFetch(path, options);
+  return {ok:true, json:async () => ({...await response.json(),
+    dashboard_presence:{logged_in_users:2,connections:4,activity_window_seconds:60}})};
+};
+await mainLiveContext.refresh();
+await mainLiveContext.refresh();
+assert.equal(element('dashboard-presence').textContent, 'Logged-in users: 2 · Connections: 4');
+const presenceHeaders = presenceRequests.filter(row => row.path === '/api/state')
+  .map(row => row.options.headers['X-Dashboard-Connection']);
+assert.equal(presenceHeaders.length,2);
+assert.equal(presenceHeaders[0],presenceHeaders[1]);
+assert.match(presenceHeaders[0],/^[A-Za-z0-9-]{16,80}$/);
+assert.match(statusPage,/fetch\('\/api\/status', \{headers: \{'X-Dashboard-Connection': dashboardConnection\}\}\)/);
+console.log('Presence badge shows separate account/tab counts with a stable polling identity.');

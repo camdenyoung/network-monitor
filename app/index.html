@@ -157,9 +157,11 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3.2 · Build 45</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3.2 · Build 46</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
+    <span id="dashboard-presence" data-admin class="user-badge" role="status"
+      title="Activity in the last 60 seconds. Connections count dashboard tabs, including anonymous Status Dashboard viewers. Logged-in users count distinct accounts with valid sessions.">Logged-in users: — · Connections: —</span>
     <div class="account-actions">
       <a class="button-link" href="/status" target="_blank">Status Dashboard</a>
       <a class="button-link" href="/login">Change password</a>
@@ -671,6 +673,11 @@
     <p id="alias-edit-feedback" role="status"></p>
   </dialog>
   <script>
+    // Per-page identity counts tabs separately, including anonymous status viewers.
+    // This is not a credential; use a fallback on HTTP LANs without randomUUID.
+    const dashboardConnection = globalThis.crypto?.randomUUID?.() ||
+      'dashboard-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+
     // Escape all operator/device content before inserting it into HTML.
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     const el = id => document.getElementById(id);
@@ -1043,10 +1050,14 @@
     });
 
     async function refreshDashboard() {
-      const response = await fetch('/api/state');
+      const response = await fetch('/api/state', {headers: {'X-Dashboard-Connection': dashboardConnection}});
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
       state = await response.json();
+      const presence = state.dashboard_presence;
+      el('dashboard-presence').textContent = presence
+        ? `Logged-in users: ${presence.logged_in_users} · Connections: ${presence.connections}`
+        : 'Logged-in users: — · Connections: —';
       if (!reminderSettingsLoaded) {
         el('reminder-settings-form').elements.namedItem('minutes').value = state.settings.reminder_minutes || '0';
         reminderSettingsLoaded = true;

@@ -1,9 +1,16 @@
-# Network Monitor v0.3.2 · Build 45
+# Network Monitor v0.3.2 · Build 46
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 46 — v0.3.2 (load-test improvements branch)
+
+- Show Admins the number of distinct active logged-in accounts and dashboard connections, including anonymous Status Dashboard tabs.
+- Refresh presence through normal dashboard polling; expire connections after 60 seconds without activity. Tabs count separately, while accounts are deduplicated across tabs/devices.
+- Counts are approximate, process-local and rebuilt after restart; they are not a list of all unexpired logins. Revoked/expired/logged-out sessions do not count as logged-in users. No additional database writes or heartbeat requests are required.
+
 
 ### Build 45 — v0.3.2 (load-test improvements branch)
 

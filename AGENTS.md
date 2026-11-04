@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3.2, Build 45. Show it after the title on both the main and
+Current displayed release is v0.3.2, Build 46. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -618,3 +618,12 @@ current_samples handles fresh-read gaps after resume: fetch the latest N IDs fir
 then fall back to sample_lookup's timestamp range if pre-resume rows are present.
 Use it for snapshot, host dependency and persistence checks. Never fill a limit by
 scanning all pre-resume history. Keep latest-ID semantics for out-of-order imports.
+
+Dashboard presence lives in app/presence.py. Main and public status polling carry
+an opaque per-page X-Dashboard-Connection ID. Count tabs/connections (including
+anonymous viewers) separately from distinct active authenticated accounts. Expire
+at 60 seconds using monotonic time; cap at 4,096 entries. Validate session CSRF IDs
+against current nonexpired sessions before counting users; never expose IDs/tokens
+or counts on public/status or non-Admin state responses. No new DB writes or
+session-lifetime extension. Counts rebuild after restart and are approximate;
+multiple tabs count as multiple connections. UI is a top navigation badge for Admins.

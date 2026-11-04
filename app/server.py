@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability, live_updates
+from . import auth, notifications, logos, service_library, stability, live_updates, presence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -1510,6 +1510,7 @@ class Handler(BaseHTTPRequestHandler):
             overview = status_overview()
             with connect() as db:
                 user = auth.session_user(db, self.headers.get('Cookie'))
+            presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)
             can_acknowledge = bool(overview['acknowledge_enabled'] and user
                 and not user['must_change_password'] and user['role'] in ('admin','operator'))
             # Return only the caller's identity, never the account list.
@@ -1555,7 +1556,14 @@ class Handler(BaseHTTPRequestHandler):
                 users = [auth.public_user(row) for row in db.execute('SELECT * FROM users ORDER BY username')]
             self.send(json.dumps(users))
         elif self.path == '/api/state':
-            self.send(json.dumps(snapshot()))
+            presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)
+            state = snapshot()
+            if user['role'] == 'admin':
+                with connect() as db:
+                    sessions = dict(db.execute('SELECT csrf,user_id FROM sessions WHERE expires>?',
+                                               (time.time(),)))
+                state['dashboard_presence'] = presence.tracker.counts(sessions)
+            self.send(json.dumps(state))
         elif self.path == '/api/library-export':
             with connect() as db:
                 payload = json.dumps(service_library.export_document(db), indent=2, ensure_ascii=False, allow_nan=False)
