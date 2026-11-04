@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 68 — v0.4.4 (project deletion and history ranges branch)
+
+- Remove the redundant Change password link from the Admin Dashboard's top navigation; retain Status Dashboard and Sign out.
+
+
 ### Build 67 — v0.4.4 (project deletion and history ranges branch)
 
 - Left-align the wrapped Activate/Monitoring/Notifications group under the logo across the full toolbar width. Keep previous-deployment action placement unchanged.

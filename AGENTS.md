@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 67. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 68. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -283,8 +283,9 @@ rounded bordered panel, separate from issue lists. Edit alias sits in the host h
 List views. List services use shared grid columns and fixed-width Pause/Resume
 and Actions controls so varying names, values and labels do not shift buttons.
 
-Main account navigation keeps the signed-in badge left and groups Status Dashboard,
-Change password and Sign out on the right, wrapping the action group on narrow screens.
+Main account navigation keeps the signed-in badge left and groups Status Dashboard
+and Sign out on the right, wrapping the action group on narrow screens. Do not
+show a separate Change password link in the Admin Dashboard top navigation.
 
 Every displayed version change must update the README title and add concise release
 notes in CHANGELOG.md describing that release. Keep both dashboard labels and this version context
