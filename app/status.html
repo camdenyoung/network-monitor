@@ -80,10 +80,13 @@
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
     button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
     a { color: #7cddd0; } code { color: #b7d6ff; }
+      .connection-dialog { width: 520px; max-width: calc(100vw - 32px); padding: 24px; box-sizing: border-box; border: 1px solid #df6578; border-radius: 10px; }
+    .connection-dialog::backdrop { background: #000a; }
+    #connection-notice { color: #ffcb69; }
   </style></head>
 <body>
   <header class="status-header">
-    <h1>Network Status <small class="app-version">v0.4.1 · Build 52</small></h1>
+    <h1>Network Status <small class="app-version">v0.4.1 · Build 53</small></h1>
     <div class="status-brand">
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
       <p id="project" class="project-name">Loading…</p>
@@ -152,7 +155,102 @@
     </div>
     <p id="acknowledgement-feedback" class="form-feedback" role="status"></p>
   </dialog>
+  <p id="connection-notice" role="status" hidden></p>
+  <dialog id="connection-lost" class="connection-dialog" aria-labelledby="connection-lost-title" aria-describedby="connection-lost-description" tabindex="-1">
+    <h2 id="connection-lost-title">Server connection lost</h2>
+    <p id="connection-lost-description">No successful dashboard refresh for 30 seconds. Controls are locked because displayed information may be out of date.</p>
+    <p>Reconnecting automatically. Controls will unlock when fresh dashboard data is loaded.</p>
+  </dialog>
   <script>
+    // BEGIN dashboard connection recovery (keep identical on both dashboards).
+    function createConnectionGuard() {
+      const staleAfter = 30000;
+      let lastRefresh = Date.now();
+      let locked = false;
+      const failureMessages = new Set();
+      const inertBeforeLock = new Map();
+      const dialog = document.getElementById('connection-lost');
+      const notice = document.getElementById('connection-notice');
+
+      function check() {
+        if (locked || Date.now() - lastRefresh < staleAfter) return;
+        locked = true;
+        // Keep forms and any existing confirmation dialogs intact but inert.
+        for (const child of document.body.children || []) {
+          if (child === dialog) continue;
+          inertBeforeLock.set(child, child.inert);
+          child.inert = true;
+        }
+        if (!dialog.open) dialog.showModal();
+      }
+      function failed(error) {
+        failureMessages.add(error.message);
+        notice.textContent = 'Server connection lost. Displayed information may be stale. Retrying automatically…';
+        notice.hidden = false;
+        check();
+      }
+      function healthy() {
+        lastRefresh = Date.now();
+        // Clear only connectivity errors, preserving unrelated validation feedback.
+        const message = document.getElementById('message');
+        if (message && failureMessages.has(message.textContent)) message.textContent = '';
+        failureMessages.clear();
+        notice.textContent = '';
+        notice.hidden = true;
+        locked = false;
+        for (const [child, previous] of inertBeforeLock) child.inert = previous;
+        inertBeforeLock.clear();
+        if (dialog.open) dialog.close();
+      }
+      dialog.oncancel = event => event.preventDefault();
+      // Capture handlers block links/local controls too, including open dialogs.
+      for (const type of ['click', 'submit']) {
+        document.addEventListener?.(type, event => {
+          check();
+          if (locked) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+      }
+      setInterval(check, 1000);
+      return {check, failed, healthy, isLocked: () => locked};
+    }
+    const connectionGuard = createConnectionGuard();
+
+    async function dashboardFetch(path, options) {
+      connectionGuard.check();
+      if (connectionGuard.isLocked() && options?.method && options.method !== 'GET') {
+        throw new Error('Server unavailable. Wait for the dashboard to reconnect before making changes.');
+      }
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timeout = options?.method && options.method !== 'GET' ? 60000 : 8000;
+      async function bounded(operation) {
+        let timer;
+        try {
+          if (typeof setTimeout !== 'function') return await operation();
+          return await Promise.race([operation(), new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              controller?.abort();
+              reject(new Error('Server request timed out. Retrying dashboard connection…'));
+            }, timeout);
+          })]);
+        } catch (error) {
+          connectionGuard.failed(error);
+          throw error;
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      }
+      const response = await bounded(() => fetch(path, controller
+        ? {...options, signal: controller.signal} : options));
+      // A stalled JSON body must not leave refreshPromise pending indefinitely.
+      const readJson = response.json.bind(response);
+      response.json = () => bounded(readJson);
+      return response;
+    }
+    // END dashboard connection recovery.
+
     // sessionStorage keeps the same tab identity through refreshes and navigation
     // between dashboards. This opaque ID is not a credential or a user identity.
     const dashboardConnection = (() => {
@@ -395,7 +493,7 @@
 
     async function refreshDashboard() {
       try {
-        const response = await fetch('/api/status', {headers: {'X-Dashboard-Connection': dashboardConnection}});
+        const response = await dashboardFetch('/api/status', {headers: {'X-Dashboard-Connection': dashboardConnection}});
         if (!response.ok) throw new Error('Status service unavailable');
         const data = await response.json();
         document.getElementById('project').textContent = data.project || 'Monitoring paused';
@@ -436,7 +534,10 @@
           </div>`).join('') || '<p>No acknowledged issues.</p>';
         renderHosts();
         document.getElementById('updated').textContent = 'Updated ' + new Date(data.updated * 1000).toLocaleString();
+        connectionGuard.healthy();
+        connectAcknowledgementUpdates();
       } catch (error) {
+        connectionGuard.failed(error);
         document.getElementById('summary').textContent = error.message + ' — displayed information may be stale.';
       }
     }
@@ -447,11 +548,11 @@
         // The public overview gives acknowledgement CSRF only to eligible roles.
         // Fetch the current session token here so View Only and temporary-password
         // accounts can also sign out without widening public acknowledgement access.
-        const sessionResponse = await fetch('/api/me');
+        const sessionResponse = await dashboardFetch('/api/me');
         if (sessionResponse.status !== 401) {
           const session = await sessionResponse.json();
           if (!sessionResponse.ok) throw new Error(session.error || 'Could not read your session.');
-          const response = await fetch('/api/logout', {method: 'POST',
+          const response = await dashboardFetch('/api/logout', {method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf}, body: '{}'});
           if (!response.ok && response.status !== 401) {
             const result = await response.json();
@@ -499,7 +600,7 @@
         const target = pendingUnacknowledgement;
         const issue = (publicState.acknowledged_incidents || []).find(row => row.id === target.id);
         if (!issue || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Acknowledgement changed. Cancel and review it again.');
-        const response = await fetch('/api/status-unack', {method: 'POST',
+        const response = await dashboardFetch('/api/status-unack', {method: 'POST',
           headers: {'Content-Type': 'application/json', 'X-CSRF-Token': publicState.csrf}, body: JSON.stringify(target)});
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
@@ -541,7 +642,7 @@
       button.disabled = true;
       cancel.disabled = true;
       try {
-        const response = await fetch('/api/status-ack', {method:'POST',
+        const response = await dashboardFetch('/api/status-ack', {method:'POST',
           headers:{'Content-Type':'application/json','X-CSRF-Token':publicState.csrf}, body:JSON.stringify({id:pendingAcknowledgement})});
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);

@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.1, Build 52. Show it after the title on both the main and
+Current displayed release is v0.4.1, Build 53. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -650,3 +650,15 @@ flags, metadata, history and counters; invalidate in-flight reads when switching
 Both pause buttons pulse while paused, with prefers-reduced-motion disabling the
 animation. Confirmations explain the two explicit resume steps. Benchmark seeding
 opts into global resume after activation so the harness still measures polling.
+
+Dashboard connection recovery: both inline scripts share identical marked guard
+blocks. dashboardFetch bounds reads/JSON bodies (8s) and writes (60s), aborts hung
+requests and blocks new writes while locked. Never replay mutations automatically.
+After 30s without a completed refresh, make existing body children inert and show
+an app-styled modal that cannot be dismissed until fresh data finishes rendering.
+Normal polling/focus/SSE GET retries continue. Restore prior inert state, preserve
+forms/confirmations and clear only recorded connectivity messages after recovery.
+Main refresh retries loadSession if initial authentication lookup failed. Resume
+SSE after a successful refresh, including startup recovery. Test both dashboard
+scripts using tests/dashboard.test.mjs and tests/connection.test.mjs (fake network,
+clock, timeout, stalled JSON body, blocked writes, recovery and preserved drafts).
