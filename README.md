@@ -1,9 +1,14 @@
-# Network Monitor v0.4.1 · Build 53
+# Network Monitor v0.4.1 · Build 54
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 54 — v0.4.1 (dashboard connection recovery branch)
+
+- Add a rotating reconnect indicator to both disconnect popups, with a static indicator for reduced-motion preferences.
+
 
 ### Build 53 — v0.4.1 (dashboard connection recovery branch)
 
