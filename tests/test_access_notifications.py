@@ -1411,7 +1411,11 @@ class AccessAndNotificationTests(unittest.TestCase):
         with patch.object(server, 'read_metric', return_value=1):
             server.poll_one(host, 1)
             server.poll_one(host, 1)
-        self.assertIsNotNone(server.snapshot()['incident_lists']['acknowledged'][0]['closed'])
+        self.assertEqual(server.snapshot()['incident_lists']['acknowledged'], [])
+        resolved = server.snapshot()['incident_lists']['resolved'][0]
+        self.assertIsNotNone(resolved['closed'])
+        self.assertEqual(resolved['acknowledged_by_username'], 'admin')
+        self.assertEqual(server.status_overview()['acknowledged_incidents'], [])
         token, operator = self.create_operator()
         self.assertEqual(self.request('/api/status-unack', body, token, operator['csrf'])['status'], 200)
         data = server.snapshot()

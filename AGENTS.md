@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4, Build 48. Show it after the title on both the main and
+Current displayed release is v0.4, Build 49. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -632,3 +632,12 @@ Store dashboard connection identity under network-monitor.dashboard-connection
 in sessionStorage on both dashboards. Reuse it on reload/navigation, validate
 stored values, and fall back to a temporary ID if storage is unavailable. Do not
 use shared localStorage (which would merge separate tabs).
+
+Recovery takes precedence over acknowledgement for issue list membership:
+Active = open/unacknowledged; Acknowledged = open/acknowledged; Resolved = closed,
+regardless of acknowledgement. Retain acknowledgement attribution, revision and
+audit history on recovery. Public status consumes the same open-only acknowledged
+list; recovered entries disappear there (no new public history section). No data
+migration is needed: existing recovered/acknowledged records route to Resolved.
+Admin dashboard still permits authorised unacknowledgement from Resolved without
+reopening the issue; look up both lists when opening/confirming that dialog.

@@ -157,7 +157,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4 · Build 48</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4 · Build 49</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -459,7 +459,7 @@
   <dialog id="unacknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="unacknowledgement-title" aria-describedby="unacknowledgement-description">
     <h2 id="unacknowledgement-title">Unacknowledge issue?</h2>
     <p id="unacknowledgement-context"></p>
-    <p id="unacknowledgement-description">This removes the acknowledgement. Unresolved issues return to Active, or Suppressed when monitoring is unavailable. Recovered issues move to Resolved. Eligible reminder notifications resume after the configured interval, subject to notification pause and flap protection.</p>
+    <p id="unacknowledgement-description">This removes the acknowledgement. Unresolved issues return to Active, or Suppressed when monitoring is unavailable. Recovered issues remain in Resolved. Eligible reminder notifications resume after the configured interval, subject to notification pause and flap protection.</p>
     <div class="display-controls">
       <button id="confirm-unacknowledgement" class="primary">Unacknowledge</button>
       <button id="cancel-unacknowledgement" autofocus>Cancel</button>
@@ -2041,7 +2041,7 @@
     let pendingUnacknowledgement = null;
     function openUnacknowledgement(id) {
       if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
-      const issue = state.incident_lists.acknowledged.find(row => String(row.id) === String(id));
+      const issue = [...state.incident_lists.acknowledged, ...state.incident_lists.resolved].find(row => String(row.id) === String(id));
       if (!issue || issue.acknowledged == null) throw new Error('Acknowledgement is no longer available. Refresh and review it again.');
       const service = state.services.find(row => row.id === issue.service);
       const assignment = state.assignments.find(row => row.id === service?.assignment);
@@ -2068,7 +2068,7 @@
       try {
         if (!['admin', 'operator'].includes(currentUser?.role)) throw new Error('Admin or Operator access required.');
         const target = pendingUnacknowledgement;
-        const issue = state.incident_lists.acknowledged.find(row => row.id === target.id);
+        const issue = [...state.incident_lists.acknowledged, ...state.incident_lists.resolved].find(row => row.id === target.id);
         if (!issue || (issue.ack_revision ?? 0) !== target.expected_revision) throw new Error('Acknowledgement changed. Cancel and review it again.');
         await request('unack', target);
         pendingUnacknowledgement = null;

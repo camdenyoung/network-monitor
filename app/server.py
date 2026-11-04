@@ -808,13 +808,13 @@ def snapshot():
                 db, service['id'], run, service['revision'], service['monitoring_since']))
         result['incidents'] = [dict(row) for row in db.execute(
             'SELECT * FROM incidents ORDER BY id DESC LIMIT 200')]
-        # Split by acknowledgement independently of recovery: acknowledged issues
-        # remain in that list after recovery, with their recovery time visible.
+        # Recovery takes precedence over acknowledgement for list membership.
+        # Keep acknowledgement fields/audit intact when moving an issue to Resolved.
         run = int(result['settings']['active_run'])
         predicates = {
             'active': 'closed IS NULL AND acknowledged IS NULL',
-            'acknowledged': 'acknowledged IS NOT NULL',
-            'resolved': 'closed IS NOT NULL AND acknowledged IS NULL',
+            'acknowledged': 'closed IS NULL AND acknowledged IS NOT NULL',
+            'resolved': 'closed IS NOT NULL',
         }
         result['incident_lists'] = {}
         for category, predicate in predicates.items():

@@ -706,10 +706,12 @@ class MonitorTests(unittest.TestCase):
         self.poll(-80)
         self.assertEqual(len(server.snapshot()['incident_lists']['active']), 1)
 
-    def test_acknowledged_incident_moves_lists_and_remains_acknowledged_after_recovery(self):
+    def test_acknowledged_incident_moves_to_resolved_with_attribution_after_recovery(self):
         self.poll(-80)
         self.poll(-80)
         incident = server.snapshot()['incident_lists']['active'][0]
+        with server.connect() as db:
+            db.execute("UPDATE users SET full_name='Test Administrator' WHERE id=1")
         server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
         lists = server.snapshot()['incident_lists']
         self.assertEqual(lists['active'], [])
@@ -719,10 +721,21 @@ class MonitorTests(unittest.TestCase):
         server.mutate('ack', {'id': incident['id']}, actor={'id': 1})
         self.assertEqual(server.snapshot()['incident_lists']['acknowledged'][0]['acknowledged'], timestamp)
         self.poll(-50)
+        self.assertIsNone(server.snapshot()['incident_lists']['acknowledged'][0]['closed'])
+        self.assertEqual(server.snapshot()['incident_lists']['resolved'], [])
         self.poll(-50)
         lists = server.snapshot()['incident_lists']
-        self.assertEqual(lists['resolved'], [])
-        self.assertIsNotNone(lists['acknowledged'][0]['closed'])
+        self.assertEqual(lists['acknowledged'], [])
+        self.assertEqual(lists['active'], [])
+        resolved = lists['resolved'][0]
+        self.assertIsNotNone(resolved['closed'])
+        self.assertEqual(resolved['id'], incident['id'])
+        self.assertEqual(resolved['acknowledged'], timestamp)
+        self.assertEqual(resolved['acknowledged_by_username'], 'admin')
+        self.assertEqual(resolved['acknowledged_by_full_name'], 'Test Administrator')
+        self.assertEqual(resolved['acknowledgement_history'][-1]['action'], 'acknowledged')
+        server.initialize()
+        self.assertEqual(server.snapshot()['incident_lists']['resolved'][0]['id'], incident['id'])
 
     def test_unacknowledged_recovery_moves_to_resolved_list(self):
         self.poll(-80)

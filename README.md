@@ -1,9 +1,16 @@
-# Network Monitor v0.4 · Build 48
+# Network Monitor v0.4 · Build 49
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 49 — v0.4 (acknowledged recovery fix branch)
+
+- Automatically move recovered issues to Resolved even when acknowledged. Keep acknowledgement names, timestamps and audit history intact.
+- Limit Acknowledged to unresolved issues on both dashboards; existing recovered records follow the corrected lists immediately, without a database migration.
+- Preserve authorised unacknowledgement for recovered issues on the Admin Dashboard without reopening them.
+
 
 ### Build 48 — v0.4
 
@@ -470,7 +477,7 @@ Numeric thresholds may be above or below a value. Critical is evaluated first;
 a configurable number of consecutive identical statuses open or recover an issue
 (default two). Acknowledgement
 records a timestamp without clearing the issue and moves it into the acknowledged
-list. It stays there after recovery. Unacknowledged recoveries appear in the resolved
+list while the fault is open. All recovered issues appear in the resolved
 list. All three lists are scoped to the active deployment. The three assignment controls
 are independent; notification flags enable or mute outbound messages per host.
 

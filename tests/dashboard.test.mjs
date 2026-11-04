@@ -1998,3 +1998,18 @@ const deniedStorage = {getItem(){throw new Error('Storage denied');}};
 assert.match(identityFor(html, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
 assert.match(identityFor(statusPage, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
 console.log('Connection identity survives refresh/navigation, separates fresh tabs and tolerates denied storage.');
+
+// Recovered acknowledgements retain attribution in Resolved; their existing
+// authorised undo control must still find the issue after the list change.
+mainLiveContext.recoveredListIssue = {...liveIssue(),closed:now,acknowledged:now-100,
+  acknowledged_by_full_name:'Alice Example',acknowledged_by_username:'alice'};
+vm.runInContext(`state.incident_lists.acknowledged=[];
+  state.incident_lists.resolved=[recoveredListIssue];`,mainLiveContext);
+const recoveredMarkup = mainLiveContext.renderIncidents([mainLiveContext.recoveredListIssue]);
+assert.match(recoveredMarkup,/Recovered/);
+assert.match(recoveredMarkup,/Alice Example/);
+assert.match(recoveredMarkup,/data-unack/);
+mainLiveContext.openUnacknowledgement(mainLiveContext.recoveredListIssue.id);
+assert.equal(element('unacknowledgement-dialog').open,true);
+element('cancel-unacknowledgement').onclick();
+console.log('Resolved acknowledged issues retain attribution and authorised undo controls.');
