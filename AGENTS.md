@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.2, Build 58. Show it after the title on both the main and
+Current displayed release is v0.4.2, Build 59. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -673,3 +673,9 @@ so the initial retry notice appears beneath Failed to fetch before issue/host li
 
 Admin report appends — Server connection lost only for errors recorded by the
 connection guard. Recovery clears both the original and annotated error messages.
+
+Admin Live Hosts has the same six sorting choices as public status. Persist under
+field-monitor.main.host-sort independently from field-monitor.status.host-sort.
+Use fresh ping status via readingStatus for ordering and server incident_status
+for severity; numeric, case-insensitive hostname comparison breaks ties. Sorting
+applies after filtering to both Cards/List and never changes issue/config lists.

@@ -1,9 +1,15 @@
-# Network Monitor v0.4.2 · Build 58
+# Network Monitor v0.4.2 · Build 59
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 59 — v0.4.2 (Admin host sorting branch)
+
+- Add Sort hosts to the Admin Dashboard's Live Hosts controls, matching Status Dashboard choices: hostname in either direction, alias, host status in either direction and issue severity.
+- Apply sorting to Cards and List views alongside service filtering; save the choice independently in browser storage for each dashboard.
+
 
 ### Build 58 — v0.4.2
 

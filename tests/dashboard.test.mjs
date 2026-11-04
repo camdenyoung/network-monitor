@@ -2055,3 +2055,61 @@ await mainLiveContext.refresh();
 assert.match(element('signed-in').textContent,/Alice/);
 assert.equal(element('message').textContent,'');
 console.log('Initial session lookup failures recover without reloading the browser.');
+
+// Admin sorting matches public choices, uses numeric names and survives reload.
+const adminSortStorage = new Map();
+const adminSortData = {...fixture,
+  devices:[{id:1,name:'SW10',address:'127.0.0.1'},{id:2,name:'SW2',address:'127.0.0.2'},{id:3,name:'SW1',address:'127.0.0.3'}],
+  assignments:[{id:1,project:1,device:1,alias:'Alpha',visible:1,monitoring:1},
+    {id:2,project:1,device:2,alias:'Zulu',visible:1,monitoring:1,incident_status:'critical'},
+    {id:3,project:1,device:3,alias:'Bravo',visible:1,monitoring:1,incident_status:'warning'}],
+  services:[{id:1,assignment:1,kind:'ping',revision:1},{id:2,assignment:2,kind:'ping',revision:1},
+    {id:3,assignment:3,kind:'ping',revision:1},
+    {...stateService,id:4,assignment:1,name:'RSSI'},{...stateService,id:5,assignment:3,name:'RSSI'}],
+  latest:[{service:1,status:'healthy',timestamp:Date.now()/1000},
+    {service:2,status:'unreachable',timestamp:Date.now()/1000}],
+  settings:{active_run:'1',retention_days:'30'},
+  incident_lists:{active:[],acknowledged:[],suppressed:[],resolved:[]},
+};
+function createAdminSortContext() {
+  const browser = vm.createContext({document:context.document,setInterval(){},
+    localStorage:{getItem:key => adminSortStorage.get(key),setItem:(key,value) => adminSortStorage.set(key,value)},
+    fetch:async path => ({ok:true,json:async () => path === '/api/me'
+      ? {id:1,role:'operator',username:'sorter'} : adminSortData})});
+  new vm.Script(script).runInContext(browser);
+  return browser;
+}
+const adminSortContext = createAdminSortContext();
+await adminSortContext.initializeSession();
+function assertAdminOrder(names) {
+  const markup = element('dashboard').innerHTML;
+  const positions = names.map(name => markup.indexOf(name + ' -'));
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual([...positions].sort((a,b) => a-b),positions);
+}
+assertAdminOrder(['SW1','SW2','SW10']);
+for (const [sort, expected] of [
+  ['hostname-desc',['SW10','SW2','SW1']], ['alias',['SW10','SW1','SW2']],
+  ['status',['SW2','SW1','SW10']], ['status-ok',['SW10','SW1','SW2']],
+  ['severity',['SW2','SW1','SW10']], ['hostname',['SW1','SW2','SW10']],
+]) {
+  element('host-sort').value = sort;
+  element('host-sort').onchange();
+  assertAdminOrder(expected);
+  element('view-list').onclick();
+  assertAdminOrder(expected);
+  element('view-cards').onclick();
+}
+element('host-sort').value = 'severity';
+element('host-sort').onchange();
+element('service-filter').value = 'RSSI';
+element('service-filter').oninput();
+assertAdminOrder(['SW1','SW10']);
+assert.doesNotMatch(element('dashboard').innerHTML,/SW2 -/);
+assert.equal(adminSortStorage.get('field-monitor.main.host-sort'),'severity');
+assert.equal(adminSortStorage.has('field-monitor.status.host-sort'),false);
+const reloadedAdminSort = createAdminSortContext();
+await reloadedAdminSort.initializeSession();
+assert.equal(element('host-sort').value,'severity');
+assertAdminOrder(['SW1','SW10']);
+console.log('Admin host sorting supports all six modes in Cards/List, combines with filters and persists independently.');
