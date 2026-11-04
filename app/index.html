@@ -174,7 +174,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.2 · Build 58</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.3 · Build 60</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -226,6 +226,11 @@
     <div class="display-controls" role="group" aria-label="Host display options">
       <button id="view-cards" aria-pressed="true">Cards</button>
       <button id="view-list" aria-pressed="false">List</button>
+      <label>Sort hosts<select id="host-sort">
+        <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
+        <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
+        <option value="status-ok">Host status: healthy first</option><option value="severity">Issue severity</option>
+      </select></label>
       <button id="toggle-services" aria-pressed="true">Hide services</button>
       <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
       <datalist id="service-filter-options"></datalist>
@@ -1025,11 +1030,14 @@
     }
 
     let hostView = 'cards';
+    let hostSort = 'hostname';
     let showServices = true;
     let serviceFilter = '';
     try {
       showServices = localStorage.getItem('field-monitor.main.hide-services') !== 'true';
       hostView = localStorage.getItem('field-monitor.main.host-view') === 'list' ? 'list' : 'cards';
+      const savedSort = localStorage.getItem('field-monitor.main.host-sort');
+      if (['hostname','hostname-desc','alias','status','status-ok','severity'].includes(savedSort)) hostSort = savedSort;
       serviceFilter = (localStorage.getItem('field-monitor.main.service-filter') || '').slice(0, 100);
     } catch (error) { /* Controls work without browser storage. */ }
 
@@ -1041,6 +1049,7 @@
       try {
         localStorage.setItem('field-monitor.main.hide-services', String(!showServices));
         localStorage.setItem('field-monitor.main.host-view', hostView);
+        localStorage.setItem('field-monitor.main.host-sort', hostSort);
         localStorage.setItem('field-monitor.main.service-filter', serviceFilter);
       } catch (error) { /* Keep the selection for this page session. */ }
       if (state) renderHosts();
@@ -1048,14 +1057,45 @@
     el('toggle-services').onclick = () => { showServices = !showServices; saveHostDisplay(); };
     el('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
     el('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
+    el('host-sort').onchange = () => { hostSort = el('host-sort').value; saveHostDisplay(); };
     el('service-filter').oninput = () => { serviceFilter = el('service-filter').value; saveHostDisplay(); };
     el('clear-service-filter').onclick = () => { serviceFilter = ''; saveHostDisplay(); };
+
+    function compareHosts(left, right) {
+      const name = (left.name || '').localeCompare(right.name || '', undefined, {numeric:true,sensitivity:'base'});
+      if (hostSort === 'hostname-desc') return -name;
+      if (hostSort === 'alias') return (left.alias || '').localeCompare(right.alias || '', undefined, {numeric:true,sensitivity:'base'}) || name;
+      if (hostSort === 'status' || hostSort === 'status-ok') {
+        const rank = {unreachable:0,unknown:1,healthy:2};
+        const difference = (rank[left.status] ?? 1) - (rank[right.status] ?? 1);
+        return (hostSort === 'status-ok' ? -difference : difference) || name;
+      }
+      if (hostSort === 'severity') {
+        const rank = {critical:0,warning:1};
+        return (rank[left.incident_status] ?? 2) - (rank[right.incident_status] ?? 2) || name;
+      }
+      return name;
+    }
+
 
     function renderHosts() {
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
       const visible = state.assignments.filter(row => String(row.project) === selectedProject && row.visible && !row.removed);
       const matches = visible.filter(assignment => !serviceFilter.trim() || state.services.some(service =>
         service.assignment === assignment.id && service.enabled !== 0 && service.kind !== 'ping' && serviceMatches(service)));
+      // Build sort keys once per host, using the same fresh-ping rules as its card.
+      const devicesById = new Map(state.devices.map(device => [device.id, device]));
+      const pingsByHost = new Map(state.services.filter(service => service.kind === 'ping')
+        .map(service => [service.assignment, service]));
+      const readingsByService = new Map(state.latest.map(reading => [reading.service, reading]));
+      const sortKeys = new Map(matches.map(assignment => {
+        const device = devicesById.get(assignment.device);
+        const ping = pingsByHost.get(assignment.id);
+        return [assignment.id, {name: device?.name || '', alias: assignment.alias,
+          status: device?.address ? readingStatus(readingsByService.get(ping?.id), assignment, run) : 'unknown',
+          incident_status: assignment.incident_status}];
+      }));
+      matches.sort((left, right) => compareHosts(sortKeys.get(left.id), sortKeys.get(right.id)));
       const rendered = matches.map(assignment => {
         const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
@@ -1106,6 +1146,7 @@
       el('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
       el('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
       el('service-filter').value = serviceFilter;
+      el('host-sort').value = hostSort;
       const names = [...new Set(state.services.filter(service => service.kind !== 'ping' && service.enabled !== 0 &&
         visible.some(assignment => assignment.id === service.assignment)).map(service => service.name))].sort();
       el('service-filter-options').innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
