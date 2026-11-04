@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 69 — v0.4.4 (project deletion and history ranges branch)
+
+- Keep account actions right-aligned while they fit beside the user/presence badges; move Status Dashboard and Sign out onto a left-aligned row when space is insufficient.
+
+
 ### Build 68 — v0.4.4 (project deletion and history ranges branch)
 
 - Remove the redundant Change password link from the Admin Dashboard's top navigation; retain Status Dashboard and Sign out.

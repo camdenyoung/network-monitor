@@ -157,7 +157,10 @@
     .project-logo-placeholder svg { width: 24px; height: 24px; color: #7cddd0; }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .account-nav { justify-content: flex-start; }
-    .account-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
+    .account-nav > .user-badge { flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; }
+    .account-actions { display: flex; justify-content: flex-end; flex-wrap: nowrap; flex-shrink: 0; max-width: 100%; gap: 12px; margin-left: auto; }
+    .account-actions > * { flex-shrink: 0; }
+    .account-actions.controls-below { flex-basis: 100%; margin-left: 0; justify-content: flex-start; flex-wrap: wrap; }
     .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
     button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
@@ -182,12 +185,12 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 68</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
-  <nav class="toolbar account-nav">
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 69</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
       title="Activity in the last 60 seconds. Connections count dashboard tabs, including anonymous Status Dashboard viewers. Logged-in users count distinct accounts with valid sessions.">Logged-in users: — · Connections: —</span>
-    <div class="account-actions">
+    <div id="account-actions" class="account-actions">
       <a class="button-link" href="/status" target="_blank">Status Dashboard</a>
       <button id="logout">Sign out</button>
     </div>
@@ -987,7 +990,7 @@
     document.addEventListener?.('scroll', event => {
       if (!event.target.closest?.('.menu-buttons')) closeActionMenus();
     }, true);
-    globalThis.addEventListener?.('resize', () => { closeActionMenus(); updateToolbarLayout(); });
+    globalThis.addEventListener?.('resize', () => { closeActionMenus(); updateResponsiveControls(); });
 
     // Configuration areas are exclusive tabs. Start closed on each page load.
     const configurationSections = [
@@ -1219,6 +1222,27 @@
       }
     }
 
+    function updateAccountLayout() {
+      const nav = el('account-nav');
+      if (typeof nav.getBoundingClientRect !== 'function' || typeof getComputedStyle !== 'function') return;
+      const style = getComputedStyle(nav);
+      const available = nav.getBoundingClientRect().width - ['paddingLeft','paddingRight','borderLeftWidth','borderRightWidth']
+        .reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
+      const actions = el('account-actions');
+      const badges = ['signed-in','dashboard-presence'].map(id => el(id).getBoundingClientRect().width)
+        .filter(width => width > 0);
+      const buttons = [...actions.querySelectorAll('a, button')].map(button => button.getBoundingClientRect().width);
+      const required = badges.reduce((sum, width) => sum + width, 0)
+        + buttons.reduce((sum, width) => sum + width, 0)
+        + (parseFloat(getComputedStyle(actions).columnGap) || 0) * Math.max(0, buttons.length - 1)
+        + (parseFloat(style.columnGap) || 0) * badges.length;
+      actions.classList.toggle('controls-below', required > available + 0.5);
+    }
+    function updateResponsiveControls() {
+      updateToolbarLayout();
+      updateAccountLayout();
+    }
+
     function updateProjectDeletion(project, run) {
       const jobs = state.project_deletions || [];
       const unfinished = jobs.find(job => job.state !== 'completed');
@@ -1418,7 +1442,7 @@
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
-      updateToolbarLayout();
+      updateResponsiveControls();
       connectionGuard.healthy();
       connectAcknowledgementUpdates();
     }
@@ -2937,8 +2961,10 @@
     }
     if (typeof ResizeObserver === 'function') {
       // Width changes include browser zoom, font changes and Pause/Resume labels.
-      const toolbarObserver = new ResizeObserver(updateToolbarLayout);
+      const toolbarObserver = new ResizeObserver(updateResponsiveControls);
       toolbarObserver.observe(el('deployment-toolbar'));
+      for (const id of ['account-nav','signed-in','dashboard-presence']) toolbarObserver.observe(el(id));
+      for (const button of el('account-actions').querySelectorAll('a, button')) toolbarObserver.observe(button);
       for (const id of ['project-actions','deployment-actions']) {
         for (const button of el(id).querySelectorAll('button')) toolbarObserver.observe(button);
       }

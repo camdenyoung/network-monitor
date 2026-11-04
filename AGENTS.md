@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 68. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 69. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -730,3 +730,8 @@ Preserve logo reservation, dropdown edges, button listeners and keyboard order.
 
 When the project action group moves below, span the full toolbar and align its
 left edge under the logo. Preserve the previous-deployment action placement.
+
+Account actions stay right-aligned when they fit beside visible user/presence
+badges. Otherwise move the complete group to a full-width left-aligned row.
+Measure button/badge widths, observe nav and label changes, and handle non-Admin
+hidden presence badges. Do not allow auto left margin to right-align a wrapped row.

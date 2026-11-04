@@ -2286,3 +2286,33 @@ toolbarContext.updateToolbarLayout();
 assert.equal(isBelow('project-actions'),true);
 assert.equal(isBelow('deployment-actions'),false);
 console.log('Toolbar groups move below dropdowns at their fit boundaries and react to longer Pause/Resume labels.');
+
+// Account actions stay right-aligned only while the complete row fits.
+let accountWidth = 1000;
+let presenceWidth = 300;
+const accountClasses = new Set();
+const accountNodes = {
+  'account-nav':{getBoundingClientRect:() => ({width:accountWidth})},
+  'signed-in':{getBoundingClientRect:() => ({width:190})},
+  'dashboard-presence':{getBoundingClientRect:() => ({width:presenceWidth})},
+  'account-actions':{classList:{toggle(name,on){if(on)accountClasses.add(name);else accountClasses.delete(name);}},
+    querySelectorAll:() => [160,90].map(width => ({getBoundingClientRect:() => ({width})}))},
+};
+const accountContext = vm.createContext({el:id => accountNodes[id],
+  getComputedStyle:() => ({paddingLeft:'16px',paddingRight:'16px',borderLeftWidth:'1px',borderRightWidth:'1px',columnGap:'12px'})});
+new vm.Script(script.match(/    function updateAccountLayout\(\) \{[\s\S]+?\n    \}/)[0]).runInContext(accountContext);
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),false);
+accountWidth=809;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),true);
+accountWidth=810;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),false);
+accountWidth=600; presenceWidth=0;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),false);
+presenceWidth=300;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),true);
+console.log('Account actions move to a left-aligned row when space runs out, including presence badge changes.');
