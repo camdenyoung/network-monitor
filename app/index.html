@@ -157,7 +157,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.3.2 · Build 46</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.3.2 · Build 47</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -673,10 +673,23 @@
     <p id="alias-edit-feedback" role="status"></p>
   </dialog>
   <script>
-    // Per-page identity counts tabs separately, including anonymous status viewers.
-    // This is not a credential; use a fallback on HTTP LANs without randomUUID.
-    const dashboardConnection = globalThis.crypto?.randomUUID?.() ||
-      'dashboard-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+    // sessionStorage keeps the same tab identity through refreshes and navigation
+    // between dashboards. This opaque ID is not a credential or a user identity.
+    const dashboardConnection = (() => {
+      const key = 'network-monitor.dashboard-connection';
+      const create = () => globalThis.crypto?.randomUUID?.() ||
+        'dashboard-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+      try {
+        const saved = sessionStorage.getItem(key);
+        if (saved && /^[A-Za-z0-9-]{16,80}$/.test(saved)) return saved;
+        const connection = create();
+        sessionStorage.setItem(key, connection);
+        return connection;
+      } catch (error) {
+        // Restricted storage still permits monitoring; old IDs expire after 60s.
+        return create();
+      }
+    })();
 
     // Escape all operator/device content before inserting it into HTML.
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));

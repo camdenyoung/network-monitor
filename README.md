@@ -1,9 +1,15 @@
-# Network Monitor v0.3.2 · Build 46
+# Network Monitor v0.3.2 · Build 47
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 47 — v0.3.2 (load-test improvements branch)
+
+- Keep dashboard connection identity in tab-scoped sessionStorage so refreshing or navigating between dashboards does not temporarily increase the count.
+- If browser storage is unavailable, retain the existing per-page fallback and 60-second expiry.
+
 
 ### Build 46 — v0.3.2 (load-test improvements branch)
 

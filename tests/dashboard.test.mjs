@@ -1975,3 +1975,26 @@ assert.equal(presenceHeaders[0],presenceHeaders[1]);
 assert.match(presenceHeaders[0],/^[A-Za-z0-9-]{16,80}$/);
 assert.match(statusPage,/fetch\('\/api\/status', \{headers: \{'X-Dashboard-Connection': dashboardConnection\}\}\)/);
 console.log('Presence badge shows separate account/tab counts with a stable polling identity.');
+
+// Reload and dashboard navigation share tab storage; independent tabs do not.
+const tabIdentity = page => page.match(/const dashboardConnection = \(\(\) => \{[\s\S]+?\n    \}\)\(\);/)[0];
+function identityFor(page, storage) {
+  const browser = vm.createContext({sessionStorage:storage});
+  new vm.Script(tabIdentity(page)).runInContext(browser);
+  return vm.runInContext('dashboardConnection', browser);
+}
+function freshTabStorage() {
+  const values = new Map();
+  return {getItem:key => values.get(key) ?? null,setItem:(key,value) => values.set(key,value)};
+}
+const tabStorage = freshTabStorage();
+const firstConnection = identityFor(html, tabStorage);
+assert.equal(identityFor(html, tabStorage),firstConnection);
+assert.equal(identityFor(statusPage, tabStorage),firstConnection);
+assert.notEqual(identityFor(html, freshTabStorage()),firstConnection);
+tabStorage.setItem('network-monitor.dashboard-connection','invalid<script>');
+assert.match(identityFor(statusPage, tabStorage),/^[A-Za-z0-9-]{16,80}$/);
+const deniedStorage = {getItem(){throw new Error('Storage denied');}};
+assert.match(identityFor(html, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
+assert.match(identityFor(statusPage, deniedStorage),/^[A-Za-z0-9-]{16,80}$/);
+console.log('Connection identity survives refresh/navigation, separates fresh tabs and tolerates denied storage.');
