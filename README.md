@@ -1,9 +1,16 @@
-# Network Monitor v0.3.2 · Build 44
+# Network Monitor v0.3.2 · Build 45
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 ## Build history
+
+### Build 45 — v0.3.2 (load-test improvements branch)
+
+- Integrate the history-performance fixes verified on the Raspberry Pi 5: indexed current readings, bounded retention cleanup and efficient first readings after startup/resume.
+- Preserve existing data; build missing history indexes once during startup, with progress logs. Large databases require additional free disk space and time for this upgrade.
+- Include the isolated SNMP/Modbus simulator, capacity probe and regression tests. See [LOAD_TESTING.md](LOAD_TESTING.md) for setup and the measured results.
+
 
 ### Build 44 — v0.3.2
 

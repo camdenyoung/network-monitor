@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.3.2, Build 44. Show it after the title on both the main and
+Current displayed release is v0.3.2, Build 45. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -588,3 +588,33 @@ flush events immediately and disable reverse-proxy buffering via response header
 
 Row-level acknowledgement controls use class issue-action on both dashboards
 with explicit 15px font, 20px line height and 4px/8px padding, including inside small metadata.
+
+Synthetic capacity tests live in tools/load_test.py and tools/device_simulator.py,
+with compose.loadtest.yaml and LOAD_TESTING.md. Simulator and HTTP users run on a
+separate machine; Pi runs the ordinary monitor against real SNMP/Modbus peers in
+an isolated Compose project/volume. No mocked read_metric, scheduler or SQLite
+settings in performance runs. Seed history before measurement and stop a second
+normal monitor during timing. Seed atomically refuses existing DB paths; probe
+requires benchmark_dataset and benchmark_ready markers. Never seed live data.
+Defaults: 150 hosts + five services + automatic ping; optionally replace some
+SNMP services with Modbus. Profiles include healthy, latency, dropped responses
+and flapping. Same simulator IP means independent ICMP failures are not emulated.
+Reports distinguish PASS/FAIL/INCONCLUSIVE, coverage, actual sample gaps, HTTP
+latency and explicit targets; do not claim Pi capacity from local smoke tests.
+Notifications remain disabled; inspection is read-only and requires the marker.
+
+Docker build context excludes database files, live data, local environment files
+and bytecode caches so generated multi-gigabyte test history is never copied into images.
+
+History performance: ensure_sample_indexes runs through lifecycle migration on startup
+and restore. sample_current supports service/run/revision/latest-ID lookups;
+sample_expiry supports bounded retention. Snapshot uses one indexed latest-ID lookup
+per service, respecting revision and monitoring_since. host_is_up resolves ping first.
+Never group all samples for live state. prune_samples removes at most 1,000 expired
+rows per polling cycle, so retention reductions drain gradually. First index creation
+on large existing databases takes time and disk space; logs identify each build.
+
+current_samples handles fresh-read gaps after resume: fetch the latest N IDs first,
+then fall back to sample_lookup's timestamp range if pre-resume rows are present.
+Use it for snapshot, host dependency and persistence checks. Never fill a limit by
+scanning all pre-resume history. Keep latest-ID semantics for out-of-order imports.
