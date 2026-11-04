@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 69. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 70. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -735,3 +735,17 @@ Account actions stay right-aligned when they fit beside visible user/presence
 badges. Otherwise move the complete group to a full-width left-aligned row.
 Measure button/badge widths, observe nav and label changes, and handle non-Admin
 hidden presence badges. Do not allow auto left margin to right-align a wrapped row.
+
+Responsive host view: identical createHostViewFit helpers in both dashboards
+measure an inert, aria-hidden, fixed/clipped list probe at its intrinsic minimum
+width. Remove popup contents and duplicate IDs/menu keys from the probe. Do not
+let it participate in live action restoration. Cache markup, observe container
+and probe widths, and ignore height-only changes/hidden panels. Force effective
+Cards and disable List with an explanation when the list overflows; never overwrite
+the saved hostView preference automatically. Restore preferred List with 24px of
+spare width to prevent scrollbar/rounding oscillation. Explicit Cards selection
+still updates the saved preference. Re-evaluate on service/filter changes and
+when hosts are shown. Public toggle labels use effective view. Resize-only status
+renders must not clear connection-loss messages; fresh-data renders may do so.
+Cards use min(290px,100%) grid tracks to fit narrow containers. Test with
+node tests/host_view.test.mjs plus dashboard and connection suites.

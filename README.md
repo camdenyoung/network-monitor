@@ -1,4 +1,4 @@
-# Network Monitor v0.4.4 · Build 69
+# Network Monitor v0.4.4 · Build 70
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -246,7 +246,8 @@ state codes use labeled steps. Missing/suppressed readings and gaps over 60 seco
 break the line. Graphs use the current configuration revision; the table preserves
 older configurations. Graphs are local and do not depend on a CDN or chart service.
 
-Optional dashboard logic tests (Node.js 18+): `node tests/dashboard.test.mjs`.
+Optional dashboard logic tests (Node.js 18+): `node tests/dashboard.test.mjs`,
+`node tests/connection.test.mjs` and `node tests/host_view.test.mjs`.
 These use a minimal DOM stub; a full browser layout check remains separate.
 
 ## Telegram notifications
@@ -305,6 +306,12 @@ the fault recovers. Suppressed child faults do not add a second fault indication
 The public status overview has a **Hide host cards / Show host cards** button.
 Hide cards for an issue-only view. The choice is stored in that browser and
 is preserved during live updates and page reloads.
+
+When a host list cannot fit the available width, either dashboard temporarily
+shows Cards and disables List with an explanation. The saved List preference is
+preserved and restored when sufficient space returns. Hiding services or narrowing
+the service filter can make List available again. An explicit Cards selection
+still becomes the user's saved preference.
 
 Both dashboards offer **Cards** and **List** views. **Service filter** matches part
 of a service name, ignoring case: `RSSI` displays readings such as Local RSSI and

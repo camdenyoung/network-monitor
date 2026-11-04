@@ -2316,3 +2316,59 @@ presenceWidth=300;
 accountContext.updateAccountLayout();
 assert.equal(accountClasses.has('controls-below'),true);
 console.log('Account actions move to a left-aligned row when space runs out, including presence badge changes.');
+
+// End-to-end controls use the effective view without overwriting a saved List choice.
+for (const publicPage of [false,true]) {
+  const store = new Map([[`field-monitor.${publicPage ? 'status' : 'main'}.host-view`,'list']]);
+  const node = id => publicPage ? publicNodes.get(id) : element(id);
+  const data = publicPage ? {project:'Responsive hosts',updated:now,incidents:[],acknowledged_incidents:[],
+    devices:[{name:'SW1',alias:'Stage',status:'healthy',services:[{name:'RSSI',value:-55,status:'healthy',units:'dBm'}]}]}
+    : {...fixture,services:fixture.services.map(service => service.id === 2 ? {...service,name:'RSSI'} : service)};
+  const browser = vm.createContext({document:publicPage ? publicContext.document : context.document,setInterval(){},
+    localStorage:{getItem:key => store.get(key),setItem:(key,value) => store.set(key,value)},
+    fetch:async path => ({ok:true,json:async () => !publicPage && path === '/api/me'
+      ? {id:1,username:'reader',role:'viewer'} : data})});
+  new vm.Script((publicPage ? statusPage : html).match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(browser);
+  browser.forceCards=false;
+  vm.runInContext(`hostViewFit.choose = preferred => {
+    const unavailable = forceCards && showServices;
+    return {view:unavailable ? 'cards' : preferred,unavailable};
+  };`,browser);
+  if (publicPage) await browser.refresh(); else await browser.initializeSession();
+  const display = () => node(publicPage ? 'devices' : 'dashboard').innerHTML;
+  const key = `field-monitor.${publicPage ? 'status' : 'main'}.host-view`;
+  assert.match(display(),/class="host-list"/);
+  browser.forceCards=true;
+  browser.renderHosts();
+  assert.doesNotMatch(display(),/class="host-list"/);
+  assert.equal(node('view-list').disabled,true);
+  assert.equal(node('host-view-fit-note').hidden,false);
+  assert.equal(node('view-cards').getAttribute ? node('view-cards').getAttribute('aria-pressed') : node('view-cards').attributes['aria-pressed'],'true');
+  assert.equal(store.get(key),'list');
+  node('view-list').onclick(); // Programmatic attempts are guarded too.
+  assert.equal(store.get(key),'list');
+  await browser.refresh();
+  assert.equal(node('view-list').disabled,true);
+  node('toggle-services').onclick();
+  assert.equal(node('view-list').disabled,false);
+  assert.match(display(),/class="host-list"/);
+  assert.equal(store.get(key),'list');
+  node('toggle-services').onclick();
+  node('view-cards').onclick(); // Explicit Cards is a genuine preference change.
+  assert.equal(store.get(key),'cards');
+  node('view-list').onclick();
+  assert.equal(store.get(key),'cards');
+  browser.forceCards=false;
+  browser.renderHosts();
+  assert.equal(node('view-list').disabled,false);
+  assert.doesNotMatch(display(),/class="host-list"/);
+  if (publicPage) {
+    node('connection-notice').hidden=false;
+    node('summary').textContent='Failed to fetch';
+    browser.renderHosts();
+    assert.equal(node('summary').textContent,'Failed to fetch');
+    await browser.refresh();
+    assert.doesNotMatch(node('summary').textContent,/Failed to fetch/);
+  }
+}
+console.log('Both dashboards disable List while forced to Cards, preserve List through refresh/service toggles, and honour explicit Cards choices.');

@@ -4,6 +4,13 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 70 — v0.4.4 (project deletion and history ranges branch)
+
+- Automatically show Cards and temporarily disable List on both dashboards when the host list cannot fit its container. Explain the temporary mode and preserve the user's saved preference.
+- Measure an inert copy of the list so List can return after resizing, service visibility/filter changes or content changes. Use a small restoration buffer to avoid flicker; keep narrow Cards within their container.
+- Preserve connection-loss feedback during presentation-only status updates and keep measurement menus separate from live actions.
+
+
 ### Build 69 — v0.4.4 (project deletion and history ranges branch)
 
 - Keep account actions right-aligned while they fit beside the user/presence badges; move Status Dashboard and Sign out onto a left-aligned row when space is insufficient.

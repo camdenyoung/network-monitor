@@ -11,7 +11,7 @@
     .app-version { font-size: 13px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: 16px; }
     .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
     .host-row.incident-warning { --host-surface: #3d321f; --host-border: #dba946; }
     .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
@@ -85,6 +85,9 @@
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
     /* Separate cell borders create one rounded outline around each host row. */
+    .host-fit-probe { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; contain: layout style paint; }
+    .host-card { min-width: 0; overflow-wrap: anywhere; }
+    #view-list:disabled { cursor: not-allowed; }
     .host-list { min-width: 650px; border-collapse: separate; border-spacing: 0 12px; }
     .host-row { --host-surface: #182433; --host-border: #314257; }
     .host-list .host-row > td { vertical-align: top; background: var(--host-surface); border: 1px solid var(--host-border); border-left-width: 0; border-right-width: 0; padding: 16px; }
@@ -185,7 +188,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 69</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 70</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -256,6 +259,7 @@
       <datalist id="service-filter-options"></datalist>
       <button id="clear-service-filter">All services</button>
     </div>
+    <small id="host-view-fit-note" role="status" hidden>Cards shown to fit this screen. Widen the window or hide services to use List.</small>
     <p id="host-view-summary"></p>
     <small>Service filters narrow host readings. Issue lists show all issues.</small>
     <div id="dashboard" class="grid"></div>
@@ -840,6 +844,72 @@
     }
     // END dashboard connection recovery.
 
+    // BEGIN responsive host view (keep identical on both dashboards).
+    function createHostViewFit(containerId, changed) {
+      const container = document.getElementById(containerId);
+      let probe = null;
+      let markup = null;
+      let unavailable = false;
+      let lastWidth = 0;
+      let lastRequired = 0;
+      let observer = null;
+
+      function requiredWidth() {
+        const table = probe?.firstElementChild;
+        return table ? Math.max(table.getBoundingClientRect().width, table.scrollWidth) : 0;
+      }
+      function checkWidth() {
+        const width = container.clientWidth || 0;
+        if (!width) { lastWidth = 0; return; } // Hidden host panels cannot be measured.
+        const required = requiredWidth();
+        if (Math.abs(width - lastWidth) <= 0.5 && Math.abs(required - lastRequired) <= 0.5) return;
+        lastWidth = width;
+        lastRequired = required;
+        changed();
+      }
+      function choose(preferred, listMarkup) {
+        const width = container.clientWidth || 0;
+        if (width > 0 && typeof document.createElement === 'function') {
+          if (!probe) {
+            probe = document.createElement('div');
+            probe.className = 'host-fit-probe';
+            probe.inert = true;
+            probe.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(probe);
+          }
+          if (markup !== listMarkup) {
+            if (probe.firstElementChild) observer?.unobserve(probe.firstElementChild);
+            probe.innerHTML = listMarkup;
+            // Closed-menu popup contents do not affect row width. Remove them and
+            // duplicate IDs/menu keys so this inert probe cannot affect live menus.
+            probe.querySelectorAll('.menu-buttons').forEach(node => node.remove());
+            probe.querySelectorAll('[id], [data-menu-key]').forEach(node => {
+              node.removeAttribute('id'); node.removeAttribute('data-menu-key');
+            });
+            if (probe.firstElementChild) observer?.observe(probe.firstElementChild);
+            markup = listMarkup;
+          }
+          const required = requiredWidth();
+          lastWidth = width;
+          lastRequired = required;
+          if (required > 0) {
+            // Restore with breathing room to avoid oscillation when scrollbars
+            // appear/disappear as Cards and List have different heights.
+            if (unavailable) unavailable = width < required + 24;
+            else unavailable = required > width + 0.5;
+          }
+        }
+        return {view: unavailable ? 'cards' : preferred, unavailable};
+      }
+      if (typeof ResizeObserver === 'function') {
+        observer = new ResizeObserver(checkWidth);
+        observer.observe(container);
+      }
+      return {choose, checkWidth, observer};
+    }
+    // END responsive host view.
+
+
     // sessionStorage keeps the same tab identity through refreshes and navigation
     // between dashboards. This opaque ID is not a credential or a user identity.
     const dashboardConnection = (() => {
@@ -1072,11 +1142,14 @@
         try { localStorage.setItem(storageKey, String(visible)); }
         catch (error) { /* Retain this preference for the current page session. */ }
         applyVisibility();
+        if (key === 'live' && visible && state) renderHosts();
       };
       applyVisibility();
     }
 
+    const hostViewFit = createHostViewFit('dashboard', () => { if (state) renderHosts(); });
     let hostView = 'cards';
+    let effectiveHostView = 'cards';
     let hostSort = 'hostname';
     let showServices = true;
     let serviceFilter = '';
@@ -1103,7 +1176,7 @@
     }
     el('toggle-services').onclick = () => { showServices = !showServices; saveHostDisplay(); };
     el('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
-    el('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
+    el('view-list').onclick = () => { if (el('view-list').disabled) return; hostView = 'list'; saveHostDisplay(); };
     el('host-sort').onchange = () => { hostSort = el('host-sort').value; saveHostDisplay(); };
     el('service-filter').oninput = () => { serviceFilter = el('service-filter').value; saveHostDisplay(); };
     el('clear-service-filter').onclick = () => { serviceFilter = ''; saveHostDisplay(); };
@@ -1143,7 +1216,7 @@
           incident_status: assignment.incident_status}];
       }));
       matches.sort((left, right) => compareHosts(sortKeys.get(left.id), sortKeys.get(right.id)));
-      const rendered = matches.map(assignment => {
+      const rowsForView = view => matches.map(assignment => {
         const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
         const hostReading = state.latest.find(row => row.service === hostCheck?.id);
@@ -1171,7 +1244,7 @@
             <small>${date(reading?.timestamp)}</small>
           </div>`;
         }).join('');
-        if (hostView === 'list') {
+        if (view === 'list') {
           return `<tr class="host-row ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}">
             <td><div class="host-heading"><strong>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</strong>
               <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>
@@ -1183,15 +1256,21 @@
         }
         return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><div class="host-heading"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping <button data-admin data-host-stability="${hostCheck?.id}">Host flap protection</button></p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
       }).join('');
-      el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
+      const listMarkup = '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th>' + (showServices ? '<th>Services</th>' : '') + '</tr></thead><tbody>' + rowsForView('list') + '</tbody></table>';
+      const fit = hostViewFit.choose(hostView, listMarkup);
+      effectiveHostView = fit.view;
+      el('dashboard').className = effectiveHostView === 'cards' ? 'grid' : 'scroll';
       el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
-        : hostView === 'cards' ? rendered
-        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th>' + (showServices ? '<th>Services</th>' : '') + '</tr></thead><tbody>' + rendered + '</tbody></table>';
+        : effectiveHostView === 'cards' ? rowsForView('cards') : listMarkup;
+      el('view-list').disabled = fit.unavailable;
+      el('view-list').setAttribute('aria-describedby', fit.unavailable ? 'host-view-fit-note' : '');
+      el('view-list').title = fit.unavailable ? 'List needs more width. Widen the window or hide services.' : 'Show hosts as a list.';
+      el('host-view-fit-note').hidden = !fit.unavailable;
       el('host-view-summary').textContent = `Showing ${matches.length} of ${visible.length} displayed hosts`;
       el('toggle-services').textContent = showServices ? 'Hide services' : 'Show services';
       el('toggle-services').setAttribute('aria-pressed', String(showServices));
-      el('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
-      el('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
+      el('view-cards').setAttribute('aria-pressed', String(effectiveHostView === 'cards'));
+      el('view-list').setAttribute('aria-pressed', String(effectiveHostView === 'list'));
       el('service-filter').value = serviceFilter;
       el('host-sort').value = hostSort;
       const names = [...new Set(state.services.filter(service => service.kind !== 'ping' && service.enabled !== 0 &&
@@ -1241,6 +1320,7 @@
     function updateResponsiveControls() {
       updateToolbarLayout();
       updateAccountLayout();
+      hostViewFit.checkWidth();
     }
 
     function updateProjectDeletion(project, run) {
