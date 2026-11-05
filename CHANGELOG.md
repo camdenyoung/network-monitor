@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 75 — v0.4.4 (Modbus register types branch)
+
+- Add bottom padding to the Admin page header so wrapped project/status badges remain clear of the logged-in user and navigation controls on narrow screens.
+
 ### Build 74 — v0.4.4 (Modbus register types branch)
 
 - Move Project configuration before Permanent inventory in the Admin configuration tabs and keyboard order.

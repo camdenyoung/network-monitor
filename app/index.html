@@ -8,6 +8,8 @@
     :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #101823; color: #e8eff8; }
     body { max-width: 1250px; margin: auto; padding: 28px; }
     header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    /* Keep wrapped project/status badges clear of the account navigation below. */
+    body > header { padding-bottom: 18px; }
     .app-version { font-size: 13px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
@@ -200,7 +202,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.4.4 · Build 74</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.4.4 · Build 75</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
