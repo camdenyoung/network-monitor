@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 84 — v0.5.2 (Admin project configuration updates)
+
+- Rename the first Project configuration heading from Projects to Add Project.
+
 ### Build 83 — v0.5.2 (Admin project configuration updates)
 
 - Narrow save-confirmation toasts to 320px while retaining small-screen fitting, stacking and individual countdowns.
