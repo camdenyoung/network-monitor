@@ -1116,7 +1116,7 @@ assert.match(html, /name="logo_project"/);
 console.log('New-project logo choices preview existing uploads and survive refreshes.');
 
 // Library import is reviewed in-app before any write, with errors kept in the dialog.
-const libraryFile = {format:'network-monitor-service-library',version:1,
+const libraryFile = {format:'network-monitor-service-library',version:3,
     services:[{name:'Imported RSSI',kind:'snmp',target:'.1.2.3',direction:'below',community:'TEST_EXPORT_SECRET'}]};
 const libraryForm = element('library-import-form');
 libraryForm.elements.namedItem('library').files = [{size:500,text:async () => JSON.stringify(libraryFile)}];
@@ -1441,6 +1441,7 @@ console.log('Host flap dialog identifies the correct host, safely displays alias
 const protocolForm = element('service-edit-form');
 protocolForm.elements.namedItem('community').value = 'unsaved-community';
 protocolForm.elements.namedItem('unit').value = '17';
+protocolForm.elements.namedItem('modbus_function').value = '4';
 for (const [protocol, communityDisabled, unitDisabled] of [
   ['snmp',false,true],['modbus',true,false],['tcp',true,true],['snmp',false,true],
 ]) {
@@ -1450,11 +1451,16 @@ for (const [protocol, communityDisabled, unitDisabled] of [
   assert.equal(protocolForm.elements.namedItem('unit').disabled,unitDisabled);
   assert.equal(protocolForm.elements.namedItem('community').value,'unsaved-community');
   assert.equal(protocolForm.elements.namedItem('unit').value,'17');
+  assert.equal(protocolForm.elements.namedItem('modbus_function').disabled,protocol !== 'modbus');
+  assert.equal(protocolForm.elements.namedItem('modbus_function').value,'4');
+  assert.equal(element('snmp-community-field').hidden,protocol !== 'snmp');
+  assert.equal(element('modbus-register-field').hidden,protocol !== 'modbus');
 }
 for (const [kind, mode] of [['snmp','service-edit'],['modbus','template-create'],['tcp','device-default-create']]) {
-  context.openConfigurationEditor({...stateService,kind},mode,null,'Protocol test','Sample configuration');
+  context.openConfigurationEditor({...stateService,kind,modbus_function:4},mode,null,'Protocol test','Sample configuration');
   assert.equal(protocolForm.elements.namedItem('community').disabled,kind !== 'snmp');
   assert.equal(protocolForm.elements.namedItem('unit').disabled,kind !== 'modbus');
+  assert.equal(protocolForm.elements.namedItem('modbus_function').value,'4');
 }
 console.log('Service protocol fields initialise correctly and retain drafts while switching SNMP, Modbus and TCP.');
 

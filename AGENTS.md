@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 71. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 72. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -758,3 +758,14 @@ rules unchanged; use matching defensive card styles on both dashboard pages.
 Admin #dashboard.grid is capped at three card columns using its minimum track
 width, while auto-fit still reduces to two/one and fills space for fewer hosts.
 Do not apply this three-column cap to the public Status Dashboard.
+
+Modbus TCP services have a separate modbus_function field, limited to 3 or 4.
+The shared editor reuses the community slot: SNMP shows the community password,
+Modbus shows Holding (03)/Input (04), TCP hides both. Disable irrelevant controls
+without clearing drafts. Persist the function through all shared configuration
+paths. migrate_modbus_functions defaults legacy service/template/device-default
+rows to 3 on startup/restore. Library format v3 exports it; import v1/v2 remains
+accepted with default 3. Validate MBAP identity, unit, length, function and byte
+count; handle exception/truncated responses without treating them as readings.
+Keep the TCP-to-RTU gateway transport on port 502 and existing unsigned single
+16-bit scaling. Test protocol framing and migration in tests/test_modbus.py.

@@ -1,4 +1,4 @@
-# Network Monitor v0.4.4 · Build 71
+# Network Monitor v0.4.4 · Build 72
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -118,7 +118,7 @@ are independent; notification flags enable or mute outbound messages per host.
   and healthy/warning/critical severity. Unmapped state codes produce warnings.
 - Monitor card headings use `Device ID - Alias`.
 - Automatic ICMP host ping (including existing/restored assignments); numeric
-  SNMP v2c GET; TCP port reachability; basic Modbus TCP function 03.
+  SNMP v2c GET; TCP port reachability; Modbus TCP Holding (03) and Input (04) register reads.
 - Inline success confirmations and cleared add forms; failed submissions preserve
   input and background refreshes preserve unfinished selections.
 - Copy services to hosts in any saved project, with optional name/community overrides.
@@ -168,7 +168,7 @@ CLI recovery command and versioned encrypted archives remain planned.
 - No verified manufacturer profiles: do not invent OIDs or Mean Well registers.
 - SNMP v2c only. Raw counters are not throughput; counter-rate calculation, counter
   rollover handling, SNMPv3 and vendor profiles are required next.
-- Modbus TCP port 502 with configurable unit ID, unsigned 16-bit holding registers with scale.
+- Modbus TCP port 502 with configurable unit ID, unsigned 16-bit Holding (03) or Input (04) registers with scale.
   RTU/gateways, signed/multi-register values, bitfields and
   manufacturer fault decoding are pending confirmation of the actual DRS interface.
 - Host cards show ICMP online/offline/unknown independently of additional services.
@@ -667,3 +667,16 @@ History reads use the existing service/time index in short batches and never
 hold the global monitor lock. Up to four range requests run concurrently, with a
 20-second graph work budget and a 30-second browser read timeout. These new range
 queries have regression coverage but have not been capacity-tested on the Pi.
+
+### Modbus register types
+
+For Modbus TCP services, the shared service editor replaces the SNMP community
+field with a register-type selector: **Holding register (03)** or **Input register (04)**.
+Existing services and older imported libraries keep Holding (03). The choice is
+retained in copies, inventory defaults, library exports and complete backups.
+
+For a TCP-to-RTU gateway, enter the gateway IP in inventory and the downstream
+device unit ID in the service. Enter the zero-based register address in decimal
+(for example, `0x0062` becomes `98`); selecting Input (04) changes the read function,
+not the address. TCP port 502 is used. Confirm the register, scaling and unit ID
+against the device documentation; reads currently support one unsigned 16-bit register.

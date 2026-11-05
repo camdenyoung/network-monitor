@@ -1343,7 +1343,7 @@ class MonitorTests(unittest.TestCase):
         server.mutate('template-create', definition)
         with server.connect() as db:
             exported = service_library.export_document(db)
-            self.assertEqual(exported['version'], 2)
+            self.assertEqual(exported['version'], 3)
             self.assertEqual(exported['services'][0]['hysteresis'], 3)
             service_library.import_document(db, exported, 'replace', server.service_details)
             template = db.execute('SELECT * FROM service_templates').fetchone()

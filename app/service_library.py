@@ -4,12 +4,12 @@ import json
 import math
 
 FORMAT = 'network-monitor-service-library'
-VERSION = 2
+VERSION = 3
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
 MAX_SERVICES = 5000
 FIELDS = ('name', 'kind', 'target', 'community', 'unit', 'scale', 'units',
           'direction', 'warning', 'critical', 'persistence', 'value_type', 'state_map',
-          'flap_enabled', 'flap_changes', 'flap_window', 'flap_stable', 'hysteresis')
+          'flap_enabled', 'flap_changes', 'flap_window', 'flap_stable', 'hysteresis', 'modbus_function')
 
 
 class LibraryImportError(ValueError):
@@ -30,8 +30,8 @@ def export_document(db):
 def validate_document(document, validate_service):
     """Validate the complete file before any DELETE/INSERT can occur."""
     if (not isinstance(document, dict) or document.get('format') != FORMAT
-            or type(document.get('version')) is not int or document['version'] not in (1, VERSION)):
-        raise LibraryImportError('Choose a Network Monitor service-library export with format version 1 or 2.')
+            or type(document.get('version')) is not int or document['version'] not in (1, 2, VERSION)):
+        raise LibraryImportError('Choose a Network Monitor service-library export with format version 1, 2 or 3.')
     entries = document.get('services')
     if not isinstance(entries, list) or len(entries) > MAX_SERVICES:
         raise LibraryImportError(f'The library must contain a list of at most {MAX_SERVICES} services.')
@@ -43,7 +43,7 @@ def validate_document(document, validate_service):
         for field in ('name', 'kind', 'target', 'community', 'units', 'direction', 'value_type'):
             if field in entry and not isinstance(entry[field], str):
                 raise LibraryImportError(error)
-        for field in ('unit', 'persistence', 'flap_changes', 'flap_window', 'flap_stable'):
+        for field in ('unit', 'modbus_function', 'persistence', 'flap_changes', 'flap_window', 'flap_stable'):
             if field in entry and type(entry[field]) is not int:
                 raise LibraryImportError(error)
         for field in ('scale', 'warning', 'critical', 'hysteresis'):

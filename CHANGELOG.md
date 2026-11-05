@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 72 — v0.4.4 (Modbus register types branch)
+
+- Add Holding (03) and Input (04) register selection in the shared service editor, using the SNMP community field’s space for Modbus. Preserve protocol drafts and disable irrelevant fields.
+- Carry the function through project services, inventory defaults, copies, project duplication, library format v3 and complete backups. Keep existing databases and older library imports on Function 03.
+- Validate Modbus TCP response framing and exception replies; retain single unsigned 16-bit register reads and scaling.
+
 ### Build 71 — v0.4.4 (project deletion and history ranges branch)
 
 - Prevent Pause/Resume card-control labels breaking into vertical letters. When the control pair cannot fit side by side, wrap Pause/Resume below Actions, keeping labels intact and controls right-aligned.

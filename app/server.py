@@ -99,6 +99,7 @@ def initialize():
         migrate_deployment_descriptions(db)
         logos.ensure_table(db)
         notifications.ensure_tables(db)
+        migrate_modbus_functions(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
 
@@ -456,6 +457,13 @@ def migrate_issue_evidence(db):
                      timestamp, error, units, issue_id))
 
 
+def migrate_modbus_functions(db):
+    """Preserve old Function 03 behaviour across services, defaults and templates."""
+    for table in ('services', 'service_templates', 'device_service_defaults'):
+        if 'modbus_function' not in {row[1] for row in db.execute(f'PRAGMA table_info({table})')}:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN modbus_function INTEGER NOT NULL DEFAULT 3')
+
+
 def state_key(value):
     number = float(value)
     if not math.isfinite(number):
@@ -605,16 +613,22 @@ def read_metric(service):
     elif service['kind'] == 'modbus':
         register = int(service['target'])
         unit = service['unit']
-        request = struct.pack('>HHHBBHH', 1, 0, 6, unit, 3, register, 1)
+        function = service.get('modbus_function', 3)
+        if function not in (3, 4):
+            raise ValueError('Unsupported Modbus read function')
+        # The gateway receives ordinary Modbus TCP; only the read function changes.
+        request = struct.pack('>HHHBBHH', 1, 0, 6, unit, function, register, 1)
         with socket.create_connection((host, 502), timeout=2) as sock:
             sock.settimeout(2)
             sock.sendall(request)
             header = receive_exact(sock, 7)
             transaction, protocol, length, response_unit = struct.unpack('>HHHB', header)
-            if (transaction, protocol, response_unit) != (1, 0, unit) or length != 5:
+            if (transaction, protocol, response_unit) != (1, 0, unit) or length not in (3, 5):
                 raise ValueError('Unexpected Modbus response header')
             response = receive_exact(sock, length - 1)
-            if response[:2] != b'\x03\x02':
+            if response[0] == (function | 0x80) and length == 3:
+                raise ValueError(f'Modbus exception {response[1]}')
+            if length != 5 or response[:2] != bytes((function, 2)):
                 raise ValueError('Unexpected Modbus response function')
             value = struct.unpack('>H', response[2:])[0]
     else:
@@ -784,18 +798,18 @@ def snapshot():
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map,monitoring,monitoring_since,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
+            SELECT id,assignment,name,kind,target,unit,modbus_function,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map,monitoring,monitoring_since,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
             FROM services''')]
         for service in result['services']:
             runtime = stability.state_for(db, int(setting(db, 'active_run')), service['id'],
                                           service['revision'], service['monitoring_since'])
             service['flapping'] = bool(runtime and runtime['flapping'])
         result['service_templates'] = [dict(row) for row in db.execute('''
-            SELECT id,name,kind,target,unit,scale,units,direction,warning,critical,persistence,value_type,state_map,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
+            SELECT id,name,kind,target,unit,modbus_function,scale,units,direction,warning,critical,persistence,value_type,state_map,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
             FROM service_templates ORDER BY name
         ''')]
         result['device_service_defaults'] = [dict(row) for row in db.execute('''
-            SELECT id,device,name,kind,target,unit,scale,units,direction,warning,critical,
+            SELECT id,device,name,kind,target,unit,modbus_function,scale,units,direction,warning,critical,
                    persistence,value_type,state_map,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis FROM device_service_defaults ORDER BY name,id
         ''')]
         for configuration in result['services'] + result['service_templates'] + result['device_service_defaults']:
@@ -896,6 +910,10 @@ def service_details(body, existing=None):
         if (direction == 'below' and critical > warning) or (direction == 'above' and critical < warning):
             raise ValueError('Critical threshold must be more severe than warning')
     # Disabled protocol fields are absent from browser FormData on edit.
+    function = body.get('modbus_function', existing['modbus_function'] if existing else 3)
+    if type(function) not in (int, str) or str(function) not in ('3', '4'):
+        raise ValueError('Choose Holding (03) or Input (04) registers')
+    function = int(function)
     unit = int(body.get('unit', existing['unit'] if existing else 1))
     persistence = int(body.get('persistence', 2))
     if not 1 <= unit <= 247 or not 1 <= persistence <= 120:
@@ -930,7 +948,7 @@ def service_details(body, existing=None):
         scale, warning, critical = 1, None, None
     return (name, kind, target, community, unit, scale, body.get('units', ''),
             direction, warning, critical, persistence, value_type, json.dumps(normalized),
-            *stability.policy_details({**body, 'value_type': value_type}, existing))
+            *stability.policy_details({**body, 'value_type': value_type}, existing), function)
 
 
 def reusable_service(db, service_id):
@@ -1690,6 +1708,7 @@ class Handler(BaseHTTPRequestHandler):
                     logos.ensure_table(candidate)
                     notifications.ensure_tables(candidate)
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
+                    migrate_modbus_functions(candidate)
                     auth.ensure_accounts(candidate)
                     # Older backups have no accounts: retain current accounts so
                     # restoring equipment cannot silently reset access to a default.

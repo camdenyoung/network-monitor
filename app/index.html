@@ -194,7 +194,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 71</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 72</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -672,8 +672,11 @@
         <option value="tcp">TCP port reachability</option>
       </select></label>
       <label>OID / register / port<input name="target" required></label>
-      <label>SNMP community (leave blank to keep existing)
+      <label id="snmp-community-field">SNMP community (leave blank to keep existing)
         <input name="community" type="password" autocomplete="new-password">
+      </label>
+      <label id="modbus-register-field" hidden>Modbus register type
+        <select name="modbus_function"><option value="3">Holding register (03)</option><option value="4">Input register (04)</option></select>
       </label>
       <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" required></label>
       <label>Returned value<select name="value_type">
@@ -1669,6 +1672,9 @@
       // Disable rather than clear: switching back keeps the user's unfinished input.
       form.elements.namedItem('community').disabled = protocol !== 'snmp';
       form.elements.namedItem('unit').disabled = protocol !== 'modbus';
+      form.elements.namedItem('modbus_function').disabled = protocol !== 'modbus';
+      el('snmp-community-field').hidden = protocol !== 'snmp';
+      el('modbus-register-field').hidden = protocol !== 'modbus';
     }
 
     function servicePayload(form) {
@@ -1880,6 +1886,7 @@
         form.elements.namedItem(field).value = configuration[field] ?? fallback;
       }
       form.elements.namedItem('flap_enabled').checked = configuration.flap_enabled !== 0;
+      form.elements.namedItem('modbus_function').value = String(configuration.modbus_function ?? 3);
       form.elements.namedItem('community').value = '';
       updateProtocolFields(form);
       el('service-editor-title').textContent = title;
@@ -1924,8 +1931,8 @@
         let library;
         try { library = JSON.parse(await file.text()); }
         catch (error) { throw new Error('Choose a valid service-library JSON file.'); }
-        if (library?.format !== 'network-monitor-service-library' || ![1, 2].includes(library.version) || !Array.isArray(library.services)) {
-          throw new Error('Choose a Network Monitor service-library export with format version 1 or 2.');
+        if (library?.format !== 'network-monitor-service-library' || ![1, 2, 3].includes(library.version) || !Array.isArray(library.services)) {
+          throw new Error('Choose a Network Monitor service-library export with format version 1, 2 or 3.');
         }
         if (library.services.length > 5000) throw new Error('A library file can contain at most 5000 services.');
         if (!['merge', 'replace'].includes(mode)) throw new Error('Choose Merge or Replace.');

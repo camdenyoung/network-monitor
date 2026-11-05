@@ -41,7 +41,7 @@ class ServiceLibraryTransferTests(unittest.TestCase):
         entries = [self.definition(), self.definition('Port state', value_type='state',
             warning=None, critical=None, state_map={'1': {'label': 'Up', 'status': 'healthy'},
                                                    '2': {'label': 'Down', 'status': 'critical'}}),
-            self.definition('Voltage', kind='modbus', target='100', unit=5, scale=0.1, units='V'),
+            self.definition('Voltage', kind='modbus', target='100', unit=5, modbus_function=4, scale=0.1, units='V'),
             self.definition('Web port', kind='tcp', target='443', warning=None, critical=None)]
         for entry in entries:
             server.mutate('template-create', entry)
@@ -105,7 +105,7 @@ class ServiceLibraryTransferTests(unittest.TestCase):
         server.mutate('template-create', self.definition('Keep me'))
         original = self.rows()
         valid = self.document([self.definition('Good first row')])
-        cases = [None, [], {**valid, 'format': 'other'}, {**valid, 'version': 3},
+        cases = [None, [], {**valid, 'format': 'other'}, {**valid, 'version': 99},
                  {**valid, 'version': True}, {**valid, 'services': {}},
                  {**valid, 'services': [self.definition()] * 5001},
                  self.document([self.definition('Repeated'), self.definition(' Repeated ')])]
