@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 79 — v0.5.2 (README capability review branch)
+
+- Correct outdated README limitations for hysteresis, flap protection, reminders, project duplication, inventory defaults, Modbus gateways and synthetic load testing.
+- Document recovery hysteresis and flap protection; update delivery behaviour to reflect implemented reminders and retain genuine outstanding limitations.
+
 ### Build 78 — v0.5.2
 
 - Merge the service-history fix: alarm-setting edits retain graph continuity, while measurement changes create separately selectable versions with their original units/state labels.
