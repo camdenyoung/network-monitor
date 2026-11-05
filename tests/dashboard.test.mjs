@@ -2536,3 +2536,64 @@ assert.equal(element('assignments').innerHTML,'');
 await creationContext.refresh();
 assert.equal(element('assignments-details').open,false);
 console.log('Project setup and independent stacked toast timers, countdown markup, safe messages, expiry and dismissal passed.');
+
+// Default resolved list is ten; search spans older data without stale replies repainting it.
+const resolvedCalls = [];
+const resolvedRows = Array.from({length:15},(_,index) => ({id:900-index,number:900-index,
+  service:2,status:'warning',opened:now-100,closed:now-index,trigger_value:24.1,
+  trigger_display:'24.1',trigger_units:'V',trigger_timestamp:now-100}));
+const resolvedFixture = {...fixture,settings:{...fixture.settings,active_run:'1'},
+  incident_lists:{active:[],acknowledged:[],suppressed:[],resolved:resolvedRows}};
+let slowResolved;
+const resolvedContext = vm.createContext({document:context.document,FormData:context.FormData,setInterval(){},
+  fetch:async path => {
+    if (path.startsWith('/api/resolved?')) {
+      const query = new URL(path,'http://monitor.test').searchParams;
+      resolvedCalls.push(query);
+      if (query.get('search') === 'slow') await new Promise(resolve => {slowResolved=resolve;});
+      if (query.get('search') === 'error') return {ok:false,json:async () => ({error:'Search unavailable'})};
+      const older = query.has('before');
+      return {ok:true,json:async () => ({rows:query.get('search') === 'none' ? []
+        : [{...resolvedRows[0],number:older ? 20 : 42}],
+        next:older ? null : {before:40,before_time:now-30},run:1})};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'viewer',csrf:'test'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : resolvedFixture};
+  }});
+new vm.Script(script).runInContext(resolvedContext);
+await resolvedContext.initializeSession();
+await resolvedContext.refresh();
+assert.equal((element('resolved-incidents').innerHTML.match(/<div class="metric">/g)||[]).length,10);
+assert.match(element('resolved-summary').textContent,/Latest 10/);
+assert.equal(resolvedCalls.length,0);
+element('resolved-search').value='voltage';
+await element('resolved-search').oninput();
+assert.match(element('resolved-incidents').innerHTML,/Issue #42/);
+assert.equal(element('resolved-search-pages').hidden,false);
+assert.equal(element('resolved-older').disabled,false);
+await element('resolved-older').onclick();
+assert.equal(resolvedCalls.at(-1).get('before'),'40');
+assert.match(element('resolved-incidents').innerHTML,/Issue #20/);
+await resolvedContext.refresh();
+await resolvedContext.renderResolvedIssues();
+assert.equal(resolvedCalls.at(-1).get('before'),'40');
+assert.equal(element('resolved-search').value,'voltage');
+await element('resolved-newest').onclick();
+assert.equal(resolvedCalls.at(-1).has('before'),false);
+element('resolved-search').value='none';
+await element('resolved-search').oninput();
+assert.match(element('resolved-incidents').innerHTML,/No resolved issues match/);
+element('resolved-search').value='error';
+await element('resolved-search').oninput();
+assert.equal(element('resolved-summary').textContent,'Search unavailable');
+element('resolved-search').value='slow';
+const pendingResolved = element('resolved-search').oninput();
+await element('clear-resolved-search').onclick();
+slowResolved();
+await pendingResolved;
+assert.equal(element('resolved-search').value,'');
+assert.equal((element('resolved-incidents').innerHTML.match(/<div class="metric">/g)||[]).length,10);
+assert.match(element('resolved-summary').textContent,/Latest 10/);
+assert.equal(element('resolved-search-pages').hidden,true);
+console.log('Resolved issues show ten latest recoveries; full search, paging, refresh persistence, empty/error states and stale replies passed.');

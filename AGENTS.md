@@ -252,7 +252,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.2, Build 84. Show it after the title on both the main and
+Current displayed release is v0.5.2, Build 85. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -823,3 +823,14 @@ and allow scrolling; use stepped countdowns under prefers-reduced-motion.
 
 Toast stacks use a compact 320px width, shrinking to fit narrow viewports.
 Unacknowledgement keeps inline issue feedback and list updates without a toast.
+
+Admin Resolved issues displays the latest 10, ordered by closed DESC/id DESC.
+Keep snapshot's bounded 200-row list for compatibility. app/resolved.py supplies
+an authenticated /api/resolved search across all eligible resolved issues in the
+current active deployment, 10 per page with closed/id cursors, literal Unicode
+casefold matching and no monitor LOCK. Scope by active_run, non-removed assignment
+and enabled service. Retain display-name enrichment and legacy ping evidence text.
+Install the partial resolved_issue_lookup index on startup/restore. Bound query work
+to 3s and four concurrent searches. UI retains filter/page on refresh, debounces
+input and rejects stale responses when query/deployment changes. Clear returns to
+latest 10. No acknowledgement actions or new notifications are introduced.

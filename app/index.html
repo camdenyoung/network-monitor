@@ -213,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 84</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 85</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -366,7 +366,19 @@
   </section>
   <section id="acknowledged-panel" hidden><h2>Acknowledged issues</h2><div id="acknowledged-incidents"></div></section>
   <section id="suppressed-panel" hidden><h2>Suppressed service issues</h2><div id="suppressed-incidents"></div></section>
-  <section id="resolved-panel" hidden><h2>Resolved issues</h2><div id="resolved-incidents"></div></section>
+  <section id="resolved-panel" hidden>
+    <h2>Resolved issues</h2>
+    <div class="display-controls">
+      <label>Search resolved issues<input id="resolved-search" type="search" maxlength="100" placeholder="Issue #, device, alias, service, or value"></label>
+      <button id="clear-resolved-search" type="button">Clear search</button>
+    </div>
+    <p id="resolved-summary" role="status"></p>
+    <div id="resolved-incidents"></div>
+    <div id="resolved-search-pages" class="display-controls" hidden>
+      <button id="resolved-newest" type="button">Newest matches</button>
+      <button id="resolved-older" type="button">Older matches</button>
+    </div>
+  </section>
   <div id="live-status-panel" aria-labelledby="live-hosts-title">
     <h2 id="live-hosts-title">Live Hosts</h2>
     <div class="display-controls" role="group" aria-label="Host display options">
@@ -1578,7 +1590,7 @@
       el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active issues.</p>';
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
-      el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
+      renderResolvedIssues();
       updateResponsiveControls();
       connectionGuard.healthy();
       connectAcknowledgementUpdates();
@@ -1745,6 +1757,71 @@
           <small>· ${date(incident.opened)} · ${recovery} · ${acknowledgement}</small></div>`;
       }).join('');
     }
+
+    let resolvedRequest = 0;
+    let resolvedSearchTimer;
+    let resolvedQuery = '';
+    let resolvedRun = null;
+    let resolvedBefore = null;
+    let resolvedNext = null;
+
+    async function renderResolvedIssues() {
+      if (!state) return;
+      const query = el('resolved-search').value.trim();
+      const run = Number(state.settings.active_run);
+      if (query !== resolvedQuery || run !== resolvedRun) {
+        resolvedBefore = null;
+        resolvedNext = null;
+        el('resolved-incidents').innerHTML = '';
+      }
+      resolvedQuery = query;
+      resolvedRun = run;
+      const requestId = ++resolvedRequest;
+      if (!query) {
+        const rows = state.incident_lists.resolved.slice(0, 10);
+        el('resolved-incidents').innerHTML = renderIncidents(rows) || '<p>No resolved issues.</p>';
+        el('resolved-summary').textContent = `Latest ${rows.length} resolved issues. Search covers all resolved issues in the current deployment.`;
+        el('resolved-search-pages').hidden = true;
+        return;
+      }
+      el('resolved-summary').textContent = 'Searching resolved issues…';
+      el('resolved-search-pages').hidden = false;
+      el('resolved-newest').disabled = true;
+      el('resolved-older').disabled = true;
+      try {
+        let url = `/api/resolved?run=${run}&search=${encodeURIComponent(query)}`;
+        if (resolvedBefore !== null) url += `&before=${resolvedBefore.before}&before_time=${resolvedBefore.before_time}`;
+        const response = await dashboardFetch(url);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not search resolved issues.');
+        // A changed filter, deployment or newer refresh must not paint stale matches.
+        if (requestId !== resolvedRequest || el('resolved-search').value.trim() !== query || Number(state.settings.active_run) !== run) return;
+        resolvedNext = result.next;
+        el('resolved-incidents').innerHTML = renderIncidents(result.rows) || '<p>No resolved issues match this search.</p>';
+        el('resolved-summary').textContent = `${result.rows.length} matching resolved issues on this page · Current deployment · Up to 10 per page`;
+        el('resolved-newest').disabled = resolvedBefore === null;
+        el('resolved-older').disabled = resolvedNext == null;
+      } catch (error) {
+        if (requestId === resolvedRequest) el('resolved-summary').textContent = error.message;
+      }
+    }
+    el('resolved-search').oninput = () => {
+      resolvedRequest++;
+      if (resolvedSearchTimer !== undefined) globalThis.clearTimeout?.(resolvedSearchTimer);
+      if (globalThis.setTimeout) resolvedSearchTimer = globalThis.setTimeout(renderResolvedIssues, 200);
+      else return renderResolvedIssues();
+    };
+    el('clear-resolved-search').onclick = () => {
+      if (resolvedSearchTimer !== undefined) globalThis.clearTimeout?.(resolvedSearchTimer);
+      el('resolved-search').value = '';
+      return renderResolvedIssues();
+    };
+    el('resolved-newest').onclick = () => { resolvedBefore = null; return renderResolvedIssues(); };
+    el('resolved-older').onclick = () => {
+      if (resolvedNext == null) return;
+      resolvedBefore = resolvedNext;
+      return renderResolvedIssues();
+    };
 
     const SAVE_TOAST_DURATION = 6000;
     let saveToastSequence = 0;

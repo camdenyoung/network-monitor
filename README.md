@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 84
+# Network Monitor v0.5.2 · Build 85
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -100,6 +100,12 @@ records a timestamp without clearing the issue and moves it into the acknowledge
 list while the fault is open. All recovered issues appear in the resolved
 list. All three lists are scoped to the active deployment. The three assignment controls
 are independent; notification flags enable or mute outbound messages per host.
+
+The Admin **Resolved issues** section shows the ten most recently recovered
+issues by default. Search by issue number, device ID/IP, alias, service, status or
+recorded value to find matches across all resolved issues in the current deployment.
+Results use ten-item pages with Older matches/Newest matches controls. Clear search
+to return to the latest ten; search text and the current page survive live refreshes.
 
 ## Implemented
 

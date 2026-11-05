@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 85 — v0.5.2 (Admin project configuration updates)
+
+- Show the ten most recently recovered resolved issues by default and add a search field with Clear search.
+- Search all resolved issues in the current deployment, including older matches beyond the dashboard snapshot limit, with ten-result pages and recovery-time ordering.
+- Preserve search/page during live refreshes, reject stale replies and enforce authenticated, bounded, indexed reads.
+
 ### Build 84 — v0.5.2 (Admin project configuration updates)
 
 - Rename the first Project configuration heading from Projects to Add Project.

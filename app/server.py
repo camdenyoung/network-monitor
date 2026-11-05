@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history
+from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -101,6 +101,7 @@ def initialize():
         notifications.ensure_tables(db)
         migrate_modbus_functions(db)
         history.ensure_tables(db)
+        resolved.ensure_index(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
 
@@ -839,10 +840,11 @@ def snapshot():
         result['incident_lists'] = {}
         for category, predicate in predicates.items():
             limit = '' if category == 'active' else ' LIMIT 200'
+            order = 'i.closed DESC,i.id DESC' if category == 'resolved' else 'i.id DESC'
             result['incident_lists'][category] = [dict(row) for row in db.execute(
                 f'''SELECT i.* FROM incidents i JOIN services s ON s.id=i.service
                 JOIN assignments a ON a.id=s.assignment
-                WHERE i.run=? AND a.removed=0 AND s.enabled=1 AND {predicate} ORDER BY i.id DESC{limit}''' ,
+                WHERE i.run=? AND a.removed=0 AND s.enabled=1 AND {predicate} ORDER BY {order}{limit}''' ,
                 (run,))]
         result['incident_lists']['suppressed'] = []
         configurations = {row['id']: row for row in db.execute('''
@@ -1634,6 +1636,14 @@ class Handler(BaseHTTPRequestHandler):
             stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
             self.send(payload, 'application/octet-stream',
                       filename=f'network-monitor-backup-{stamp}.sqlite3')
+        elif self.path.startswith('/api/resolved?'):
+            from urllib.parse import parse_qs, urlsplit
+            try:
+                result = resolved.read(connect, parse_qs(urlsplit(self.path).query), acknowledgement_display_name)
+                self.send(json.dumps(result))
+            except (resolved.SearchError, KeyError, ValueError, OverflowError) as error:
+                message = str(error) if isinstance(error, resolved.SearchError) else 'Invalid resolved issue search.'
+                self.send(json.dumps({'error': message}), status=400)
         elif self.path.startswith('/api/history?'):
             from urllib.parse import parse_qs, urlsplit
             try:
@@ -1723,6 +1733,7 @@ class Handler(BaseHTTPRequestHandler):
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
                     migrate_modbus_functions(candidate)
                     history.ensure_tables(candidate)
+                    resolved.ensure_index(candidate)
                     auth.ensure_accounts(candidate)
                     # Older backups have no accounts: retain current accounts so
                     # restoring equipment cannot silently reset access to a default.
