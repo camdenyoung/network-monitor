@@ -484,7 +484,10 @@ def display_value(service, value):
     if service['value_type'] == 'state':
         definition = state_definition(service, value)
         return definition['label'] if definition else f'Unmapped state ({state_key(value)})'
-    return str(value)
+    # Scaling (for example 231 * 0.1) can leave binary floating-point residue.
+    # Round only the display text; stored values and alarm comparisons stay exact
+    # to the original reading. Significant digits also preserve very small metrics.
+    return format(value, '.15g')
 
 
 def next_record_id(db, table):

@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 73 — v0.4.4 (Modbus register types branch)
+
+- Format newly captured numeric readings to 15 significant digits for display, removing floating-point tails caused by scales such as 0.1. Both dashboards, history and notifications share the stored display text. Preserve raw numeric samples and threshold comparisons, and keep state labels unchanged.
+
 ### Build 72 — v0.4.4 (Modbus register types branch)
 
 - Add Holding (03) and Input (04) register selection in the shared service editor, using the SNMP community field’s space for Modbus. Preserve protocol drafts and disable irrelevant fields.

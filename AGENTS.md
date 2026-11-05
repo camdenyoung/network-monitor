@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 72. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 73. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -769,3 +769,7 @@ accepted with default 3. Validate MBAP identity, unit, length, function and byte
 count; handle exception/truncated responses without treating them as readings.
 Keep the TCP-to-RTU gateway transport on port 502 and existing unsigned single
 16-bit scaling. Test protocol framing and migration in tests/test_modbus.py.
+
+Numeric display_value uses 15 significant digits to remove binary scaling residue.
+Keep raw sample values and threshold/persistence calculations unchanged; state labels
+remain authoritative. Existing recorded history/evidence is not rewritten.
