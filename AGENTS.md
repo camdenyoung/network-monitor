@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 70. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 71. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -749,3 +749,12 @@ when hosts are shown. Public toggle labels use effective view. Resize-only statu
 renders must not clear connection-loss messages; fresh-data renders may do so.
 Cards use min(290px,100%) grid tracks to fit narrow containers. Test with
 node tests/host_view.test.mjs plus dashboard and connection suites.
+
+Live host card controls must never break Pause/Resume labels letter-by-letter.
+Use non-shrinking nowrap buttons and a wrap-reverse service-controls group so
+Pause/Resume moves below Actions when space runs out. Keep list/catalogue layout
+rules unchanged; use matching defensive card styles on both dashboard pages.
+
+Admin #dashboard.grid is capped at three card columns using its minimum track
+width, while auto-fit still reduces to two/one and fills space for fewer hosts.
+Do not apply this three-column cap to the public Status Dashboard.

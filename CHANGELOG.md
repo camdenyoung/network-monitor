@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 71 — v0.4.4 (project deletion and history ranges branch)
+
+- Prevent Pause/Resume card-control labels breaking into vertical letters. When the control pair cannot fit side by side, wrap Pause/Resume below Actions, keeping labels intact and controls right-aligned.
+- Cap Admin Live Hosts at three card columns, reducing to two or one on narrower screens; leave Status Dashboard column counts unchanged.
+
+
 ### Build 70 — v0.4.4 (project deletion and history ranges branch)
 
 - Automatically show Cards and temporarily disable List on both dashboards when the host list cannot fit its container. Explain the temporary mode and preserve the user's saved preference.

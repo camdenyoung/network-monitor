@@ -53,6 +53,11 @@
     /* Keep recorded issue readings at body size on both dashboards. */
     .issue-value { font-size: 16px; font-weight: 400; color: #e8eff8; }
     .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+    /* Keep card control labels intact; wrap Pause below Actions when squeezed. */
+    .host-card .metric-header > div:first-child:not(.service-controls) { flex: 1 1 100px; min-width: 0; }
+    .host-card .service-controls { display: flex; flex: 0 1 auto; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 6px; min-width: min-content; max-width: 100%; }
+    .host-card button, .host-card .action-menu > summary { flex-shrink: 0; white-space: nowrap; overflow-wrap: normal; }
+    .host-card .service-controls > button { margin: 0; }
     .metric-status { display: block; margin-top: 4px; font-size: 13px; }
     .metric-value { font-size: 21px; margin: 8px 0 3px; }
     details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
@@ -100,7 +105,8 @@
     .host-list .service-controls > button, .host-list .action-menu > summary { box-sizing: border-box; margin: 0; padding: 5px 8px; font-size: 13px; line-height: 20px; }
     .host-list .metric-header > button { margin: 0; }
     #live-status-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
-    #dashboard.grid { margin-top: 16px; }
+    /* Reserve at least one third of the row so Admin hosts never exceed 3 columns. */
+    #dashboard.grid { margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(290px, calc((100% - 32px) / 3))), 1fr)); }
     .host-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
     .host-heading h2 { margin: 0; }
     .host-heading > button { flex-shrink: 0; font-size: 13px; padding: 4px 8px; }
@@ -188,7 +194,7 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 70</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 71</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
   <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
