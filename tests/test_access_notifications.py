@@ -82,6 +82,69 @@ class AccessAndNotificationTests(unittest.TestCase):
             response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
             self.assertEqual(json.loads(response['content'])['dashboard_presence']['connections'], 4)
 
+    def test_project_deletion_requires_admin_csrf_and_exposes_progress_only_to_admin(self):
+        self.create_host()
+        body = {'project': 1, 'expected_name': 'Deployment'}
+        self.assertEqual(self.request('/api/project-delete', body)['status'], 401)
+        token, operator = self.create_operator()
+        for session, user in ((self.viewer_token, self.viewer), (token, operator)):
+            self.assertEqual(self.request('/api/project-delete', body, session, user['csrf'])['status'], 403)
+        self.assertEqual(self.request('/api/project-delete', body, self.admin_token)['status'], 403)
+        self.assertEqual(self.request('/api/project-delete', body, self.admin_token, self.admin['csrf'])['status'], 400)
+        server.mutate('pause', {})
+        result = self.request('/api/project-delete', body, self.admin_token, self.admin['csrf'])
+        self.assertEqual(result['status'], 200)
+        self.assertIn('job', json.loads(result['content']))
+        state = json.loads(self.request('/api/state', token=self.admin_token)['content'])
+        self.assertEqual(state['project_deletions'][0]['state'], 'queued')
+        self.assertNotIn('project_deletions', json.loads(self.request('/api/state', token=self.viewer_token)['content']))
+        self.assertNotIn('project_deletions', json.loads(self.request('/api/status')['content']))
+        self.assertEqual(self.request('/api/backup', token=self.admin_token)['status'], 409)
+        for _ in range(10):
+            with server.connect() as db:
+                if not server.project_deletion.step(db):
+                    break
+        self.assertEqual(server.snapshot()['projects'], [])
+        self.assertEqual(len(server.snapshot()['devices']), 1)
+        self.assertEqual(self.request('/api/backup', token=self.admin_token)['status'], 200)
+
+    def test_running_deletion_blocks_restore_but_failed_job_can_restore_prior_backup(self):
+        self.create_host()
+        payload = self.request('/api/backup', token=self.admin_token)['content']
+        server.mutate('pause', {})
+        server.mutate('project-delete', {'project': 1, 'expected_name': 'Deployment'})
+
+        def restore():
+            handler = object.__new__(server.Handler)
+            handler.path = '/api/restore'
+            handler.headers = {'Content-Type': 'application/octet-stream',
+                'Content-Length': str(len(payload)), 'Cookie': 'monitor_session=' + self.admin_token,
+                'X-CSRF-Token': self.admin['csrf']}
+            handler.rfile = io.BytesIO(payload)
+            result = {}
+            handler.send = lambda content, mime=None, status=200: result.update(status=status, content=content)
+            handler.do_POST()
+            return result['status']
+
+        self.assertEqual(restore(), 400)
+        with server.connect() as db:
+            db.execute("UPDATE project_deletions SET state='failed'")
+        self.assertEqual(restore(), 200)
+        self.assertEqual(len(server.snapshot()['projects']), 1)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM project_deletions').fetchone()[0], 0)
+
+    def test_ranged_history_is_authenticated_and_rejects_invalid_ranges(self):
+        host = self.create_host()
+        path = f"/api/history?service={host['id']}&run=1&start=1&end=1000&mode=graph"
+        self.assertEqual(self.request(path)['status'], 401)
+        response = self.request(path, token=self.viewer_token)
+        self.assertEqual(response['status'], 200)
+        self.assertEqual(json.loads(response['content'])['total'], 0)
+        self.assertEqual(self.request(path.replace('end=1000', 'end=nan'), token=self.admin_token)['status'], 400)
+        self.assertEqual(self.request(path.replace('run=1', 'run=999'), token=self.admin_token)['status'], 400)
+        self.assertEqual(self.request(path.replace('mode=graph', 'mode=table'), token=self.viewer_token)['status'], 200)
+
     def test_unauthenticated_requests_cannot_read_private_data_or_modify_it(self):
         for path in ('/api/state', '/api/backup', '/api/users', '/api/history?service=1&run=1'):
             self.assertEqual(self.request(path)['status'], 401)

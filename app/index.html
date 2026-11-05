@@ -8,10 +8,12 @@
     :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #101823; color: #e8eff8; }
     body { max-width: 1250px; margin: auto; padding: 28px; }
     header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    /* Keep wrapped project/status badges clear of the account navigation below. */
+    body > header { padding-bottom: 18px; }
     .app-version { font-size: 13px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
     h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
     section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: 16px; }
     .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
     .host-row.incident-warning { --host-surface: #3d321f; --host-border: #dba946; }
     .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
@@ -33,6 +35,10 @@
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
+    .project-run-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .monitoring-badge { border: 1px solid; border-radius: 6px; padding: 5px 10px; font-weight: 600; }
+    .monitoring-active { color: #64dfad; border-color: #429d7a; background: #163e32; }
+    .monitoring-paused { color: #ffcb69; border-color: #dba946; background: #3d321f; }
     .service-controls { display: flex; align-items: start; gap: 6px; }
     #service-catalogue .metric { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; }
     .catalogue-details { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
@@ -53,6 +59,11 @@
     /* Keep recorded issue readings at body size on both dashboards. */
     .issue-value { font-size: 16px; font-weight: 400; color: #e8eff8; }
     .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+    /* Keep card control labels intact; wrap Pause below Actions when squeezed. */
+    .host-card .metric-header > div:first-child:not(.service-controls) { flex: 1 1 100px; min-width: 0; }
+    .host-card .service-controls { display: flex; flex: 0 1 auto; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 6px; min-width: min-content; max-width: 100%; }
+    .host-card button, .host-card .action-menu > summary { flex-shrink: 0; white-space: nowrap; overflow-wrap: normal; }
+    .host-card .service-controls > button { margin: 0; }
     .metric-status { display: block; margin-top: 4px; font-size: 13px; }
     .metric-value { font-size: 21px; margin: 8px 0 3px; }
     details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
@@ -79,11 +90,15 @@
     .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     @media (max-width: 760px) { #service-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 480px) { #service-edit-form { grid-template-columns: minmax(0, 1fr); } }
-    #history { width: 880px; box-sizing: border-box; }
+    #history { width: 1040px; max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; }
+    #history #readings { max-height: 420px; overflow: auto; }
     #history-graph svg { display: block; width: 100%; height: auto; }
     .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
     .view-tabs button[aria-pressed="true"] { background: #176959; }
     /* Separate cell borders create one rounded outline around each host row. */
+    .host-fit-probe { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; contain: layout style paint; }
+    .host-card { min-width: 0; overflow-wrap: anywhere; }
+    #view-list:disabled { cursor: not-allowed; }
     .host-list { min-width: 650px; border-collapse: separate; border-spacing: 0 12px; }
     .host-row { --host-surface: #182433; --host-border: #314257; }
     .host-list .host-row > td { vertical-align: top; background: var(--host-surface); border: 1px solid var(--host-border); border-left-width: 0; border-right-width: 0; padding: 16px; }
@@ -96,7 +111,8 @@
     .host-list .service-controls > button, .host-list .action-menu > summary { box-sizing: border-box; margin: 0; padding: 5px 8px; font-size: 13px; line-height: 20px; }
     .host-list .metric-header > button { margin: 0; }
     #live-status-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
-    #dashboard.grid { margin-top: 16px; }
+    /* Reserve at least one third of the row so Admin hosts never exceed 3 columns. */
+    #dashboard.grid { margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(290px, calc((100% - 32px) / 3))), 1fr)); }
     .host-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
     .host-heading h2 { margin: 0; }
     .host-heading > button { flex-shrink: 0; font-size: 13px; padding: 4px 8px; }
@@ -109,9 +125,13 @@
     /* Reserve the logo column even when hidden; both selector/action rows align. */
     .project-toolbar { display: grid; grid-template-columns: 180px minmax(0, 360px) minmax(0, 1fr); align-items: start; }
     .project-toolbar > small { grid-column: 1 / -1; }
-    /* Reserve one label line so the first action still aligns if buttons wrap. */
-    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: wrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
-    .project-actions > button, .deployment-actions > button { min-height: 38px; }
+    /* Keep each action group intact until its full natural width no longer fits. */
+    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: nowrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
+    .project-actions > button, .deployment-actions > button { min-height: 38px; flex-shrink: 0; max-width: none; white-space: nowrap; }
+    .project-actions.controls-below { grid-column: 1 / -1; }
+    .deployment-actions.controls-below { grid-column: 1 / -1; }
+    .project-actions.controls-below, .deployment-actions.controls-below { padding-top: 0; flex-wrap: wrap; }
+    .controls-below > button { max-width: 100%; white-space: normal; }
     .project-selector, .deployment-controls label { grid-template-rows: 16px auto; gap: 5px; line-height: 16px; }
     .project-selector select, .deployment-controls select { height: 38px; font-size: 15px; }
     .deployment-controls { display: contents; }
@@ -146,12 +166,16 @@
       .project-settings-grid, .project-toolbar { grid-template-columns: minmax(0, 1fr); }
       .project-selector, .project-actions, .deployment-controls label, .deployment-actions, .deployment-controls small { grid-column: 1; }
       .project-actions, .deployment-actions { padding-top: 0; }
+      .project-actions.controls-below, .deployment-actions.controls-below { grid-column: 1; }
     }
     .project-logo-placeholder { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #435b78; border-radius: 6px; background: #101b29; color: #a9bad0; font-size: 12px; }
     .project-logo-placeholder svg { width: 24px; height: 24px; color: #7cddd0; }
     .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
     .account-nav { justify-content: flex-start; }
-    .account-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-left: auto; }
+    .account-nav > .user-badge { flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; }
+    .account-actions { display: flex; justify-content: flex-end; flex-wrap: nowrap; flex-shrink: 0; max-width: 100%; gap: 12px; margin-left: auto; }
+    .account-actions > * { flex-shrink: 0; }
+    .account-actions.controls-below { flex-basis: 100%; margin-left: 0; justify-content: flex-start; flex-wrap: wrap; }
     .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
     .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
     button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
@@ -176,19 +200,28 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 64</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
-  <nav class="toolbar account-nav">
+  <header>
+    <div>
+      <h1>Network Monitor <small class="app-version">v0.5.1 · Build 76</small></h1>
+      <p>Project based network monitoring</p>
+    </div>
+    <div class="project-run-summary" role="status">
+      <span id="monitoring-state" class="monitoring-badge monitoring-paused">Paused</span>
+      <span id="active">No deployment selected</span>
+    </div>
+  </header>
+  <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
       title="Activity in the last 60 seconds. Connections count dashboard tabs, including anonymous Status Dashboard viewers. Logged-in users count distinct accounts with valid sessions.">Logged-in users: — · Connections: —</span>
-    <div class="account-actions">
+    <div id="account-actions" class="account-actions">
       <a class="button-link" href="/status" target="_blank">Status Dashboard</a>
-      <a class="button-link" href="/login">Change password</a>
       <button id="logout">Sign out</button>
     </div>
   </nav>
   <p id="message" role="status"></p>
-  <section class="toolbar project-toolbar">
+  <p id="project-deletion-notice" data-admin role="status" hidden></p>
+  <section id="deployment-toolbar" class="toolbar project-toolbar">
     <div class="project-logo-slot">
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
       <div id="project-logo-placeholder" class="project-logo-placeholder">
@@ -202,7 +235,7 @@
       </div>
     </div>
     <label class="project-selector">Selected project<select id="project"></select></label>
-    <div data-admin class="project-actions">
+    <div id="project-actions" data-admin class="project-actions">
       <button id="activate" class="primary">Activate / start new deployment</button>
       <button id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
       <button id="notifications-toggle" aria-pressed="true">Pause notifications</button>
@@ -211,7 +244,7 @@
     <small id="deployment-details"></small>
     <div data-admin class="deployment-controls">
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
-      <div class="deployment-actions">
+      <div id="deployment-actions" class="deployment-actions">
         <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
         <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
       </div>
@@ -247,13 +280,14 @@
       <datalist id="service-filter-options"></datalist>
       <button id="clear-service-filter">All services</button>
     </div>
+    <small id="host-view-fit-note" role="status" hidden>Cards shown to fit this screen. Widen the window or hide services to use List.</small>
     <p id="host-view-summary"></p>
     <small>Service filters narrow host readings. Issue lists show all issues.</small>
     <div id="dashboard" class="grid"></div>
   </div>
   <div data-admin class="display-controls" role="tablist" aria-label="Configuration sections">
-    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
     <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-selected="false">Project configuration</button>
+    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
     <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-selected="false">Reusable service library</button>
     <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-selected="false">User management</button>
     <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Issue reminders</button>
@@ -338,6 +372,13 @@
             <div class="project-panel-actions"><button>Create duplicate</button></div>
           </form>
         </div>
+        <div class="project-settings-panel">
+          <h3>Delete project</h3>
+          <p>Permanently remove this project's deployments, readings, issues and assignments. Permanent inventory and reusable services are kept.</p>
+          <div class="project-panel-actions"><button id="delete-project" class="danger" type="button">Delete project</button></div>
+          <p id="project-delete-reason"></p>
+          <div id="project-deletion-jobs" role="status"></div>
+        </div>
       </div>
       <p id="project-feedback" class="project-settings-feedback" role="status"></p>
     </section>
@@ -377,7 +418,16 @@
     <small>Merge keeps exact, case-sensitive name matches and adds new names. Replace removes current library entries.
       Neither mode changes project services or device defaults. Maximum file size: 5 MB.</small>
     <p id="library-feedback" class="form-feedback" role="status"></p>
-    <div id="service-library"></div>
+    <div class="display-controls">
+      <label>Search library<input id="library-search" type="search" maxlength="100" placeholder="Service name, protocol, OID/register/port, or units"></label>
+      <button id="library-clear">Clear search</button>
+    </div>
+    <details id="library-details">
+      <summary id="library-count">Library services</summary>
+      <p id="library-results"></p>
+      <div id="service-library"></div>
+      <button id="library-more" hidden>Show 50 more</button>
+    </details>
   </section></div>
   <div data-admin id="user-management-panel" hidden><section>
     <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge issues. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
@@ -560,12 +610,32 @@
     <button id="close-history">Close</button>
     <h2 id="history-title">Service history</h2>
     <p id="history-description"></p>
+    <form id="history-range-form" class="display-controls">
+      <label>Deployment<select id="history-deployment"></select></label>
+      <label>Period<select id="history-period">
+        <option value="900">Last 15 minutes</option><option value="3600" selected>Last hour</option>
+        <option value="21600">Last 6 hours</option><option value="86400">Last 24 hours</option>
+        <option value="604800">Last 7 days</option><option value="custom">Custom range</option>
+      </select></label>
+      <label>From<input id="history-start" type="datetime-local" step="1" required></label>
+      <label>To<input id="history-end" type="datetime-local" step="1" required></label>
+      <button id="history-apply" class="primary">Apply range</button>
+    </form>
+    <p>Times use this browser's timezone. Select up to 31 days per request.</p>
+    <p id="history-feedback" class="form-feedback" role="status"></p>
     <div class="view-tabs" role="group" aria-label="History view">
       <button id="show-history-graph" aria-pressed="true">Graph</button>
       <button id="show-history-table" aria-pressed="false">Table</button>
     </div>
     <div id="history-graph"></div>
-    <div id="readings" class="scroll" hidden></div>
+    <div id="history-table" hidden>
+      <div id="readings" class="scroll"></div>
+      <div class="display-controls">
+        <button id="history-newer" type="button" disabled>Newer readings</button>
+        <button id="history-older" type="button" disabled>Older readings</button>
+        <span id="history-page"></span>
+      </div>
+    </div>
   </dialog>
   <dialog id="user-editor" aria-labelledby="user-editor-title">
     <h2 id="user-editor-title">Edit user</h2>
@@ -626,8 +696,11 @@
         <option value="tcp">TCP port reachability</option>
       </select></label>
       <label>OID / register / port<input name="target" required></label>
-      <label>SNMP community (leave blank to keep existing)
+      <label id="snmp-community-field">SNMP community (leave blank to keep existing)
         <input name="community" type="password" autocomplete="new-password">
+      </label>
+      <label id="modbus-register-field" hidden>Modbus register type
+        <select name="modbus_function"><option value="3">Holding register (03)</option><option value="4">Input register (04)</option></select>
       </label>
       <label>Modbus unit ID<input name="unit" type="number" min="1" max="247" required></label>
       <label>Returned value<select name="value_type">
@@ -777,7 +850,7 @@
         throw new Error('Server unavailable. Wait for the dashboard to reconnect before making changes.');
       }
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timeout = options?.method && options.method !== 'GET' ? 60000 : 8000;
+      const timeout = options?.method && options.method !== 'GET' ? 60000 : path.startsWith('/api/history?') ? 30000 : 8000;
       async function bounded(operation) {
         let timer;
         try {
@@ -803,6 +876,72 @@
       return response;
     }
     // END dashboard connection recovery.
+
+    // BEGIN responsive host view (keep identical on both dashboards).
+    function createHostViewFit(containerId, changed) {
+      const container = document.getElementById(containerId);
+      let probe = null;
+      let markup = null;
+      let unavailable = false;
+      let lastWidth = 0;
+      let lastRequired = 0;
+      let observer = null;
+
+      function requiredWidth() {
+        const table = probe?.firstElementChild;
+        return table ? Math.max(table.getBoundingClientRect().width, table.scrollWidth) : 0;
+      }
+      function checkWidth() {
+        const width = container.clientWidth || 0;
+        if (!width) { lastWidth = 0; return; } // Hidden host panels cannot be measured.
+        const required = requiredWidth();
+        if (Math.abs(width - lastWidth) <= 0.5 && Math.abs(required - lastRequired) <= 0.5) return;
+        lastWidth = width;
+        lastRequired = required;
+        changed();
+      }
+      function choose(preferred, listMarkup) {
+        const width = container.clientWidth || 0;
+        if (width > 0 && typeof document.createElement === 'function') {
+          if (!probe) {
+            probe = document.createElement('div');
+            probe.className = 'host-fit-probe';
+            probe.inert = true;
+            probe.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(probe);
+          }
+          if (markup !== listMarkup) {
+            if (probe.firstElementChild) observer?.unobserve(probe.firstElementChild);
+            probe.innerHTML = listMarkup;
+            // Closed-menu popup contents do not affect row width. Remove them and
+            // duplicate IDs/menu keys so this inert probe cannot affect live menus.
+            probe.querySelectorAll('.menu-buttons').forEach(node => node.remove());
+            probe.querySelectorAll('[id], [data-menu-key]').forEach(node => {
+              node.removeAttribute('id'); node.removeAttribute('data-menu-key');
+            });
+            if (probe.firstElementChild) observer?.observe(probe.firstElementChild);
+            markup = listMarkup;
+          }
+          const required = requiredWidth();
+          lastWidth = width;
+          lastRequired = required;
+          if (required > 0) {
+            // Restore with breathing room to avoid oscillation when scrollbars
+            // appear/disappear as Cards and List have different heights.
+            if (unavailable) unavailable = width < required + 24;
+            else unavailable = required > width + 0.5;
+          }
+        }
+        return {view: unavailable ? 'cards' : preferred, unavailable};
+      }
+      if (typeof ResizeObserver === 'function') {
+        observer = new ResizeObserver(checkWidth);
+        observer.observe(container);
+      }
+      return {choose, checkWidth, observer};
+    }
+    // END responsive host view.
+
 
     // sessionStorage keeps the same tab identity through refreshes and navigation
     // between dashboards. This opaque ID is not a credential or a user identity.
@@ -954,12 +1093,12 @@
     document.addEventListener?.('scroll', event => {
       if (!event.target.closest?.('.menu-buttons')) closeActionMenus();
     }, true);
-    globalThis.addEventListener?.('resize', closeActionMenus);
+    globalThis.addEventListener?.('resize', () => { closeActionMenus(); updateResponsiveControls(); });
 
     // Configuration areas are exclusive tabs. Start closed on each page load.
     const configurationSections = [
-      ['permanent-inventory', 'Permanent inventory'],
       ['project-configuration', 'Project configuration'],
+      ['permanent-inventory', 'Permanent inventory'],
       ['service-library-panel', 'Reusable service library'],
       ['user-management-panel', 'User management'],
       ['reminder-panel', 'Issue reminders'],
@@ -1036,11 +1175,14 @@
         try { localStorage.setItem(storageKey, String(visible)); }
         catch (error) { /* Retain this preference for the current page session. */ }
         applyVisibility();
+        if (key === 'live' && visible && state) renderHosts();
       };
       applyVisibility();
     }
 
+    const hostViewFit = createHostViewFit('dashboard', () => { if (state) renderHosts(); });
     let hostView = 'cards';
+    let effectiveHostView = 'cards';
     let hostSort = 'hostname';
     let showServices = true;
     let serviceFilter = '';
@@ -1067,7 +1209,7 @@
     }
     el('toggle-services').onclick = () => { showServices = !showServices; saveHostDisplay(); };
     el('view-cards').onclick = () => { hostView = 'cards'; saveHostDisplay(); };
-    el('view-list').onclick = () => { hostView = 'list'; saveHostDisplay(); };
+    el('view-list').onclick = () => { if (el('view-list').disabled) return; hostView = 'list'; saveHostDisplay(); };
     el('host-sort').onchange = () => { hostSort = el('host-sort').value; saveHostDisplay(); };
     el('service-filter').oninput = () => { serviceFilter = el('service-filter').value; saveHostDisplay(); };
     el('clear-service-filter').onclick = () => { serviceFilter = ''; saveHostDisplay(); };
@@ -1107,7 +1249,7 @@
           incident_status: assignment.incident_status}];
       }));
       matches.sort((left, right) => compareHosts(sortKeys.get(left.id), sortKeys.get(right.id)));
-      const rendered = matches.map(assignment => {
+      const rowsForView = view => matches.map(assignment => {
         const device = state.devices.find(row => row.id === assignment.device);
         const hostCheck = state.services.find(row => row.assignment === assignment.id && row.kind === 'ping');
         const hostReading = state.latest.find(row => row.service === hostCheck?.id);
@@ -1135,7 +1277,7 @@
             <small>${date(reading?.timestamp)}</small>
           </div>`;
         }).join('');
-        if (hostView === 'list') {
+        if (view === 'list') {
           return `<tr class="host-row ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}">
             <td><div class="host-heading"><strong>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</strong>
               <button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>
@@ -1147,15 +1289,21 @@
         }
         return `<article class="host-card ${assignment.incident_status ? 'incident-' + escapeHtml(assignment.incident_status) : ''}"><div class="host-heading"><h2>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(assignment.alias)}</h2><button data-admin data-edit-alias="${assignment.id}">Edit alias</button></div>${assignment.incident_status ? `<span class="incident-badge ${assignment.incident_status}">${formatStatus(assignment.incident_status)} issue</span>` : ''}<p>${escapeHtml(device?.address || 'Set inventory IP to start monitoring')} · ${assignment.monitoring ? 'Monitoring enabled' : 'Paused'}</p><p class="${hostStatus}"><strong>${hostLabel}</strong> · ICMP ping <button data-admin data-host-stability="${hostCheck?.id}">Host flap protection</button></p><small>${hostDetails}</small>${showServices ? (metrics || '<p>No additional services configured.</p>') : ''}</article>`;
       }).join('');
-      el('dashboard').className = hostView === 'cards' ? 'grid' : 'scroll';
+      const listMarkup = '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th>' + (showServices ? '<th>Services</th>' : '') + '</tr></thead><tbody>' + rowsForView('list') + '</tbody></table>';
+      const fit = hostViewFit.choose(hostView, listMarkup);
+      effectiveHostView = fit.view;
+      el('dashboard').className = effectiveHostView === 'cards' ? 'grid' : 'scroll';
       el('dashboard').innerHTML = !matches.length ? '<section>No hosts match this service filter.</section>'
-        : hostView === 'cards' ? rendered
-        : '<table class="host-list"><thead><tr><th>Host</th><th>Host status</th>' + (showServices ? '<th>Services</th>' : '') + '</tr></thead><tbody>' + rendered + '</tbody></table>';
+        : effectiveHostView === 'cards' ? rowsForView('cards') : listMarkup;
+      el('view-list').disabled = fit.unavailable;
+      el('view-list').setAttribute('aria-describedby', fit.unavailable ? 'host-view-fit-note' : '');
+      el('view-list').title = fit.unavailable ? 'List needs more width. Widen the window or hide services.' : 'Show hosts as a list.';
+      el('host-view-fit-note').hidden = !fit.unavailable;
       el('host-view-summary').textContent = `Showing ${matches.length} of ${visible.length} displayed hosts`;
       el('toggle-services').textContent = showServices ? 'Hide services' : 'Show services';
       el('toggle-services').setAttribute('aria-pressed', String(showServices));
-      el('view-cards').setAttribute('aria-pressed', String(hostView === 'cards'));
-      el('view-list').setAttribute('aria-pressed', String(hostView === 'list'));
+      el('view-cards').setAttribute('aria-pressed', String(effectiveHostView === 'cards'));
+      el('view-list').setAttribute('aria-pressed', String(effectiveHostView === 'list'));
       el('service-filter').value = serviceFilter;
       el('host-sort').value = hostSort;
       const names = [...new Set(state.services.filter(service => service.kind !== 'ping' && service.enabled !== 0 &&
@@ -1163,6 +1311,70 @@
       el('service-filter-options').innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
       restoreActionMenu();
     }
+
+    function updateToolbarLayout() {
+      const toolbar = el('deployment-toolbar');
+      if (typeof toolbar.getBoundingClientRect !== 'function' || typeof getComputedStyle !== 'function') return;
+      const style = getComputedStyle(toolbar);
+      const right = toolbar.getBoundingClientRect().right - (parseFloat(style.paddingRight) || 0)
+        - (parseFloat(style.borderRightWidth) || 0);
+      const available = Math.max(0, right - el('project').getBoundingClientRect().right
+        - (parseFloat(style.columnGap) || 0));
+      // Measure all groups before changing classes to avoid repeated layout work.
+      const changes = ['project-actions','deployment-actions'].map(id => {
+        const group = el(id);
+        const widths = [...group.querySelectorAll('button')].map(button => button.getBoundingClientRect().width);
+        if (!widths.some(width => width > 0)) return null; // Hidden for non-Admins.
+        const gap = parseFloat(getComputedStyle(group).columnGap) || 0;
+        const required = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
+        return {group, below: required > available + 0.5};
+      });
+      for (const change of changes) {
+        if (change) change.group.classList.toggle('controls-below', change.below);
+      }
+    }
+
+    function updateAccountLayout() {
+      const nav = el('account-nav');
+      if (typeof nav.getBoundingClientRect !== 'function' || typeof getComputedStyle !== 'function') return;
+      const style = getComputedStyle(nav);
+      const available = nav.getBoundingClientRect().width - ['paddingLeft','paddingRight','borderLeftWidth','borderRightWidth']
+        .reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
+      const actions = el('account-actions');
+      const badges = ['signed-in','dashboard-presence'].map(id => el(id).getBoundingClientRect().width)
+        .filter(width => width > 0);
+      const buttons = [...actions.querySelectorAll('a, button')].map(button => button.getBoundingClientRect().width);
+      const required = badges.reduce((sum, width) => sum + width, 0)
+        + buttons.reduce((sum, width) => sum + width, 0)
+        + (parseFloat(getComputedStyle(actions).columnGap) || 0) * Math.max(0, buttons.length - 1)
+        + (parseFloat(style.columnGap) || 0) * badges.length;
+      actions.classList.toggle('controls-below', required > available + 0.5);
+    }
+    function updateResponsiveControls() {
+      updateToolbarLayout();
+      updateAccountLayout();
+      hostViewFit.checkWidth();
+    }
+
+    function updateProjectDeletion(project, run) {
+      const jobs = state.project_deletions || [];
+      const unfinished = jobs.find(job => job.state !== 'completed');
+      const selectedJob = jobs.find(job => job.project === project?.id);
+      const running = run?.project === project?.id;
+      el('delete-project').disabled = !project || running || Boolean(unfinished &&
+        (unfinished.project !== project.id || unfinished.state !== 'failed'));
+      el('delete-project').textContent = selectedJob?.state === 'failed' ? 'Retry project deletion' : 'Delete project';
+      el('project-delete-reason').textContent = running ? 'Pause monitoring before deleting this project.' : '';
+      el('project-deletion-notice').hidden = !unfinished;
+      el('project-deletion-notice').textContent = unfinished
+        ? `${unfinished.project_name}: deletion ${unfinished.state}. Configuration changes and backups are unavailable until deletion finishes or is retried. Monitoring and issue acknowledgements continue.` : '';
+      el('project-deletion-jobs').innerHTML = jobs.slice(0, 5).map(job =>
+        `<p><strong>${escapeHtml(job.project_name)}</strong> · ${escapeHtml(formatStatus(job.state))} · ${Number(job.deleted_samples).toLocaleString()} readings removed${job.phase === 'deployment history' ? ' · checking deployment history: ' + Number(job.checked_samples).toLocaleString() + ' readings checked' : ''}${job.error ? ' · ' + escapeHtml(job.error) : ''}</p>`).join('');
+    }
+    el('delete-project').onclick = () => {
+      try { openAdministrativeConfirmation('delete-project', {project: selectedProject}); }
+      catch (error) { report(error); }
+    };
 
     function previewNewProjectLogo() {
       const source = state?.projects.find(row => String(row.id) === el('new-project-logo').value);
@@ -1269,6 +1481,7 @@
       updateOptions('new-project-logo', state.projects.filter(row => row.logo_url), row => row.name, 'No logo');
       previewNewProjectLogo();
       const project = state.projects.find(row => String(row.id) === selectedProject);
+      updateProjectDeletion(project, run);
       const image = el('project-logo');
       image.hidden = !project?.logo_url;
       el('project-logo-placeholder').hidden = Boolean(project?.logo_url);
@@ -1309,8 +1522,10 @@
       monitoringButton.title = !run && !pausedRun ? 'Start a deployment to enable monitoring.'
         : !run && String(pausedRun.project) !== selectedProject ? 'Select the paused project to resume its deployment.'
         : run ? 'Monitoring is running. Click to pause.' : 'Monitoring is paused. Click to resume.';
-      el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
-        : pausedRun ? 'Paused: ' + state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'Monitoring paused';
+      el('monitoring-state').textContent = run ? 'Active' : 'Paused';
+      el('monitoring-state').className = 'monitoring-badge ' + (run ? 'monitoring-active' : 'monitoring-paused');
+      el('active').textContent = run ? state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
+        : pausedRun ? state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'No deployment selected';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
       // Pausing/hiding a host does not remove its assignment. Archived hosts may
@@ -1327,13 +1542,7 @@
         return `<tr><td>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(row.alias)} / ${escapeHtml(device?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`;
       }).join('') + '</table>';
       renderServiceCatalogue();
-      el('service-library').innerHTML = state.service_templates.map(template => `
-        <article><strong>${escapeHtml(template.name)}</strong>
-          <p>${escapeHtml(template.kind)} · ${escapeHtml(template.target)} · ${escapeHtml(template.units)}</p>
-          <button data-apply-template="${template.id}">Add to host</button>
-          <button data-edit-template="${template.id}">Edit</button>
-          <button data-delete-template="${template.id}">Delete</button>
-        </article>`).join('') || '<p>No library services yet.</p>';
+      renderServiceLibrary();
       if (el('service-transfer').open) updateTransferHosts();
       if (el('device-default-manager').open) renderDeviceDefaults();
       if (currentUser?.role === 'admin') await loadAdmin();
@@ -1342,9 +1551,46 @@
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
       el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
+      updateResponsiveControls();
       connectionGuard.healthy();
       connectAcknowledgementUpdates();
     }
+
+    let libraryLimit = 50;
+    function renderServiceLibrary() {
+      if (!state) return;
+      const templates = state.service_templates || [];
+      const query = el('library-search').value.trim().toLowerCase();
+      const matches = templates.filter(template => [template.name, template.kind, template.target, template.units]
+        .some(value => String(value ?? '').toLowerCase().includes(query)));
+      el('library-count').textContent = `Library services (${templates.length})`;
+      el('library-results').textContent = `Showing ${Math.min(libraryLimit, matches.length)} of ${matches.length} matching services`;
+      el('library-more').hidden = libraryLimit >= matches.length;
+      // Match inventory: do not render a large catalogue while it is collapsed.
+      if (!el('library-details').open) {
+        el('service-library').innerHTML = '';
+        return;
+      }
+      el('service-library').innerHTML = matches.slice(0, libraryLimit).map(template => `
+        <article><strong>${escapeHtml(template.name)}</strong>
+          <p>${escapeHtml(template.kind)} · ${escapeHtml(template.target)} · ${escapeHtml(template.units)}</p>
+          <button data-apply-template="${template.id}">Add to host</button>
+          <button data-edit-template="${template.id}">Edit</button>
+          <button data-delete-template="${template.id}">Delete</button>
+        </article>`).join('') || '<p>No library services match this search.</p>';
+    }
+    el('library-details').ontoggle = renderServiceLibrary;
+    el('library-search').oninput = () => {
+      libraryLimit = 50;
+      if (el('library-search').value.trim()) el('library-details').open = true;
+      renderServiceLibrary();
+    };
+    el('library-clear').onclick = () => {
+      el('library-search').value = '';
+      libraryLimit = 50;
+      renderServiceLibrary();
+    };
+    el('library-more').onclick = () => { libraryLimit += 50; renderServiceLibrary(); };
 
     let inventoryLimit = 50;
     function renderInventory() {
@@ -1482,6 +1728,9 @@
       // Disable rather than clear: switching back keeps the user's unfinished input.
       form.elements.namedItem('community').disabled = protocol !== 'snmp';
       form.elements.namedItem('unit').disabled = protocol !== 'modbus';
+      form.elements.namedItem('modbus_function').disabled = protocol !== 'modbus';
+      el('snmp-community-field').hidden = protocol !== 'snmp';
+      el('modbus-register-field').hidden = protocol !== 'modbus';
     }
 
     function servicePayload(form) {
@@ -1693,6 +1942,7 @@
         form.elements.namedItem(field).value = configuration[field] ?? fallback;
       }
       form.elements.namedItem('flap_enabled').checked = configuration.flap_enabled !== 0;
+      form.elements.namedItem('modbus_function').value = String(configuration.modbus_function ?? 3);
       form.elements.namedItem('community').value = '';
       updateProtocolFields(form);
       el('service-editor-title').textContent = title;
@@ -1737,8 +1987,8 @@
         let library;
         try { library = JSON.parse(await file.text()); }
         catch (error) { throw new Error('Choose a valid service-library JSON file.'); }
-        if (library?.format !== 'network-monitor-service-library' || ![1, 2].includes(library.version) || !Array.isArray(library.services)) {
-          throw new Error('Choose a Network Monitor service-library export with format version 1 or 2.');
+        if (library?.format !== 'network-monitor-service-library' || ![1, 2, 3].includes(library.version) || !Array.isArray(library.services)) {
+          throw new Error('Choose a Network Monitor service-library export with format version 1, 2 or 3.');
         }
         if (library.services.length > 5000) throw new Error('A library file can contain at most 5000 services.');
         if (!['merge', 'replace'].includes(mode)) throw new Error('Choose Merge or Replace.');
@@ -1920,6 +2170,7 @@
     function historyView(graph) {
       el('history-graph').hidden = !graph;
       el('readings').hidden = graph;
+      el('history-table').hidden = graph;
       el('show-history-graph').setAttribute('aria-pressed', String(graph));
       el('show-history-table').setAttribute('aria-pressed', String(!graph));
     }
@@ -1927,12 +2178,12 @@
     el('show-history-graph').onclick = () => historyView(true);
     el('show-history-table').onclick = () => historyView(false);
 
-    function historyGraph(rows, service) {
+    function historyGraph(rows, service, range = null) {
       // Keep configuration revisions separate: a changed OID/scale/state mode may
       // describe a different quantity. The table still includes older revisions.
       const samples = rows.filter(row => row.revision === service.revision).slice().reverse();
       const valid = row => row.value !== null && Number.isFinite(row.value) &&
-        Number.isFinite(row.timestamp) && !['blocked', 'unreachable'].includes(row.status);
+        Number.isFinite(row.timestamp) && !['blocked', 'unreachable', 'paused', 'unknown'].includes(row.status);
       const points = samples.filter(valid);
       if (!points.length) return '<p>No usable readings for the current service configuration yet.</p>';
       const width = 800, height = 330;
@@ -1952,8 +2203,8 @@
         minValue -= padding;
         maxValue += padding;
       }
-      let minTime = Math.min(...samples.map(row => row.timestamp));
-      let maxTime = Math.max(...samples.map(row => row.timestamp));
+      let minTime = range?.start ?? Math.min(...samples.map(row => row.timestamp));
+      let maxTime = range?.end ?? Math.max(...samples.map(row => row.timestamp));
       if (minTime === maxTime) { minTime -= 7.5; maxTime += 7.5; }
       const x = time => margin.left + (time - minTime) / (maxTime - minTime) * plotWidth;
       const y = value => height - margin.bottom - (value - minValue) / (maxValue - minValue) * plotHeight;
@@ -1962,7 +2213,7 @@
         ? (service.state_map[String(value)]?.label || String(value))
         : Number(value.toPrecision(5)).toString();
       let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(service.name)} history graph">
-        <title>${escapeHtml(service.name)}: recent readings, gaps indicate missing or suppressed checks</title>`;
+        <title>${escapeHtml(service.name)}: readings in the selected range, gaps indicate missing or suppressed checks</title>`;
       for (const tick of ticks) {
         svg += `<line x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}" stroke="#314257"/>
           <text x="${margin.left - 10}" y="${y(tick) + 4}" fill="#a9bad0" font-size="12" text-anchor="end">${escapeHtml(labelFor(tick))}</text>`;
@@ -1970,7 +2221,9 @@
       svg += `<text x="${margin.left}" y="16" fill="#a9bad0" font-size="12">${escapeHtml(stateMode ? 'State' : service.units || 'Value')}</text>`;
       for (let i = 0; i < 3; i++) {
         const time = minTime + (maxTime - minTime) * i / 2;
-        const label = new Date(time * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        const label = maxTime - minTime > 86400
+          ? new Date(time * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+          : new Date(time * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
         svg += `<text x="${x(time)}" y="${height - 20}" fill="#a9bad0" font-size="12" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}">${escapeHtml(label)}</text>`;
       }
       if (!stateMode) {
@@ -1989,7 +2242,7 @@
       for (const row of samples) {
         // Explicit missing readings and long collection gaps must not be bridged.
         if (!valid(row)) { flush(); continue; }
-        if (previous && row.timestamp - previous.timestamp > 60) flush();
+        if (previous && (row.gap_before || (!row.aggregated && row.timestamp - previous.timestamp > 60))) flush();
         path += !previous ? `M ${x(row.timestamp)} ${y(row.value)} `
           : stateMode ? `H ${x(row.timestamp)} V ${y(row.value)} ` : `L ${x(row.timestamp)} ${y(row.value)} `;
         previous = row;
@@ -2003,20 +2256,126 @@
       return svg + '</svg><small>Hover over a point for its reading. Gaps indicate missing or suppressed checks. Dashed lines show thresholds within the plotted range.</small>';
     }
 
+    let historyContext = null;
+    let historyRequest = 0;
+    let historyCursors = [null];
+    let historyPage = 0;
+    let historyNext = null;
+
+    function localHistoryTime(timestamp) {
+      const value = new Date(timestamp * 1000);
+      return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+    }
+    function setHistoryPreset() {
+      const seconds = Number(el('history-period').value);
+      if (!Number.isFinite(seconds) || seconds <= 0) return;
+      const end = Date.now() / 1000;
+      el('history-start').value = localHistoryTime(end - seconds);
+      el('history-end').value = localHistoryTime(end);
+    }
+    function historyUrl(context, mode, cursor = null) {
+      let url = `/api/history?service=${context.service.id}&run=${context.run}&start=${context.start}&end=${context.end}&mode=${mode}`;
+      if (cursor) url += `&before_time=${cursor.before_time}&before_id=${cursor.before_id}`;
+      return url;
+    }
+    async function historyResponse(url) {
+      const response = await dashboardFetch(url);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not load history.');
+      return data;
+    }
+    function renderHistoryTable(data) {
+      el('readings').innerHTML = data.rows.length ? '<table><tr><th>Time</th><th>Value</th><th>Status</th><th>Configuration</th></tr>' + data.rows.map(row =>
+        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td><td>${escapeHtml(row.revision)}</td></tr>`
+      ).join('') + '</table>' : '<p>No retained readings in this time range.</p>';
+      historyNext = data.next;
+      el('history-newer').disabled = historyPage === 0;
+      el('history-older').disabled = !historyNext;
+      el('history-page').textContent = `Page ${historyPage + 1} · ${data.rows.length} exact readings, newest first`;
+    }
+    async function loadHistoryRange() {
+      if (!historyContext) return;
+      const requestId = ++historyRequest;
+      const start = new Date(el('history-start').value).getTime() / 1000;
+      const end = new Date(el('history-end').value).getTime() / 1000;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= end || end - start > 31 * 86400) {
+        el('history-feedback').textContent = 'Choose valid From/To dates, up to 31 days apart.';
+        return;
+      }
+      const context = {...historyContext, run:Number(el('history-deployment').value), start, end};
+      el('history-apply').disabled = true;
+      el('history-newer').disabled = true;
+      el('history-older').disabled = true;
+      el('history-feedback').textContent = 'Loading history…';
+      try {
+        const [graph, table] = await Promise.all([
+          historyResponse(historyUrl(context,'graph')), historyResponse(historyUrl(context,'table')),
+        ]);
+        if (requestId !== historyRequest || !el('history').open) return;
+        historyContext = context;
+        historyCursors = [null]; historyPage = 0;
+        el('history-graph').innerHTML = historyGraph(graph.rows, context.service, context);
+        renderHistoryTable(table);
+        el('history-description').textContent = `${date(start)} – ${date(end)} · ${graph.total.toLocaleString()} retained readings. Graph uses the current configuration; table includes every configuration.`;
+        el('history-feedback').textContent = (graph.total ? graph.aggregated
+          ? context.service.value_type === 'state' && !graph.state_overflow
+            ? 'Graph shows retained state transitions and collection gaps. Table pages contain exact readings.'
+            : 'Graph summarised for performance; bucket extremes and collection gaps are retained. Table pages contain exact readings.' : ''
+          : 'No retained readings in this range. Try another period or deployment.') +
+          (graph.state_overflow ? ' Too many state changes for an exact graph: shorten the range or inspect the table.' : '') +
+          ` Retention is ${graph.retention_days} days; older readings may already have been removed.`;
+      } catch (error) {
+        if (requestId === historyRequest) el('history-feedback').textContent = error.message;
+      } finally {
+        if (requestId === historyRequest) el('history-apply').disabled = false;
+      }
+    }
+    async function changeHistoryPage(direction) {
+      if (!historyContext || el('history-apply').disabled) return;
+      const page = historyPage + direction;
+      if (page < 0 || (direction > 0 && !historyNext)) return;
+      const requestId = ++historyRequest;
+      if (direction > 0) historyCursors[page] = historyNext;
+      el('history-newer').disabled = true; el('history-older').disabled = true;
+      try {
+        const data = await historyResponse(historyUrl(historyContext,'table',historyCursors[page]));
+        if (requestId !== historyRequest || !el('history').open) return;
+        historyPage = page;
+        renderHistoryTable(data);
+      } catch (error) {
+        if (requestId === historyRequest) {
+          el('history-feedback').textContent = error.message;
+          el('history-newer').disabled = historyPage === 0;
+          el('history-older').disabled = !historyNext;
+        }
+      }
+    }
+    el('history-newer').onclick = () => changeHistoryPage(-1);
+    el('history-older').onclick = () => changeHistoryPage(1);
+    el('history-range-form').onsubmit = event => { event.preventDefault(); return loadHistoryRange(); };
+    el('history-period').onchange = () => { setHistoryPreset(); return loadHistoryRange(); };
+    el('history-deployment').onchange = () => loadHistoryRange();
+    for (const id of ['history-start','history-end']) el(id).oninput = () => { el('history-period').value = 'custom'; };
+    el('history').onclose = () => { historyRequest++; historyContext = null; };
+
     async function openHistory(id) {
       const service = state.services.find(row => row.id === Number(id));
       if (!service) throw new Error('Service no longer exists.');
-      const response = await dashboardFetch(`/api/history?service=${id}&run=${state.settings.active_run}`);
-      if (!response.ok) throw new Error('Could not load service history.');
-      const rows = await response.json();
+      const assignment = state.assignments.find(row => row.id === service.assignment);
+      const runs = state.runs.filter(row => row.project === assignment?.project).sort((a,b) => b.id-a.id);
+      if (!runs.length) throw new Error('No deployments are available for this service.');
+      const preferred = [Number(state.settings.active_run),Number(state.settings.paused_run)]
+        .find(run => runs.some(row => row.id === run)) || runs[0].id;
+      historyContext = {service,run:preferred};
+      el('history-deployment').innerHTML = options(runs, row => `#${row.id} · ${row.description || date(row.started)}`);
+      el('history-deployment').value = String(preferred);
       el('history-title').textContent = service.name + ' — history';
-      el('history-description').textContent = 'Latest 200 readings from the active deployment. Graph uses the current configuration; table includes earlier configurations.';
-      el('history-graph').innerHTML = historyGraph(rows, service);
-      el('readings').innerHTML = '<table><tr><th>Time</th><th>Value</th><th>Status</th></tr>' + rows.map(row =>
-        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td></tr>`
-      ).join('') + '</table>';
+      el('history-description').textContent = '';
+      el('history-graph').innerHTML = ''; el('readings').innerHTML = '';
+      el('history-period').value = '3600'; setHistoryPreset();
       historyView(true);
       el('history').showModal();
+      await loadHistoryRange();
     }
 
     function removeDevice(id) {
@@ -2398,6 +2757,18 @@
       const device = state.devices.find(row => row.id === Number(target.device));
       const assignment = state.assignments.find(row => row.id === Number(target.assignment) && !row.removed);
       switch (action) {
+        case 'delete-project': {
+          const project = state.projects.find(row => row.id === Number(target.project));
+          const active = state.runs.find(row => row.id === Number(state.settings.active_run));
+          if (!project) throw new Error('Project no longer exists.');
+          if (active?.project === project.id) throw new Error('Pause monitoring before deleting this project.');
+          configuration = {title: 'Permanently delete project?', context: project.name,
+            description: 'This deletes all deployments, readings, issues, acknowledgement history, services, assignments and the logo belonging to this project. Permanent inventory, reusable services and other projects are kept. Deletion runs in the background and cannot be undone without a backup.',
+            label: 'Delete project and all history',
+            ...mutation('project-delete', {project: project.id, expected_name: project.name},
+              'Project deletion queued. Progress appears in Project configuration.', 'project-feedback')};
+          break;
+        }
         case 'delete-device': {
           if (!device) throw new Error('Device no longer exists. Refresh the dashboard.');
           const count = state.assignments.filter(row => row.device === device.id).length;
@@ -2736,6 +3107,16 @@
     }
     async function initializeSession() {
       if (await loadSession()) await refresh();
+    }
+    if (typeof ResizeObserver === 'function') {
+      // Width changes include browser zoom, font changes and Pause/Resume labels.
+      const toolbarObserver = new ResizeObserver(updateResponsiveControls);
+      toolbarObserver.observe(el('deployment-toolbar'));
+      for (const id of ['account-nav','signed-in','dashboard-presence']) toolbarObserver.observe(el(id));
+      for (const button of el('account-actions').querySelectorAll('a, button')) toolbarObserver.observe(button);
+      for (const id of ['project-actions','deployment-actions']) {
+        for (const button of el(id).querySelectorAll('button')) toolbarObserver.observe(button);
+      }
     }
     initializeSession().then(connectAcknowledgementUpdates).catch(report);
     setInterval(() => refresh().catch(report), 10000);

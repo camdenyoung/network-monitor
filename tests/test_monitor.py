@@ -1054,6 +1054,20 @@ class MonitorTests(unittest.TestCase):
             self.assertIn('-Oeqv', run.call_args.args[0])
         self.assertEqual(server.display_value(self.service, 3.2), '3.2')
 
+    def test_scaled_metric_display_removes_float_residue_without_rounding_samples(self):
+        for value, expected in ((231 * 0.1, '23.1'), (321 * 0.1, '32.1'),
+                                (2301 * 0.1, '230.1'), (4099 * 0.1, '409.9'),
+                                (-321 * 0.1, '-32.1'), (0.000000123456, '1.23456e-07')):
+            with self.subTest(value=value):
+                self.assertEqual(server.display_value(self.service, value), expected)
+        original = 231 * 0.1
+        self.poll(original)
+        with server.connect() as db:
+            reading = db.execute('SELECT value,display_value FROM samples WHERE service=?',
+                                 (self.service['id'],)).fetchone()
+        self.assertEqual(reading['value'], original)
+        self.assertEqual(reading['display_value'], '23.1')
+
     def test_blocked_samples_break_service_persistence_streaks(self):
         self.host_dependency.stop()
         self.poll_ping(True)
@@ -1343,7 +1357,7 @@ class MonitorTests(unittest.TestCase):
         server.mutate('template-create', definition)
         with server.connect() as db:
             exported = service_library.export_document(db)
-            self.assertEqual(exported['version'], 2)
+            self.assertEqual(exported['version'], 3)
             self.assertEqual(exported['services'][0]['hysteresis'], 3)
             service_library.import_document(db, exported, 'replace', server.service_details)
             template = db.execute('SELECT * FROM service_templates').fetchone()

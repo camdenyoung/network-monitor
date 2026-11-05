@@ -150,7 +150,7 @@ contains historical records which can include currently suppressed child faults.
 
 Service monitor cards use a compact native details/summary Actions menu. Retain
 open menu state during background refreshes; close on choosing an action.
-History supports graph/table views over the latest 200 readings. Numeric graphs
+History supports graph/table views over selected deployment/time ranges (legacy API retains latest 200). Numeric graphs
 use lines; states use labeled steps. Preserve explicit/long gaps; never connect
 readings from different configuration revisions. No external chart dependencies.
 Optional UI logic checks: `node tests/dashboard.test.mjs` (Node 18+).
@@ -227,7 +227,7 @@ configuration. Keep inventory creation/search/edit/removal there; project assign
 and service configuration remain under Project configuration.
 
 Main dashboard configuration sections use exclusive colour-coded tabs instead
-of disclosure arrows: Permanent inventory, Project configuration, Reusable service
+of disclosure arrows: Project configuration, Permanent inventory, Reusable service
 library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
 These panels start hidden on page load. Selecting a tab shows only that configuration
 area, without hiding issue/live host sections; selection is not persisted.
@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 64. Show it after the title on both the main and
+Current displayed release is v0.5.1, Build 76. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -283,8 +283,9 @@ rounded bordered panel, separate from issue lists. Edit alias sits in the host h
 List views. List services use shared grid columns and fixed-width Pause/Resume
 and Actions controls so varying names, values and labels do not shift buttons.
 
-Main account navigation keeps the signed-in badge left and groups Status Dashboard,
-Change password and Sign out on the right, wrapping the action group on narrow screens.
+Main account navigation keeps the signed-in badge left and groups Status Dashboard
+and Sign out on the right, wrapping the action group on narrow screens. Do not
+show a separate Change password link in the Admin Dashboard top navigation.
 
 Every displayed version change must update the README title and add concise release
 notes in CHANGELOG.md describing that release. Keep both dashboard labels and this version context
@@ -691,3 +692,94 @@ project, label it Select a project. Keep toolbar dimensions/alignment unchanged.
 
 Keep build history and release notes in CHANGELOG.md, linked near the top of
 README.md. README.md contains setup/usage guidance, not duplicated release logs.
+
+Project deletion: app/project_deletion.py owns a durable project_deletions job table.
+Admin/CSRF project-delete queues a named/captured project, rejects a running target,
+quarantines assignments/services and clears a matching paused_run. Worker batches
+1,000 samples per transaction, purges service-owned issues/outbox/audit/stability,
+then scans a captured row-ID horizon in bounded chunks for legacy orphan readings
+owned by the project's deployments. Finally remove runs/assignments/logo/project.
+Preserve devices, defaults, library, accounts and other projects. Keep completed
+job metadata. Persist project ID counters through next_record_id to prevent reuse.
+Resume queued/running jobs on startup; failed jobs require explicit retry. While
+unfinished, reject configuration changes and backup downloads. Block restore
+while queued/running; allow restoring a prior backup as recovery from a failed job. Operational pause,
+notification pause and acknowledgement remain available. Status/progress is Admin-only
+in /api/state. Restore migrates the job table; never delete shared inventory.
+
+History ranges: app/history.py validates service/run project ownership, finite
+start/end and a 31-day maximum. Query sample_lookup in timestamp-keyed batches
+without LOCK, cap concurrency at four and graph work at 20s. Short graphs <=2,000
+points are exact; numeric summaries retain first/last/min/max in 300 buckets.
+State transitions are exact until the cap, then explicitly flag summary overflow.
+Segment IDs preserve invalid/missing/revision gaps; aggregated points must not
+create false gaps just because points are farther than 60s apart. Table mode uses
+200 exact readings per page with timestamp/id cursors. Keep the legacy no-range
+API response for older clients. Browser history GET timeout is 30s; other reads
+remain 8s. Dialog presets/custom datetime-local ranges use browser timezone and
+all project deployments, including paused/previous runs. Request tokens reject
+stale/closed-dialog responses; graph and exact table use the same interval.
+
+Admin project toolbar measures complete button groups against the shared action
+column's available width. If the three project actions do not fit, move the whole
+group below Selected project. Independently move both previous-deployment actions
+below their dropdown if they do not fit. Keep groups nowrap until moved; allow
+narrow-screen wrapping afterward. ResizeObserver watches toolbar/buttons and
+refresh/resize also update placement; no fixed desktop breakpoint or DOM moves.
+Preserve logo reservation, dropdown edges, button listeners and keyboard order.
+
+When the project action group moves below, span the full toolbar and align its
+left edge under the logo. Preserve the previous-deployment action placement.
+
+Account actions stay right-aligned when they fit beside visible user/presence
+badges. Otherwise move the complete group to a full-width left-aligned row.
+Measure button/badge widths, observe nav and label changes, and handle non-Admin
+hidden presence badges. Do not allow auto left margin to right-align a wrapped row.
+
+Responsive host view: identical createHostViewFit helpers in both dashboards
+measure an inert, aria-hidden, fixed/clipped list probe at its intrinsic minimum
+width. Remove popup contents and duplicate IDs/menu keys from the probe. Do not
+let it participate in live action restoration. Cache markup, observe container
+and probe widths, and ignore height-only changes/hidden panels. Force effective
+Cards and disable List with an explanation when the list overflows; never overwrite
+the saved hostView preference automatically. Restore preferred List with 24px of
+spare width to prevent scrollbar/rounding oscillation. Explicit Cards selection
+still updates the saved preference. Re-evaluate on service/filter changes and
+when hosts are shown. Public toggle labels use effective view. Resize-only status
+renders must not clear connection-loss messages; fresh-data renders may do so.
+Cards use min(290px,100%) grid tracks to fit narrow containers. Test with
+node tests/host_view.test.mjs plus dashboard and connection suites.
+
+Live host card controls must never break Pause/Resume labels letter-by-letter.
+Use non-shrinking nowrap buttons and a wrap-reverse service-controls group so
+Pause/Resume moves below Actions when space runs out. Keep list/catalogue layout
+rules unchanged; use matching defensive card styles on both dashboard pages.
+
+Admin #dashboard.grid is capped at three card columns using its minimum track
+width, while auto-fit still reduces to two/one and fills space for fewer hosts.
+Do not apply this three-column cap to the public Status Dashboard.
+
+Modbus TCP services have a separate modbus_function field, limited to 3 or 4.
+The shared editor reuses the community slot: SNMP shows the community password,
+Modbus shows Holding (03)/Input (04), TCP hides both. Disable irrelevant controls
+without clearing drafts. Persist the function through all shared configuration
+paths. migrate_modbus_functions defaults legacy service/template/device-default
+rows to 3 on startup/restore. Library format v3 exports it; import v1/v2 remains
+accepted with default 3. Validate MBAP identity, unit, length, function and byte
+count; handle exception/truncated responses without treating them as readings.
+Keep the TCP-to-RTU gateway transport on port 502 and existing unsigned single
+16-bit scaling. Test protocol framing and migration in tests/test_modbus.py.
+
+Numeric display_value uses 15 significant digits to remove binary scaling residue.
+Keep raw sample values and threshold/persistence calculations unchanged; state labels
+remain authoritative. Existing recorded history/evidence is not rewritten.
+
+Admin configuration tabs place Project configuration before Permanent inventory,
+including keyboard navigation order. Reusable service library mirrors inventory
+with collapsed-by-default details, case-insensitive name/protocol/target/units search,
+auto-expand on searching and 50-entry Show more. Preserve query/open/limit on refresh,
+and retain library create/import/export and row actions. Header status uses separate
+green Active/yellow Paused bordered badges before project/deployment text.
+
+Admin body > header reserves 18px bottom padding before account navigation.
+Keep project/status badges clear of logged-in user controls when the header wraps.

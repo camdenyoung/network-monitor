@@ -610,6 +610,45 @@ await sortedPublic.refresh();
 assert.equal(publicNodes.get('status-session-link').textContent, 'Change password');
 assert.equal(publicNodes.get('status-session-link').getAttribute('href'), '/login?next=%2Fstatus');
 console.log('Collapsible/searchable inventory, project panel preview and public login indicators passed.');
+// Library search mirrors inventory: collapsed by default, bounded, and refresh-safe.
+assert.ok(html.indexOf('id="toggle-project-configuration"') < html.indexOf('id="toggle-permanent-inventory"'));
+assert.equal(element('service-library').innerHTML, '');
+const savedLibrary = fixture.service_templates;
+fixture.service_templates = Array.from({length:60}, (_, id) => ({id:9000+id,
+    name:`Voltage ${id}`,kind:'modbus',target:'80',units:'V'}));
+context.renderServiceLibrary();
+element('library-search').value = 'vOlTaGe';
+element('library-search').oninput();
+assert.equal(element('library-details').open,true);
+assert.equal(element('library-results').textContent,'Showing 50 of 60 matching services');
+assert.doesNotMatch(element('service-library').innerHTML,/Voltage 50/);
+element('library-more').onclick();
+assert.match(element('service-library').innerHTML,/Voltage 59/);
+assert.match(element('service-library').innerHTML,/data-apply-template="9059"/);
+assert.match(element('service-library').innerHTML,/data-edit-template="9059"/);
+assert.match(element('service-library').innerHTML,/data-delete-template="9059"/);
+element('library-details').open=false;
+element('library-details').ontoggle();
+assert.equal(element('service-library').innerHTML,'');
+await context.refresh();
+assert.equal(element('library-details').open,false);
+assert.equal(element('library-search').value,'vOlTaGe');
+for (const query of ['MODBUS','80','V']) {
+    element('library-search').value=query;
+    element('library-search').oninput();
+    assert.equal(element('library-results').textContent,'Showing 50 of 60 matching services');
+}
+element('library-search').value='no match';
+element('library-search').oninput();
+assert.match(element('service-library').innerHTML,/No library services match/);
+element('library-clear').onclick();
+assert.equal(element('library-search').value,'');
+assert.equal(element('library-results').textContent,'Showing 50 of 60 matching services');
+fixture.service_templates=savedLibrary;
+element('library-details').open=false;
+context.renderServiceLibrary();
+console.log('Library search/collapse preserves filters, paging and service actions; project configuration precedes inventory.');
+
 
 // Section preferences persist independently and remain applied during polling.
 for (const [key, panel, initialHidden] of [
@@ -693,7 +732,7 @@ for (const panel of configurationPanels) {
 }
 element('toggle-permanent-inventory').onclick();
 let navigationPrevented = false;
-element('toggle-permanent-inventory').onkeydown({key:'ArrowRight',preventDefault(){navigationPrevented=true;}});
+element('toggle-permanent-inventory').onkeydown({key:'ArrowLeft',preventDefault(){navigationPrevented=true;}});
 assert.equal(navigationPrevented, true);
 assert.equal(element('project-configuration').hidden, false);
 assert.equal(element('permanent-inventory').hidden, true);
@@ -727,14 +766,18 @@ await namedMain.refresh();
 assert.equal(element('monitoring-toggle').textContent, 'Resume all monitoring');
 assert.equal(element('monitoring-toggle').disabled, false);
 assert.equal(element('monitoring-toggle').getAttribute('aria-pressed'), 'false');
-assert.match(element('active').textContent, /Paused: Test · deployment 1/);
+assert.match(element('active').textContent, /Test · deployment 1/);
+assert.equal(element('monitoring-state').textContent, 'Paused');
+assert.equal(element('monitoring-state').className, 'monitoring-badge monitoring-paused');
 fixture.settings.active_run = '1';
 fixture.settings.paused_run = '0';
 await namedMain.refresh();
 assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
 assert.equal(element('monitoring-toggle').disabled, false);
 assert.equal(element('monitoring-toggle').getAttribute('aria-pressed'), 'true');
-console.log('Resume controls preserve paused deployment identity.');
+assert.equal(element('monitoring-state').textContent, 'Active');
+assert.equal(element('monitoring-state').className, 'monitoring-badge monitoring-active');
+console.log('Resume controls preserve paused deployment identity and display the matching coloured status badge.');
 
 const monitoringRequests = [];
 const originalNamedFetch = namedMain.fetch;
@@ -1116,7 +1159,7 @@ assert.match(html, /name="logo_project"/);
 console.log('New-project logo choices preview existing uploads and survive refreshes.');
 
 // Library import is reviewed in-app before any write, with errors kept in the dialog.
-const libraryFile = {format:'network-monitor-service-library',version:1,
+const libraryFile = {format:'network-monitor-service-library',version:3,
     services:[{name:'Imported RSSI',kind:'snmp',target:'.1.2.3',direction:'below',community:'TEST_EXPORT_SECRET'}]};
 const libraryForm = element('library-import-form');
 libraryForm.elements.namedItem('library').files = [{size:500,text:async () => JSON.stringify(libraryFile)}];
@@ -1441,6 +1484,7 @@ console.log('Host flap dialog identifies the correct host, safely displays alias
 const protocolForm = element('service-edit-form');
 protocolForm.elements.namedItem('community').value = 'unsaved-community';
 protocolForm.elements.namedItem('unit').value = '17';
+protocolForm.elements.namedItem('modbus_function').value = '4';
 for (const [protocol, communityDisabled, unitDisabled] of [
   ['snmp',false,true],['modbus',true,false],['tcp',true,true],['snmp',false,true],
 ]) {
@@ -1450,11 +1494,16 @@ for (const [protocol, communityDisabled, unitDisabled] of [
   assert.equal(protocolForm.elements.namedItem('unit').disabled,unitDisabled);
   assert.equal(protocolForm.elements.namedItem('community').value,'unsaved-community');
   assert.equal(protocolForm.elements.namedItem('unit').value,'17');
+  assert.equal(protocolForm.elements.namedItem('modbus_function').disabled,protocol !== 'modbus');
+  assert.equal(protocolForm.elements.namedItem('modbus_function').value,'4');
+  assert.equal(element('snmp-community-field').hidden,protocol !== 'snmp');
+  assert.equal(element('modbus-register-field').hidden,protocol !== 'modbus');
 }
 for (const [kind, mode] of [['snmp','service-edit'],['modbus','template-create'],['tcp','device-default-create']]) {
-  context.openConfigurationEditor({...stateService,kind},mode,null,'Protocol test','Sample configuration');
+  context.openConfigurationEditor({...stateService,kind,modbus_function:4},mode,null,'Protocol test','Sample configuration');
   assert.equal(protocolForm.elements.namedItem('community').disabled,kind !== 'snmp');
   assert.equal(protocolForm.elements.namedItem('unit').disabled,kind !== 'modbus');
+  assert.equal(protocolForm.elements.namedItem('modbus_function').value,'4');
 }
 console.log('Service protocol fields initialise correctly and retain drafts while switching SNMP, Modbus and TCP.');
 
@@ -2146,3 +2195,229 @@ assert.equal(element('project').value,'3');
 await projectSelectionContext({active_run:'0',paused_run:'0'},[]);
 assert.equal(element('project').value,'');
 console.log('Initial project selection prefers active/paused deployments, preserves manual choices and handles missing/empty projects.');
+
+// Project deletion uses the shared captured-target confirmation and reports a job.
+const deleteProjectData = {...fixture, projects:[{id:1,name:'<Delete & project>'},{id:2,name:'Keep project'}],
+  settings:{...fixture.settings,active_run:'1',paused_run:'0'},project_deletions:[]};
+const projectDeleteRequests = [];
+const projectDeleteContext = vm.createContext({document:context.document,setInterval(){},
+  localStorage:{getItem(){return null;},setItem(){}},
+  fetch:async (path, options) => {
+    if (path === '/api/project-delete') {
+      projectDeleteRequests.push(JSON.parse(options.body));
+      deleteProjectData.project_deletions=[{id:1,project:1,project_name:'<Delete & project>',state:'queued',deleted_samples:0,error:''}];
+      return {ok:true,json:async () => ({ok:true,job:1})};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'admin',username:'admin'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : deleteProjectData};
+  }});
+new vm.Script(script).runInContext(projectDeleteContext);
+await projectDeleteContext.initializeSession();
+assert.equal(element('delete-project').disabled,true);
+assert.throws(() => projectDeleteContext.openAdministrativeConfirmation('delete-project',{project:1}),/Pause monitoring/);
+deleteProjectData.settings.active_run='0'; deleteProjectData.settings.paused_run='1';
+await projectDeleteContext.refresh();
+assert.equal(element('delete-project').disabled,false);
+element('delete-project').onclick();
+assert.equal(element('app-confirmation-context').textContent,'<Delete & project>');
+assert.match(element('app-confirmation-description').textContent,/Permanent inventory, reusable services and other projects are kept/);
+element('cancel-app-action').onclick();
+assert.equal(projectDeleteRequests.length,0);
+element('delete-project').onclick();
+element('project').value='2'; element('project').onchange();
+await projectDeleteContext.refresh();
+await element('confirm-app-action').onclick();
+assert.equal(projectDeleteRequests.length,1);
+assert.equal(projectDeleteRequests[0].project,1);
+assert.equal(projectDeleteRequests[0].expected_name,'<Delete & project>');
+assert.equal(element('project-deletion-notice').hidden,false);
+assert.match(element('project-deletion-jobs').innerHTML,/&lt;Delete &amp; project&gt;/);
+deleteProjectData.projects=[{id:2,name:'Keep project'}];
+deleteProjectData.project_deletions[0].state='completed';
+await projectDeleteContext.refresh();
+assert.equal(element('project-deletion-notice').hidden,true);
+console.log('Project deletion confirms a fixed target, protects active projects, preserves shared-data wording and displays progress.');
+
+// History ranges share one deployment/time scope across graph and exact table pages.
+const historyRequests = [];
+const historyData = {...fixture,settings:{...fixture.settings,active_run:'0',paused_run:'1'},
+  services:fixture.services.map(service => service.id === 2 ? {...service,value_type:'metric',units:'dBm'} : service)};
+let historyGraphReply;
+const rangeHistoryContext = vm.createContext({document:context.document,setInterval(){},
+  localStorage:{getItem(){return null;},setItem(){}},
+  fetch:async path => {
+    if (path.startsWith('/api/history?')) {
+      const query = new URL(path,'http://monitor.test').searchParams;
+      historyRequests.push(query);
+      const rows = [{id:2,timestamp:now-30,value:-55,status:'healthy',display_value:'-55',revision:1},
+        {id:1,timestamp:now-60,value:-80,status:'critical',display_value:'-80',revision:1}];
+      const data = query.get('mode') === 'graph'
+        ? {rows,total:2,aggregated:false,retention_days:30}
+        : {rows:query.has('before_id') ? rows.slice(1) : rows,next:query.has('before_id') ? null : {before_id:1,before_time:now-60}};
+      if (query.get('mode') === 'graph' && historyGraphReply) await historyGraphReply;
+      return {ok:true,json:async () => data};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:2,role:'viewer',username:'reader'} : historyData};
+  }});
+new vm.Script(script).runInContext(rangeHistoryContext);
+await rangeHistoryContext.initializeSession();
+await rangeHistoryContext.openHistory(2);
+assert.equal(element('history').open,true);
+assert.equal(element('history-deployment').value,'1');
+assert.match(element('history-description').textContent,/2 retained readings/);
+assert.match(element('history-graph').innerHTML,/<svg/);
+assert.equal(historyRequests[0].get('run'),'1');
+assert.equal(historyRequests[0].get('start'),historyRequests[1].get('start'));
+element('show-history-table').onclick();
+assert.equal(element('history-table').hidden,false);
+await element('history-older').onclick();
+assert.match(element('history-page').textContent,/Page 2/);
+await element('history-newer').onclick();
+assert.match(element('history-page').textContent,/Page 1/);
+element('history-start').value='2026-11-01T00:00:00';
+element('history-end').value='2026-11-02T00:00:00';
+element('history-start').oninput();
+assert.equal(element('history-period').value,'custom');
+await rangeHistoryContext.loadHistoryRange();
+assert.equal(historyRequests.at(-1).get('start'),String(new Date('2026-11-01T00:00:00').getTime()/1000));
+const beforeInvalidRange = historyRequests.length;
+element('history-end').value='2026-10-01T00:00:00';
+await rangeHistoryContext.loadHistoryRange();
+assert.equal(historyRequests.length,beforeInvalidRange);
+assert.match(element('history-feedback').textContent,/Choose valid/);
+// Closing a dialog makes an in-flight response ineligible to repaint it.
+element('history-end').value='2026-11-02T00:00:00';
+let releaseHistory;
+historyGraphReply = new Promise(resolve => {releaseHistory=resolve;});
+const pendingHistory = rangeHistoryContext.loadHistoryRange();
+element('history').close(); element('history').onclose();
+const priorGraph = element('history-graph').innerHTML;
+releaseHistory(); await pendingHistory;
+assert.equal(element('history-graph').innerHTML,priorGraph);
+console.log('History presets/custom dates, paused deployment selection, graph/table paging, validation and stale-response cancellation passed.');
+
+// Action groups move together at their measured fit boundary, independently.
+let toolbarRight = 1600;
+const projectActionWidths = [280,190,180];
+const deploymentActionWidths = [220,210];
+const toolbarNodes = new Map();
+for (const [id,widths] of [['project-actions',projectActionWidths],['deployment-actions',deploymentActionWidths]]) {
+  const classes = new Set();
+  toolbarNodes.set(id,{classes,classList:{toggle(name,on){if(on)classes.add(name);else classes.delete(name);}},
+    querySelectorAll:() => widths.map(width => ({getBoundingClientRect:() => ({width})}))});
+}
+toolbarNodes.set('deployment-toolbar',{getBoundingClientRect:() => ({right:toolbarRight})});
+toolbarNodes.set('project',{getBoundingClientRect:() => ({right:568})});
+const toolbarContext = vm.createContext({el:id => toolbarNodes.get(id),
+  getComputedStyle:() => ({paddingRight:'16px',borderRightWidth:'1px',columnGap:'12px'})});
+const toolbarFunction = script.match(/    function updateToolbarLayout\(\) \{[\s\S]+?\n    \}/)[0];
+new vm.Script(toolbarFunction).runInContext(toolbarContext);
+const isBelow = id => toolbarNodes.get(id).classes.has('controls-below');
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),false);
+assert.equal(isBelow('deployment-actions'),false);
+toolbarRight = 1271; // Exactly 674px is available for the three-button group.
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),false);
+toolbarRight = 1270;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),true);
+assert.equal(isBelow('deployment-actions'),false);
+toolbarRight = 1038;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('deployment-actions'),true);
+toolbarRight = 1300;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),false);
+projectActionWidths[0] = 330; projectActionWidths[1] = 210; projectActionWidths[2] = 195;
+toolbarContext.updateToolbarLayout();
+assert.equal(isBelow('project-actions'),true);
+assert.equal(isBelow('deployment-actions'),false);
+console.log('Toolbar groups move below dropdowns at their fit boundaries and react to longer Pause/Resume labels.');
+
+// Account actions stay right-aligned only while the complete row fits.
+let accountWidth = 1000;
+let presenceWidth = 300;
+const accountClasses = new Set();
+const accountNodes = {
+  'account-nav':{getBoundingClientRect:() => ({width:accountWidth})},
+  'signed-in':{getBoundingClientRect:() => ({width:190})},
+  'dashboard-presence':{getBoundingClientRect:() => ({width:presenceWidth})},
+  'account-actions':{classList:{toggle(name,on){if(on)accountClasses.add(name);else accountClasses.delete(name);}},
+    querySelectorAll:() => [160,90].map(width => ({getBoundingClientRect:() => ({width})}))},
+};
+const accountContext = vm.createContext({el:id => accountNodes[id],
+  getComputedStyle:() => ({paddingLeft:'16px',paddingRight:'16px',borderLeftWidth:'1px',borderRightWidth:'1px',columnGap:'12px'})});
+new vm.Script(script.match(/    function updateAccountLayout\(\) \{[\s\S]+?\n    \}/)[0]).runInContext(accountContext);
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),false);
+accountWidth=809;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),true);
+accountWidth=810;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),false);
+accountWidth=600; presenceWidth=0;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),false);
+presenceWidth=300;
+accountContext.updateAccountLayout();
+assert.equal(accountClasses.has('controls-below'),true);
+console.log('Account actions move to a left-aligned row when space runs out, including presence badge changes.');
+
+// End-to-end controls use the effective view without overwriting a saved List choice.
+for (const publicPage of [false,true]) {
+  const store = new Map([[`field-monitor.${publicPage ? 'status' : 'main'}.host-view`,'list']]);
+  const node = id => publicPage ? publicNodes.get(id) : element(id);
+  const data = publicPage ? {project:'Responsive hosts',updated:now,incidents:[],acknowledged_incidents:[],
+    devices:[{name:'SW1',alias:'Stage',status:'healthy',services:[{name:'RSSI',value:-55,status:'healthy',units:'dBm'}]}]}
+    : {...fixture,services:fixture.services.map(service => service.id === 2 ? {...service,name:'RSSI'} : service)};
+  const browser = vm.createContext({document:publicPage ? publicContext.document : context.document,setInterval(){},
+    localStorage:{getItem:key => store.get(key),setItem:(key,value) => store.set(key,value)},
+    fetch:async path => ({ok:true,json:async () => !publicPage && path === '/api/me'
+      ? {id:1,username:'reader',role:'viewer'} : data})});
+  new vm.Script((publicPage ? statusPage : html).match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(browser);
+  browser.forceCards=false;
+  vm.runInContext(`hostViewFit.choose = preferred => {
+    const unavailable = forceCards && showServices;
+    return {view:unavailable ? 'cards' : preferred,unavailable};
+  };`,browser);
+  if (publicPage) await browser.refresh(); else await browser.initializeSession();
+  const display = () => node(publicPage ? 'devices' : 'dashboard').innerHTML;
+  const key = `field-monitor.${publicPage ? 'status' : 'main'}.host-view`;
+  assert.match(display(),/class="host-list"/);
+  browser.forceCards=true;
+  browser.renderHosts();
+  assert.doesNotMatch(display(),/class="host-list"/);
+  assert.equal(node('view-list').disabled,true);
+  assert.equal(node('host-view-fit-note').hidden,false);
+  assert.equal(node('view-cards').getAttribute ? node('view-cards').getAttribute('aria-pressed') : node('view-cards').attributes['aria-pressed'],'true');
+  assert.equal(store.get(key),'list');
+  node('view-list').onclick(); // Programmatic attempts are guarded too.
+  assert.equal(store.get(key),'list');
+  await browser.refresh();
+  assert.equal(node('view-list').disabled,true);
+  node('toggle-services').onclick();
+  assert.equal(node('view-list').disabled,false);
+  assert.match(display(),/class="host-list"/);
+  assert.equal(store.get(key),'list');
+  node('toggle-services').onclick();
+  node('view-cards').onclick(); // Explicit Cards is a genuine preference change.
+  assert.equal(store.get(key),'cards');
+  node('view-list').onclick();
+  assert.equal(store.get(key),'cards');
+  browser.forceCards=false;
+  browser.renderHosts();
+  assert.equal(node('view-list').disabled,false);
+  assert.doesNotMatch(display(),/class="host-list"/);
+  if (publicPage) {
+    node('connection-notice').hidden=false;
+    node('summary').textContent='Failed to fetch';
+    browser.renderHosts();
+    assert.equal(node('summary').textContent,'Failed to fetch');
+    await browser.refresh();
+    assert.doesNotMatch(node('summary').textContent,/Failed to fetch/);
+  }
+}
+console.log('Both dashboards disable List while forced to Cards, preserve List through refresh/service toggles, and honour explicit Cards choices.');

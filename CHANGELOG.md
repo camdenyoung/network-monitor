@@ -4,6 +4,74 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 76 — v0.5.1
+
+- Merge project deletion, deployment/date-range history and the subsequent responsive dashboard improvements into main.
+- Add Modbus Holding (03)/Input (04) register selection across services, defaults, library transfers and backups, with compatible migration for existing installations.
+- Clean scaled numeric display values, add library search/collapse, reorder Admin configuration tabs and improve monitoring-status badges/header spacing.
+- Validate with all 217 backend tests plus dashboard, connection recovery and responsive host-view checks.
+
+### Build 75 — v0.4.4 (Modbus register types branch)
+
+- Add bottom padding to the Admin page header so wrapped project/status badges remain clear of the logged-in user and navigation controls on narrow screens.
+
+### Build 74 — v0.4.4 (Modbus register types branch)
+
+- Move Project configuration before Permanent inventory in the Admin configuration tabs and keyboard order.
+- Add searchable, collapsed-by-default library services with an expand/collapse arrow, match counts and Show 50 more, matching inventory behaviour. Preserve search and expansion during refreshes.
+- Show the Admin header monitoring status as a green Active or yellow Paused bordered badge beside the project/deployment.
+
+### Build 73 — v0.4.4 (Modbus register types branch)
+
+- Format newly captured numeric readings to 15 significant digits for display, removing floating-point tails caused by scales such as 0.1. Both dashboards, history and notifications share the stored display text. Preserve raw numeric samples and threshold comparisons, and keep state labels unchanged.
+
+### Build 72 — v0.4.4 (Modbus register types branch)
+
+- Add Holding (03) and Input (04) register selection in the shared service editor, using the SNMP community field’s space for Modbus. Preserve protocol drafts and disable irrelevant fields.
+- Carry the function through project services, inventory defaults, copies, project duplication, library format v3 and complete backups. Keep existing databases and older library imports on Function 03.
+- Validate Modbus TCP response framing and exception replies; retain single unsigned 16-bit register reads and scaling.
+
+### Build 71 — v0.4.4 (project deletion and history ranges branch)
+
+- Prevent Pause/Resume card-control labels breaking into vertical letters. When the control pair cannot fit side by side, wrap Pause/Resume below Actions, keeping labels intact and controls right-aligned.
+- Cap Admin Live Hosts at three card columns, reducing to two or one on narrower screens; leave Status Dashboard column counts unchanged.
+
+
+### Build 70 — v0.4.4 (project deletion and history ranges branch)
+
+- Automatically show Cards and temporarily disable List on both dashboards when the host list cannot fit its container. Explain the temporary mode and preserve the user's saved preference.
+- Measure an inert copy of the list so List can return after resizing, service visibility/filter changes or content changes. Use a small restoration buffer to avoid flicker; keep narrow Cards within their container.
+- Preserve connection-loss feedback during presentation-only status updates and keep measurement menus separate from live actions.
+
+
+### Build 69 — v0.4.4 (project deletion and history ranges branch)
+
+- Keep account actions right-aligned while they fit beside the user/presence badges; move Status Dashboard and Sign out onto a left-aligned row when space is insufficient.
+
+
+### Build 68 — v0.4.4 (project deletion and history ranges branch)
+
+- Remove the redundant Change password link from the Admin Dashboard's top navigation; retain Status Dashboard and Sign out.
+
+
+### Build 67 — v0.4.4 (project deletion and history ranges branch)
+
+- Left-align the wrapped Activate/Monitoring/Notifications group under the logo across the full toolbar width. Keep previous-deployment action placement unchanged.
+
+
+### Build 66 — v0.4.4 (project deletion and history ranges branch)
+
+- Move each complete deployment action group below its dropdown as soon as the buttons no longer fit alongside it. Re-evaluate on resize and button-label changes; preserve aligned dropdowns and narrow-screen wrapping.
+
+
+### Build 65 — v0.4.4 (project deletion and history ranges branch)
+
+- Add Admin-only confirmed project deletion with persistent background progress, bounded cleanup, restart/retry support and shared inventory/library preservation.
+- Prevent deleting a running project; quarantine queued data and temporarily block configuration/backups while deletion is unfinished and restore while queued/running. Retain completed job metadata and never reuse deleted project IDs.
+- Add history deployment selection, time presets and custom local date ranges up to 31 days. Use bounded graph summaries with preserved numeric extremes/gaps, state-transition handling and exact-reading table pagination.
+- Keep range queries indexed and separate from the monitor lock, with bounded concurrency/work and stale-response protection. Preserve the legacy latest-200 API for older clients.
+
+
 ### Build 64 — v0.4.4
 
 - Move build history and release notes from README.md into CHANGELOG.md, with a README link and updated release-maintenance instructions.

@@ -74,13 +74,16 @@ for (const helper of helpers) {
   assert.equal(message.textContent,'Enter a deployment description');
 
   // Bound a hung request and a hung JSON body, so polling can retry either one.
-  for (const stalled of ['hang','body-hang']) {
+  for (const [stalled,path,options,timeout] of [
+    ['hang','/api/status',undefined,8000], ['body-hang','/api/status',undefined,8000],
+    ['hang','/api/history?service=1',undefined,30000], ['hang','/api/ack',{method:'POST'},60000],
+  ]) {
     mode = stalled;
-    const request = browser.dashboardFetch('/api/status');
+    const request = browser.dashboardFetch(path,options);
     const operation = stalled === 'body-hang' ? (await request).json() : request;
     // Attach the rejection handler before firing the simulated timeout.
     const rejected = assert.rejects(operation,/timed out/);
-    const timer = [...timers.values()].find(item => item.delay === 8000);
+    const timer = [...timers.values()].find(item => item.delay === timeout);
     assert.ok(timer);
     timer.callback();
     await rejected;
