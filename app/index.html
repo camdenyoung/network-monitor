@@ -202,7 +202,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.1 · Build 76</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.1 · Build 77</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -612,6 +612,7 @@
     <p id="history-description"></p>
     <form id="history-range-form" class="display-controls">
       <label>Deployment<select id="history-deployment"></select></label>
+      <label id="history-measurement-field" hidden>Graph measurement<select id="history-measurement"></select></label>
       <label>Period<select id="history-period">
         <option value="900">Last 15 minutes</option><option value="3600" selected>Last hour</option>
         <option value="21600">Last 6 hours</option><option value="86400">Last 24 hours</option>
@@ -2179,13 +2180,12 @@
     el('show-history-table').onclick = () => historyView(false);
 
     function historyGraph(rows, service, range = null) {
-      // Keep configuration revisions separate: a changed OID/scale/state mode may
-      // describe a different quantity. The table still includes older revisions.
-      const samples = rows.filter(row => row.revision === service.revision).slice().reverse();
+      // Alarm edits share a measurement version; never mix different quantities.
+      const samples = rows.filter(row => (row.measurement_revision ?? 1) === (service.measurement_revision ?? 1)).slice().reverse();
       const valid = row => row.value !== null && Number.isFinite(row.value) &&
         Number.isFinite(row.timestamp) && !['blocked', 'unreachable', 'paused', 'unknown'].includes(row.status);
       const points = samples.filter(valid);
-      if (!points.length) return '<p>No usable readings for the current service configuration yet.</p>';
+      if (!points.length) return '<p>No usable readings for this measurement version in the selected period.</p>';
       const width = 800, height = 330;
       const margin = {left: 105, right: 25, top: 28, bottom: 55};
       const plotWidth = width - margin.left - margin.right;
@@ -2275,6 +2275,7 @@
     }
     function historyUrl(context, mode, cursor = null) {
       let url = `/api/history?service=${context.service.id}&run=${context.run}&start=${context.start}&end=${context.end}&mode=${mode}`;
+      if (mode === 'graph' && context.measurement) url += `&measurement=${context.measurement}`;
       if (cursor) url += `&before_time=${cursor.before_time}&before_id=${cursor.before_id}`;
       return url;
     }
@@ -2285,8 +2286,8 @@
       return data;
     }
     function renderHistoryTable(data) {
-      el('readings').innerHTML = data.rows.length ? '<table><tr><th>Time</th><th>Value</th><th>Status</th><th>Configuration</th></tr>' + data.rows.map(row =>
-        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td><td>${escapeHtml(row.revision)}</td></tr>`
+      el('readings').innerHTML = data.rows.length ? '<table><tr><th>Time</th><th>Value</th><th>Status</th><th>Configuration</th><th>Measurement</th></tr>' + data.rows.map(row =>
+        `<tr><td>${date(row.timestamp)}</td><td>${escapeHtml(row.display_value ?? row.value ?? '—')}</td><td>${escapeHtml(formatStatus(row.status))}</td><td>${escapeHtml(row.revision)}</td><td>${escapeHtml(row.measurement_revision ?? 1)}</td></tr>`
       ).join('') + '</table>' : '<p>No retained readings in this time range.</p>';
       historyNext = data.next;
       el('history-newer').disabled = historyPage === 0;
@@ -2302,7 +2303,8 @@
         el('history-feedback').textContent = 'Choose valid From/To dates, up to 31 days apart.';
         return;
       }
-      const context = {...historyContext, run:Number(el('history-deployment').value), start, end};
+      const context = {...historyContext, run:Number(el('history-deployment').value),
+        measurement:Number(el('history-measurement').value || historyContext.service.measurement_revision || 1), start, end};
       el('history-apply').disabled = true;
       el('history-newer').disabled = true;
       el('history-older').disabled = true;
@@ -2314,9 +2316,15 @@
         if (requestId !== historyRequest || !el('history').open) return;
         historyContext = context;
         historyCursors = [null]; historyPage = 0;
-        el('history-graph').innerHTML = historyGraph(graph.rows, context.service, context);
+        const measurement = graph.measurement || context.service;
+        const versions = graph.measurements || [measurement];
+        el('history-measurement').innerHTML = versions.map(version =>
+          `<option value="${Number(version.measurement_revision ?? 1)}">${escapeHtml('#' + (version.measurement_revision ?? 1) + ' · ' + version.kind + ' · ' + version.target + (version.units ? ' · ' + version.units : ''))}</option>`).join('');
+        el('history-measurement').value = String(measurement.measurement_revision ?? 1);
+        el('history-measurement-field').hidden = versions.length < 2;
+        el('history-graph').innerHTML = historyGraph(graph.rows, measurement, context);
         renderHistoryTable(table);
-        el('history-description').textContent = `${date(start)} – ${date(end)} · ${graph.total.toLocaleString()} retained readings. Graph uses the current configuration; table includes every configuration.`;
+        el('history-description').textContent = `${date(start)} – ${date(end)} · ${graph.total.toLocaleString()} retained graph readings. Graph shows measurement #${measurement.measurement_revision ?? 1}. Table includes every measurement/configuration. Historical statuses stay as recorded; any threshold lines show current limits for the current measurement.`;
         el('history-feedback').textContent = (graph.total ? graph.aggregated
           ? context.service.value_type === 'state' && !graph.state_overflow
             ? 'Graph shows retained state transitions and collection gaps. Table pages contain exact readings.'
@@ -2355,6 +2363,7 @@
     el('history-range-form').onsubmit = event => { event.preventDefault(); return loadHistoryRange(); };
     el('history-period').onchange = () => { setHistoryPreset(); return loadHistoryRange(); };
     el('history-deployment').onchange = () => loadHistoryRange();
+    el('history-measurement').onchange = () => loadHistoryRange();
     for (const id of ['history-start','history-end']) el(id).oninput = () => { el('history-period').value = 'custom'; };
     el('history').onclose = () => { historyRequest++; historyContext = null; };
 
@@ -2367,6 +2376,9 @@
       const preferred = [Number(state.settings.active_run),Number(state.settings.paused_run)]
         .find(run => runs.some(row => row.id === run)) || runs[0].id;
       historyContext = {service,run:preferred};
+      el('history-measurement').innerHTML = `<option value="${Number(service.measurement_revision ?? 1)}">Current measurement</option>`;
+      el('history-measurement').value = String(service.measurement_revision ?? 1);
+      el('history-measurement-field').hidden = true;
       el('history-deployment').innerHTML = options(runs, row => `#${row.id} · ${row.description || date(row.started)}`);
       el('history-deployment').value = String(preferred);
       el('history-title').textContent = service.name + ' — history';

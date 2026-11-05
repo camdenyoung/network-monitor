@@ -1,4 +1,4 @@
-# Network Monitor v0.5.1 · Build 76
+# Network Monitor v0.5.1 · Build 77
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -243,7 +243,7 @@ only that assignment; inventory IDs and aliases in other projects are preserved.
 Service cards keep actions in a compact **Actions** menu. Use **History / graph**
 to switch between an SVG graph and exact readings. Numeric metrics use lines;
 state codes use labeled steps. Missing/suppressed readings and gaps over 60 seconds
-break the line. Graphs use the current configuration revision; the table preserves
+break the line. Graphs group compatible readings by measurement version; the table preserves
 older configurations. Graphs are local and do not depend on a CDN or chart service.
 
 Optional dashboard logic tests (Node.js 18+): `node tests/dashboard.test.mjs`,
@@ -655,10 +655,18 @@ From/To dates and Apply range. Times use the browser's local timezone. A single
 request can cover up to 31 days; retention still applies globally by reading age.
 The dialog explains empty ranges and the configured retention period.
 
-The graph uses the current configuration revision, while the table includes
-retained readings from every configuration in the selected deployment/range.
+Alarm edits (thresholds, direction, persistence and flap settings) keep compatible
+readings together on the graph. Changes to the protocol, target, Modbus addressing,
+scale, units, value type or state labels start a new measurement version. When there
+are multiple versions, use **Graph measurement** to view an earlier segment with its
+own units/labels. The table includes all versions and their configuration numbers.
+Historical statuses stay as recorded. Threshold lines show current limits only for
+the current measurement; earlier versions do not show those limits.
+
+Existing pre-upgrade test history is grouped as measurement 1 without trying to
+reconstruct previous definitions. Future changes preserve separate definitions.
 Short graphs show up to 2,000 exact points. Longer numeric graphs retain first,
-last, minimum and maximum values per time bucket; collection/revision gaps remain
+last, minimum and maximum values per time bucket; collection gaps remain
 broken. State graphs preserve transitions up to the point limit, then explicitly
 warn when a shorter period/table is needed to see every state change. The table
 shows exact readings in pages of 200, with Newer/Older controls.
