@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 79
+# Network Monitor v0.5.2 · Build 80
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -355,7 +355,7 @@ Both dashboards place **Active issues** above hosts. List rows have rounded
 card-style borders and spacing with the same severity colours as cards. Navigation
 and download links use consistent button styling across the app.
 
-Under **Inventory and project configuration → Edit selected project**, Admins can
+Under **Project configuration → Edit selected project**, Admins can
 rename the selected project and upload, replace, or remove its event logo. Logos
 accept PNG/JPEG up to 2 MB and 4096 pixels per side. The selected project logo is
 shown on the main dashboard; the active project logo is shown on public status.
@@ -432,10 +432,13 @@ Permanent inventory is its own top-level Admin section, separate from Project
 configuration. Keep inventory creation/search/edit/removal there; project assignment
 and service configuration remain under Project configuration.
 
-Main dashboard configuration sections use colour-coded Show/Hide buttons instead
-of disclosure arrows: Permanent inventory, Project configuration, Reusable service
-library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
-These panels always start hidden on page load and do not persist visibility.
+Project configuration opens from the top control row, immediately before the
+Acknowledged issues control. Its area appears below those buttons and above Active
+issues. Other configuration areas use the lower colour-coded tabs. Only one
+configuration area can be open at a time; all start closed after a page reload.
+The Project assignments device list has a separate collapsed-by-default arrow.
+Successful project configuration saves show a dismissible six-second toast as
+well as inline confirmation.
 Issue-list and live-status visibility preferences remain separate.
 
 Older username-only acknowledgements display the account Full Name after it is
@@ -544,8 +547,13 @@ do not affect the other. Re-adding a removed assignment restores its old setup;
 duplicating a project copies that project's configuration. Copies start with
 monitoring enabled. Inventory defaults are included in complete backups.
 
-Admin configuration areas now act as tabs: only one is visible at a time, and
-switching tabs preserves unfinished forms. They start closed after a page reload.
+The top Project configuration button and lower configuration tabs are exclusive;
+switching areas preserves unfinished forms. They start closed after a page reload.
+Creating a project selects it for editing without starting a deployment or changing
+the monitored project. New projects allow Status Dashboard acknowledgements by
+signed-in Admins/Operators by default. Existing projects retain their settings;
+duplicating a project copies its acknowledgement setting. Anonymous users and
+View Only users cannot acknowledge issues.
 The public status dashboard pulses its background three times when a new active
 issue appears after the initial load: red for Critical/Unreachable, yellow for Warning. Existing or reappearing issues do not
 retrigger it; reduced-motion browsers receive a brief static red highlight.

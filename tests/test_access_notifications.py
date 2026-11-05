@@ -1192,6 +1192,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             server.poll_one(host, 1)
         incident = server.snapshot()['incident_lists']['active'][0]
         token, operator = self.create_operator()
+        server.mutate('project-status-settings', {'project':1,'enabled':False})
         self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token, operator['csrf'])['status'], 400)
         self.assertEqual(self.request('/api/project-status-settings', {'project':1,'enabled':True},
                                       self.admin_token,self.admin['csrf'])['status'], 200)
@@ -1474,6 +1475,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('ack', {'id': issue_id}, actor=self.admin)
         issue = server.snapshot()['incident_lists']['acknowledged'][0]
         body = {'id': issue_id, 'expected_revision': issue['ack_revision']}
+        server.mutate('project-status-settings', {'project':1,'enabled':False})
         self.assertEqual(self.request('/api/status-unack', body, self.admin_token, self.admin['csrf'])['status'], 400)
         server.mutate('project-status-settings', {'project': 1, 'enabled': True})
         server.mutate('toggle', {'id': 1, 'field': 'visible'})

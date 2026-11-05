@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 80 — v0.5.2 (Admin project configuration updates)
+
+- Move Project configuration to the top controls and display its area above Active issues, coordinated with the lower configuration tabs. Keep paused monitoring button text white.
+- Select newly created projects without activating monitoring, preserving the selection through stale refreshes. Default new projects to allowing signed-in Admin/Operator status acknowledgements; retain existing project settings.
+- Add a collapsed assignment device list and dismissible save-confirmation toasts while retaining inline messages.
+
 ### Build 79 — v0.5.2 (README capability review branch)
 
 - Correct outdated README limitations for hysteresis, flap protection, reminders, project duplication, inventory defaults, Modbus gateways and synthetic load testing.

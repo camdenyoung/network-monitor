@@ -48,6 +48,16 @@ class MonitorTests(unittest.TestCase):
         with patch.object(server, 'read_metric', return_value=value):
             server.poll_one(self.service, run)
 
+    def test_new_project_allows_status_acknowledgements_without_changing_existing_projects_or_deployment(self):
+        server.mutate('project-status-settings', {'project':1, 'enabled':False})
+        before = server.snapshot()['settings']['active_run']
+        created = server.mutate('project', {'name':'New event'})
+        server.initialize()
+        projects = {row['id']:row for row in server.snapshot()['projects']}
+        self.assertEqual(projects[1]['status_ack_enabled'], 0)
+        self.assertEqual(projects[created['project']]['status_ack_enabled'], 1)
+        self.assertEqual(server.snapshot()['settings']['active_run'], before)
+
     def test_new_deployment_waits_for_explicit_monitoring_and_notification_resume(self):
         server.mutate('notification-pause', {'paused': False})
         self.poll(-55)

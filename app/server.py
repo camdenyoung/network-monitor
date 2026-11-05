@@ -1038,6 +1038,7 @@ def acknowledge_status_incident(db, incident_id, actor):
 
 def mutate(action, body, actor=None):
     acknowledgement_changed = False
+    created_project = None
     with LOCK, connect() as db:
         deletion = project_deletion.unfinished(db)
         operational = ('ack', 'status-ack', 'unack', 'status-unack', 'pause', 'resume', 'notification-pause', 'project-delete')
@@ -1052,7 +1053,8 @@ def mutate(action, body, actor=None):
             if not name or len(name) > 100:
                 raise ValueError('Project names must contain 1–100 characters')
             project = next_record_id(db, 'projects')
-            db.execute('INSERT INTO projects(id,name) VALUES(?,?)', (project, name))
+            db.execute('INSERT INTO projects(id,name,status_ack_enabled) VALUES(?,?,1)', (project, name))
+            created_project = project
             source_logo = body.get('logo_project')
             if source_logo not in (None, ''):
                 # Copy image data, not a link to another project's mutable branding.
@@ -1344,6 +1346,8 @@ def mutate(action, body, actor=None):
     # Duplicate acknowledgements and rejected/rolled-back actions emit nothing.
     if acknowledgement_changed:
         live_updates.publish_acknowledgement_change()
+    if created_project is not None:
+        return {'project': created_project}
 
 
 def update_card_incidents(data):

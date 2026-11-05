@@ -77,6 +77,9 @@ const context = vm.createContext({
 new vm.Script(script).runInContext(context);
 await context.refresh();
 assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
+assert.equal(element('assignments').innerHTML, '');
+element('assignments-details').open = true;
+element('assignments-details').ontoggle();
 assert.match(element('assignments').innerHTML, /Device ID - Alias \/ Address/);
 assert.match(element('assignments').innerHTML, /SW001 - Stage \/ 127\.0\.0\.1/);
 assert.match(element('dashboard').innerHTML, /class="action-menu"/);
@@ -725,21 +728,21 @@ for (const panel of configurationPanels) {
     assert.equal(element(panel).hidden, true);
     element(`toggle-${panel}`).onclick();
     assert.equal(element(panel).hidden, false);
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
+    assert.equal(element(`toggle-${panel}`).getAttribute(panel === 'project-configuration' ? 'aria-pressed' : 'aria-selected'), 'true');
+    assert.equal(element(`toggle-${panel}`).getAttribute(panel === 'project-configuration' ? 'aria-pressed' : 'aria-selected'), 'true');
     for (const other of configurationPanels.filter(id => id !== panel)) assert.equal(element(other).hidden, true);
     element(`toggle-${panel}`).onclick();
     assert.equal(element(panel).hidden, true, 'Clicking the current tab closes it');
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'false');
+    assert.equal(element(`toggle-${panel}`).getAttribute(panel === 'project-configuration' ? 'aria-pressed' : 'aria-selected'), 'false');
     assert.equal(element(`toggle-${panel}`).getAttribute('tabindex'), '0');
 }
 element('toggle-permanent-inventory').onclick();
 let navigationPrevented = false;
-element('toggle-permanent-inventory').onkeydown({key:'ArrowLeft',preventDefault(){navigationPrevented=true;}});
+element('toggle-permanent-inventory').onkeydown({key:'ArrowRight',preventDefault(){navigationPrevented=true;}});
 assert.equal(navigationPrevented, true);
-assert.equal(element('project-configuration').hidden, false);
+assert.equal(element('service-library-panel').hidden, false);
 assert.equal(element('permanent-inventory').hidden, true);
-assert.equal(element('toggle-project-configuration').focused, true);
+assert.equal(element('toggle-service-library-panel').focused, true);
 element('toggle-permanent-inventory').onclick();
 await sectionReload.refresh();
 assert.equal(element('permanent-inventory').hidden, false);
@@ -2438,3 +2441,73 @@ for (const publicPage of [false,true]) {
   }
 }
 console.log('Both dashboards disable List while forced to Cards, preserve List through refresh/service toggles, and honour explicit Cards choices.');
+
+// Project setup stays above issues, keeps a fresh selection through stale refreshes,
+// and confirms writes with a dismissible, auto-hiding toast without moving focus.
+assert.ok(html.indexOf('id="toggle-project-configuration"') < html.indexOf('id="toggle-acknowledged"'));
+assert.ok(html.indexOf('id="toggle-live"') < html.indexOf('id="project-configuration"'));
+assert.ok(html.indexOf('id="project-configuration"') < html.indexOf('<h2>Active issues</h2>'));
+assert.match(html, /#monitoring-toggle\.monitoring-paused\s*\{[^}]*color: #e8eff8/);
+const projectCreationForm = element('project-creation-test');
+projectCreationForm.dataset = {action:'project'};
+projectCreationForm.after = feedback => {projectCreationForm.feedback = feedback;};
+projectCreationForm.addEventListener = (name, listener) => {projectCreationForm.submit = listener;};
+let publishedProject = false, rejectProject = false;
+const creationCalls = [], toastTimers = new Map();
+let toastTimerId = 0;
+const creationFixture = {...fixture,projects:[{id:1,name:'Existing',status_ack_enabled:0}],
+  settings:{...fixture.settings,active_run:'1'}};
+const creationContext = vm.createContext({document:{...context.document,
+  querySelectorAll:selector => selector === 'form[data-action]' ? [projectCreationForm] : [],
+  createElement:() => element('project-creation-feedback')},
+  FormData:context.FormData, setInterval(){},
+  setTimeout(callback){toastTimers.set(++toastTimerId,callback);return toastTimerId;},
+  clearTimeout(id){toastTimers.delete(id);},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      creationCalls.push(path);
+      return {ok:!rejectProject,json:async () => rejectProject ? {error:'Project name already used'} : {ok:true,project:97}};
+    }
+    if (path === '/api/me') return {ok:true,json:async () => ({id:1,role:'admin',csrf:'test'})};
+    if (path === '/api/users') return {ok:true,json:async () => []};
+    if (path === '/api/telegram' || path === '/api/whatsapp') return {ok:true,json:async () => ({configuration:{},outbox:[]})};
+    return {ok:true,json:async () => ({...creationFixture,
+      projects:publishedProject ? [...creationFixture.projects,{id:97,name:'New project',status_ack_enabled:1}] : creationFixture.projects})};
+  }});
+new vm.Script(script).runInContext(creationContext);
+await creationContext.initializeSession();
+projectCreationForm.elements.namedItem('name').value='New project';
+await projectCreationForm.submit({preventDefault(){}});
+assert.equal(vm.runInContext('selectedProject',creationContext),'97');
+publishedProject = true;
+await creationContext.refresh();
+assert.equal(element('project').value,'97');
+assert.equal(projectCreationForm.elements.namedItem('name').value,'');
+assert.deepEqual(creationCalls,['/api/project']);
+assert.equal(element('save-toast').hidden,false);
+assert.equal(element('save-toast-message').textContent,'Project added successfully.');
+assert.equal(projectCreationForm.feedback.textContent,'Project added successfully.');
+creationContext.notify('Second setting saved.',true);
+assert.equal(toastTimers.size,1);
+[...toastTimers.values()][0]();
+assert.equal(element('save-toast').hidden,true);
+creationContext.notify('<Saved safely>',true);
+assert.equal(element('save-toast-message').textContent,'<Saved safely>');
+element('dismiss-save-toast').onclick();
+assert.equal(element('save-toast').hidden,true);
+rejectProject = true;
+projectCreationForm.elements.namedItem('name').value='Duplicate';
+await projectCreationForm.submit({preventDefault(){}});
+assert.equal(projectCreationForm.elements.namedItem('name').value,'Duplicate');
+assert.equal(element('save-toast').hidden,true);
+assert.equal(element('project').value,'97');
+assert.equal(projectCreationForm.feedback.textContent,'Project name already used');
+element('assignments-details').open=true;
+element('assignments-details').ontoggle();
+assert.match(element('assignments-count').textContent,/Assigned devices/);
+element('assignments-details').open=false;
+element('assignments-details').ontoggle();
+assert.equal(element('assignments').innerHTML,'');
+await creationContext.refresh();
+assert.equal(element('assignments-details').open,false);
+console.log('Project configuration layout, white paused-monitoring text, new-project selection, collapsible assignments and success-only toast behaviour passed.');
