@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 83 — v0.5.2 (Admin project configuration updates)
+
+- Narrow save-confirmation toasts to 320px while retaining small-screen fitting, stacking and individual countdowns.
+- Remove the unacknowledgement success toast; retain inline confirmation and live issue-list updates.
+
 ### Build 82 — v0.5.2 (Admin project configuration updates)
 
 - Stack save-confirmation toasts at the top right, newest first, with independent six-second lifetimes and close buttons.

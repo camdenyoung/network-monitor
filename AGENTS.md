@@ -252,7 +252,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.2, Build 82. Show it after the title on both the main and
+Current displayed release is v0.5.2, Build 83. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -820,3 +820,6 @@ its own timer/ID, close button and CSS countdown tied to SAVE_TOAST_DURATION.
 Dismissal/expiry removes only that item and clears its timer; hide the container
 when empty. Populate message spans via textContent. Cap the stack viewport height
 and allow scrolling; use stepped countdowns under prefers-reduced-motion.
+
+Toast stacks use a compact 320px width, shrinking to fit narrow viewports.
+Unacknowledgement keeps inline issue feedback and list updates without a toast.

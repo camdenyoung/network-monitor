@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 82
+# Network Monitor v0.5.2 · Build 83
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -440,7 +440,9 @@ The Project assignments device list has a separate collapsed-by-default arrow.
 The complete Project configuration area has a shared outer border. Successful
 saves show dismissible six-second toasts at the top right, as well as inline
 confirmation. Toasts stack with the newest first; each has its own countdown bar
-and auto-close timer. New confirmations do not replace or restart earlier ones.
+and auto-close timer. The compact stack is 320px wide and shrinks on small screens.
+New confirmations do not replace or restart earlier ones. Unacknowledgement uses
+inline confirmation and the updated issue lists rather than a toast.
 Issue-list and live-status visibility preferences remain separate.
 
 Older username-only acknowledgements display the account Full Name after it is

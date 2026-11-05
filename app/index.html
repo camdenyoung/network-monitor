@@ -35,7 +35,7 @@
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
-    .save-toast-list { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: min(440px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; pointer-events: none; }
+    .save-toast-list { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: min(320px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; pointer-events: none; }
     .save-toast { position: relative; flex-shrink: 0; overflow: hidden; box-sizing: border-box; padding: 14px 18px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; pointer-events: auto; }
     .save-toast-content { display: flex; align-items: center; gap: 16px; }
     .save-toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -213,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 82</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 83</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -2716,7 +2716,6 @@
         pendingUnacknowledgement = null;
         el('unacknowledgement-dialog').close();
         el('incident-feedback').textContent = 'Acknowledgement removed. Issue lists updated.';
-        notify('Acknowledgement removed.', true);
         try { await refresh(); }
         catch (error) { notify('Acknowledgement removed. Dashboard refresh failed; reload to see changes.'); }
       } catch (error) { el('unacknowledgement-feedback').textContent = error.message; }
