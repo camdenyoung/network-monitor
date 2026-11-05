@@ -35,7 +35,7 @@
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
-    .save-toast { position: fixed; right: 20px; bottom: 20px; z-index: 2000; display: flex; align-items: center; gap: 16px; max-width: min(440px, calc(100vw - 40px)); box-sizing: border-box; padding: 14px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; }
+    .save-toast { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; align-items: center; gap: 16px; max-width: min(440px, calc(100vw - 40px)); box-sizing: border-box; padding: 14px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; }
     .save-toast span { overflow-wrap: anywhere; }
     .save-toast button { flex-shrink: 0; }
     .project-run-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -113,6 +113,9 @@
     .host-list .service-controls { display: grid; grid-template-columns: 70px 88px; align-items: start; gap: 6px; }
     .host-list .service-controls > button, .host-list .action-menu > summary { box-sizing: border-box; margin: 0; padding: 5px 8px; font-size: 13px; line-height: 20px; }
     .host-list .metric-header > button { margin: 0; }
+    #project-configuration { border: 1px solid #435b78; border-radius: 10px; margin: 16px 0; padding: 16px; }
+    #project-configuration > section:first-child { margin-top: 0; }
+    #project-configuration > section:last-child { margin-bottom: 0; }
     #live-status-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
     /* Reserve at least one third of the row so Admin hosts never exceed 3 columns. */
     #dashboard.grid { margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(290px, calc((100% - 32px) / 3))), 1fr)); }
@@ -205,7 +208,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 80</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 81</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">

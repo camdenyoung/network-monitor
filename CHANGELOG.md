@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 81 — v0.5.2 (Admin project configuration updates)
+
+- Move save-confirmation toasts to the top right and add a rounded outer border around the whole Project configuration area, matching the Live Hosts panel.
+
 ### Build 80 — v0.5.2 (Admin project configuration updates)
 
 - Move Project configuration to the top controls and display its area above Active issues, coordinated with the lower configuration tabs. Keep paused monitoring button text white.

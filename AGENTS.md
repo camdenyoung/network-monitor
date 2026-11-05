@@ -252,7 +252,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.2, Build 80. Show it after the title on both the main and
+Current displayed release is v0.5.2, Build 81. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -805,8 +805,11 @@ activation. pendingCreatedProject holds that choice across stale in-flight refre
 until the project appears; a manual project selection clears the pending choice.
 Project assignments use collapsed-by-default native details/summary and retain their
 open state through refreshes, without changing host monitoring/visibility flags.
-Successful notify calls show a fixed, dismissible six-second save toast using
+Successful notify calls show a fixed, top-right, dismissible six-second save toast using
 textContent and a polite live region, alongside the existing inline feedback.
 Project name/status/logo saves explicitly notify after a confirmed write. Error
 responses do not reset forms or produce success toasts. Paused monitoring button
 text stays white; the separate Paused header badge remains yellow.
+
+Keep the full Admin #project-configuration region inside one rounded border with
+16px padding, matching the Live Hosts panel. Preserve the nested section borders.

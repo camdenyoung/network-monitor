@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 80
+# Network Monitor v0.5.2 · Build 81
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -437,8 +437,9 @@ Acknowledged issues control. Its area appears below those buttons and above Acti
 issues. Other configuration areas use the lower colour-coded tabs. Only one
 configuration area can be open at a time; all start closed after a page reload.
 The Project assignments device list has a separate collapsed-by-default arrow.
-Successful project configuration saves show a dismissible six-second toast as
-well as inline confirmation.
+The complete Project configuration area has a shared outer border. Successful
+saves show a dismissible six-second toast at the top right, as well as inline
+confirmation.
 Issue-list and live-status visibility preferences remain separate.
 
 Older username-only acknowledgements display the account Full Name after it is
