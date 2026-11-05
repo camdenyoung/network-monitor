@@ -100,6 +100,9 @@ const line = context.historyGraph([sample(30, 90), sample(20, 60), sample(10, 30
 assert.match(line, /<svg/);
 assert.match(line, /L /);
 assert.match(line, /stroke-dasharray/);
+const alarmEditLine = context.historyGraph([sample(30,90,'critical',2),sample(20,60)], {...numeric,revision:2});
+assert.match(alarmEditLine,/L /);
+assert.equal((alarmEditLine.match(/<path /g) || []).length,1);
 assert.doesNotMatch(line, /NaN|Infinity/);
 const steps = context.historyGraph([sample(30, 2), sample(20, 1), sample(10, 1)], stateService);
 assert.match(steps, /H .* V /);
@@ -107,7 +110,7 @@ assert.match(steps, />Up<\/text>/);
 assert.match(steps, />Down<\/text>/);
 const gap = context.historyGraph([sample(30, 2), sample(20, null, 'blocked'), sample(10, 1)], numeric);
 assert.equal((gap.match(/<path /g) || []).length, 2);
-const oldConfig = context.historyGraph([sample(30, 90, 'healthy', 2)], numeric);
+const oldConfig = context.historyGraph([{...sample(30, 90, 'healthy', 2),measurement_revision:2}], numeric);
 assert.match(oldConfig, /No usable readings/);
 assert.match(context.historyGraph([], numeric), /No usable readings/);
 assert.doesNotMatch(context.historyGraph([sample(10, 0)], numeric), /NaN|Infinity/);
@@ -2242,7 +2245,7 @@ console.log('Project deletion confirms a fixed target, protects active projects,
 // History ranges share one deployment/time scope across graph and exact table pages.
 const historyRequests = [];
 const historyData = {...fixture,settings:{...fixture.settings,active_run:'0',paused_run:'1'},
-  services:fixture.services.map(service => service.id === 2 ? {...service,value_type:'metric',units:'dBm'} : service)};
+  services:fixture.services.map(service => service.id === 2 ? {...service,value_type:'metric',units:'dBm',measurement_revision:2} : service)};
 let historyGraphReply;
 const rangeHistoryContext = vm.createContext({document:context.document,setInterval(){},
   localStorage:{getItem(){return null;},setItem(){}},
@@ -2252,8 +2255,12 @@ const rangeHistoryContext = vm.createContext({document:context.document,setInter
       historyRequests.push(query);
       const rows = [{id:2,timestamp:now-30,value:-55,status:'healthy',display_value:'-55',revision:1},
         {id:1,timestamp:now-60,value:-80,status:'critical',display_value:'-80',revision:1}];
+      const measurementRevision = Number(query.get('measurement') || 2);
+      const measurements = [1,2].map(version => ({...historyData.services.find(service => service.id === 2),
+        measurement_revision:version,units:version === 1 ? 'V' : 'dBm'}));
       const data = query.get('mode') === 'graph'
-        ? {rows,total:2,aggregated:false,retention_days:30}
+        ? {rows:rows.map(row => ({...row,measurement_revision:measurementRevision})),total:2,
+          aggregated:false,retention_days:30,measurements,measurement:measurements[measurementRevision-1]}
         : {rows:query.has('before_id') ? rows.slice(1) : rows,next:query.has('before_id') ? null : {before_id:1,before_time:now-60}};
       if (query.get('mode') === 'graph' && historyGraphReply) await historyGraphReply;
       return {ok:true,json:async () => data};
@@ -2265,10 +2272,20 @@ await rangeHistoryContext.initializeSession();
 await rangeHistoryContext.openHistory(2);
 assert.equal(element('history').open,true);
 assert.equal(element('history-deployment').value,'1');
-assert.match(element('history-description').textContent,/2 retained readings/);
+assert.match(element('history-description').textContent,/2 retained graph readings/);
 assert.match(element('history-graph').innerHTML,/<svg/);
 assert.equal(historyRequests[0].get('run'),'1');
 assert.equal(historyRequests[0].get('start'),historyRequests[1].get('start'));
+assert.equal(element('history-measurement-field').hidden,false);
+assert.equal(element('history-measurement').value,'2');
+assert.equal(historyRequests[0].get('measurement'),'2');
+assert.equal(historyRequests[1].get('measurement'),null);
+element('history-measurement').value='1';
+await element('history-measurement').onchange();
+assert.equal(historyRequests.at(-2).get('measurement'),'1');
+assert.match(element('history-graph').innerHTML,/>V<\/text>/);
+assert.match(element('history-description').textContent,/measurement #1/);
+
 element('show-history-table').onclick();
 assert.equal(element('history-table').hidden,false);
 await element('history-older').onclick();

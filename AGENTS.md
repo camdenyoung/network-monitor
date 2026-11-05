@@ -152,7 +152,7 @@ Service monitor cards use a compact native details/summary Actions menu. Retain
 open menu state during background refreshes; close on choosing an action.
 History supports graph/table views over selected deployment/time ranges (legacy API retains latest 200). Numeric graphs
 use lines; states use labeled steps. Preserve explicit/long gaps; never connect
-readings from different configuration revisions. No external chart dependencies.
+readings from different measurement versions. Alarm-only edits keep compatible graph continuity. No external chart dependencies.
 Optional UI logic checks: `node tests/dashboard.test.mjs` (Node 18+).
 
 Auth is in app/auth.py: scrypt password hashes, opaque hashed session tokens,
@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.1, Build 76. Show it after the title on both the main and
+Current displayed release is v0.5.2, Build 78. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -712,7 +712,7 @@ start/end and a 31-day maximum. Query sample_lookup in timestamp-keyed batches
 without LOCK, cap concurrency at four and graph work at 20s. Short graphs <=2,000
 points are exact; numeric summaries retain first/last/min/max in 300 buckets.
 State transitions are exact until the cap, then explicitly flag summary overflow.
-Segment IDs preserve invalid/missing/revision gaps; aggregated points must not
+Segment IDs preserve invalid/missing/measurement gaps; aggregated points must not
 create false gaps just because points are farther than 60s apart. Table mode uses
 200 exact readings per page with timestamp/id cursors. Keep the legacy no-range
 API response for older clients. Browser history GET timeout is 30s; other reads
@@ -783,3 +783,18 @@ green Active/yellow Paused bordered badges before project/deployment text.
 
 Admin body > header reserves 18px bottom padding before account navigation.
 Keep project/status badges clear of logged-in user controls when the header wraps.
+
+Service history uses measurement_revision independently of the existing revision.
+Every service edit still increments revision to invalidate in-flight reads and
+reset persistence safely. Only kind/target/scale/units/value_type/state code/label
+changes (plus unit/function for Modbus) increment measurement_revision. Credentials,
+alarm limits/direction, persistence, flap rules and state severities do not.
+Samples record both IDs, including pause markers. history.ensure_tables migrates
+startup/restore with default 1, without rewriting old samples. Old test history is
+intentionally one measurement; no reconstruction of unknown past settings.
+Before a measurement change, remember its non-secret definition in service_measurements
+(FK cascade with service deletion). Current definition comes from the service row.
+Range graph queries filter measurement before aggregation; graph UI offers previous
+versions with their stored units/type/maps. Exact table includes every version.
+Historical statuses/values remain recorded; current thresholds overlay only the
+current version. Keep bounded queries, retention, stale-read guards and backups.

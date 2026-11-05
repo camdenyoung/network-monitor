@@ -4,6 +4,18 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 78 — v0.5.2
+
+- Merge the service-history fix: alarm-setting edits retain graph continuity, while measurement changes create separately selectable versions with their original units/state labels.
+- Preserve historical values/statuses and configuration-revision safeguards. Resumed deployments use the latest project service settings for new checks.
+- Verify with all 223 backend tests and dashboard, connection recovery and responsive host-view checks.
+
+### Build 77 — v0.5.1 (service history revisions branch)
+
+- Keep graph history visible across alarm-setting edits using a separate measurement revision, while retaining configuration revisions for in-flight read and persistence safety.
+- Separate measurement changes and allow selecting previous graph versions with their stored units/state labels. Preserve recorded values/statuses; table history includes all versions.
+- Migrate existing test history to measurement 1 without scanning/rebuilding sample data, and include measurement definitions in backups and service deletion cleanup.
+
 ### Build 76 — v0.5.1
 
 - Merge project deletion, deployment/date-range history and the subsequent responsive dashboard improvements into main.

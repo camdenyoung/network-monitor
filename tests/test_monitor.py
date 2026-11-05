@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import server
+from app import server, history
 
 
 class MonitorTests(unittest.TestCase):
@@ -676,6 +676,110 @@ class MonitorTests(unittest.TestCase):
         }
         body.update(overrides)
         return body
+
+    def test_alarm_edit_preserves_graph_measurement_and_recorded_statuses(self):
+        self.poll(-70)
+        server.mutate('service-edit', {**self.service, 'service': self.service['id'],
+                                      'warning': -80, 'critical': -90, 'persistence': 3,
+                                      'flap_changes': 6, 'community': 'new-secret'})
+        with server.connect() as db:
+            edited = dict(db.execute('SELECT * FROM services WHERE id=?', (self.service['id'],)).fetchone())
+        self.assertEqual(edited['revision'], 2)
+        self.assertEqual(edited['measurement_revision'], 1)
+        self.service.update(edited)
+        self.poll(-70)
+        with server.connect() as db:
+            db.execute('UPDATE samples SET timestamp=100+id WHERE service=?', (self.service['id'],))
+        graph = history.read(server.connect, dict(service=[str(self.service['id'])],run=['1'],
+                                                  start=['100'],end=['200'],mode=['graph']))
+        self.assertEqual(graph['total'], 2)
+        self.assertEqual({row['revision'] for row in graph['rows']}, {1, 2})
+        self.assertEqual({row['status'] for row in graph['rows']}, {'warning', 'healthy'})
+        self.assertFalse(any(row['gap_before'] for row in graph['rows']))
+        self.assertEqual(graph['measurement']['warning'], -80)
+
+    def test_measurement_edit_retains_separate_selectable_history_and_metadata(self):
+        self.poll(-55)
+        source_id = self.service['id']
+        server.mutate('service-edit', {**self.service, 'service': source_id,
+                                      'target': '.1.2.99', 'units': 'V', 'scale': 0.1})
+        with server.connect() as db:
+            self.service.update(dict(db.execute('SELECT * FROM services WHERE id=?', (source_id,)).fetchone()))
+        self.assertEqual(self.service['measurement_revision'], 2)
+        self.poll(24)
+        with server.connect() as db:
+            db.execute('UPDATE samples SET timestamp=100+id WHERE service=?', (source_id,))
+        query = dict(service=[str(source_id)],run=['1'],start=['100'],end=['200'],mode=['graph'])
+        current = history.read(server.connect, query)
+        old = history.read(server.connect, {**query, 'measurement':['1']})
+        self.assertEqual([row['value'] for row in current['rows']], [24])
+        self.assertEqual([row['value'] for row in old['rows']], [-55])
+        self.assertEqual(old['measurement']['target'], '.1.2.3')
+        self.assertEqual(old['measurement']['units'], '')
+        self.assertIsNone(old['measurement']['warning'])
+        self.assertNotIn('community', old['measurement'])
+        self.assertEqual(len(current['measurements']), 2)
+        self.assertEqual(len(history.read(server.connect, {**query,'mode':['table']})['rows']), 2)
+        server.initialize()
+        self.assertEqual(history.read(server.connect, {**query,'measurement':['1']})['total'], 1)
+        with self.assertRaises(history.HistoryError):
+            history.read(server.connect, {**query,'measurement':['99']})
+        with server.connect() as db:
+            db.execute('DELETE FROM services WHERE id=?', (source_id,))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM service_measurements').fetchone()[0], 0)
+
+    def test_alarm_edit_still_discards_inflight_reads_using_old_rules(self):
+        def read_and_edit(service):
+            server.mutate('service-edit', {**self.service, 'service': service['id'],
+                                          'warning': -80, 'critical': -90})
+            return -70
+        with patch.object(server, 'read_metric', side_effect=read_and_edit):
+            server.poll_one(self.service, 1)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], 0)
+
+    def test_state_label_metadata_survives_measurement_changes(self):
+        first = {'1': {'label':'Running', 'status':'healthy'}}
+        server.mutate('service-edit', {**self.service, 'service':self.service['id'],
+                                      'value_type':'state', 'state_map':first})
+        with server.connect() as db:
+            state_service = dict(db.execute('SELECT * FROM services WHERE id=?', (self.service['id'],)).fetchone())
+        # Changing severity keeps the same measurement; renaming the label starts another.
+        second = {'1': {'label':'Running', 'status':'warning'}}
+        server.mutate('service-edit', {**state_service, 'service':state_service['id'], 'state_map':second})
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT measurement_revision FROM services WHERE id=?',
+                                        (self.service['id'],)).fetchone()[0], 2)
+        server.mutate('service-edit', {**state_service, 'service':state_service['id'],
+                                      'state_map':{'1': {'label':'Enabled','status':'healthy'}}})
+        query = dict(service=[str(self.service['id'])],run=['1'],start=['100'],end=['200'],
+                     mode=['graph'],measurement=['2'])
+        graph = history.read(server.connect, query)
+        self.assertEqual(graph['measurement']['state_map']['1']['label'], 'Running')
+        self.assertNotIn('community', graph['measurement'])
+
+    def test_measurement_migration_preserves_legacy_samples_without_rewriting_them(self):
+        self.poll(-55)
+        with server.connect() as db:
+            db.execute('ALTER TABLE services DROP COLUMN measurement_revision')
+            db.execute('ALTER TABLE samples DROP COLUMN measurement_revision')
+        server.initialize()
+        server.initialize()
+        with server.connect() as db:
+            row = db.execute('SELECT * FROM samples WHERE service=?', (self.service['id'],)).fetchone()
+            self.assertEqual((row['value'], row['measurement_revision'], row['revision']), (-55, 1, 1))
+
+    def test_measurement_field_detection_ignores_irrelevant_modbus_fields(self):
+        base = dict(self.service)
+        updated = {**base, 'unit': 5, 'modbus_function': 4}
+        self.assertFalse(history.measurement_changed(base, updated))
+        for field, value in (('kind', 'modbus'), ('target', '.1.2.9'), ('scale', 0.1),
+                             ('units', 'dBm'), ('value_type', 'state')):
+            with self.subTest(field=field):
+                self.assertTrue(history.measurement_changed(base, {**base, field:value}))
+        modbus = {**base,'kind':'modbus'}
+        for field, value in (('unit', 7), ('modbus_function', 4)):
+            self.assertTrue(history.measurement_changed(modbus, {**modbus,field:value}))
 
     def test_service_edit_preserves_identity_secret_and_history(self):
         self.poll(-55)

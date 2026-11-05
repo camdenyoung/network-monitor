@@ -100,6 +100,7 @@ def initialize():
         logos.ensure_table(db)
         notifications.ensure_tables(db)
         migrate_modbus_functions(db)
+        history.ensure_tables(db)
         auth.ensure_accounts(db, DB.with_name('initial-admin-password.txt'),
                              os.environ.get('MONITOR_ADMIN_PASSWORD'))
 
@@ -684,7 +685,7 @@ def poll_one(service, run):
         if setting(db, 'active_run') != str(run):
             return
         current = db.execute("""
-            SELECT d.address, s.revision, s.monitoring_since FROM services s
+            SELECT d.address, s.revision, s.monitoring_since, s.measurement_revision FROM services s
             JOIN assignments a ON a.id=s.assignment
             JOIN devices d ON d.id=a.device
             JOIN runs r ON r.project=a.project
@@ -701,10 +702,10 @@ def poll_one(service, run):
             value, status, error = None, 'blocked', 'Host unavailable'
         observed_at = time.time()
         db.execute('''INSERT INTO samples
-            (run,service,timestamp,value,status,error,revision,display_value)
-            VALUES(?,?,?,?,?,?,?,?)''',
+            (run,service,timestamp,value,status,error,revision,display_value,measurement_revision)
+            VALUES(?,?,?,?,?,?,?,?,?)''',
             (run, service['id'], observed_at, value, status, error,
-             service['revision'], display_value(service, value)))
+             service['revision'], display_value(service, value), current['measurement_revision']))
         if status == 'blocked':
             stability.observe(db, service, run, status, False, observed_at)
             # Preserve existing incidents without claiming recovery; blocked samples
@@ -801,7 +802,7 @@ def snapshot():
             'SELECT * FROM legacy_assignment_addresses')]
         # Never send SNMP communities to the browser in the general state response.
         result['services'] = [dict(row) for row in db.execute('''
-            SELECT id,assignment,name,kind,target,unit,modbus_function,scale,units,direction,warning,critical,persistence,enabled,revision,value_type,state_map,monitoring,monitoring_since,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
+            SELECT id,assignment,name,kind,target,unit,modbus_function,scale,units,direction,warning,critical,persistence,enabled,revision,measurement_revision,value_type,state_map,monitoring,monitoring_since,flap_enabled,flap_changes,flap_window,flap_stable,hysteresis
             FROM services''')]
         for service in result['services']:
             runtime = stability.state_for(db, int(setting(db, 'active_run')), service['id'],
@@ -1262,7 +1263,12 @@ def mutate(action, body, actor=None):
             details = service_details(body, existing)
             # Retain identity/history but start persistence counting for the new config.
             setters = ','.join(field + '=?' for field in SERVICE_CONFIGURATION_FIELDS)
-            db.execute(f'UPDATE services SET {setters},revision=revision+1 WHERE id=?', (*details, service_id))
+            updated = dict(zip(SERVICE_CONFIGURATION_FIELDS, details))
+            changed = history.measurement_changed(existing, updated)
+            if changed:
+                history.remember_measurement(db, existing)
+            db.execute(f'UPDATE services SET {setters},revision=revision+1,measurement_revision=measurement_revision+? WHERE id=?',
+                       (*details, int(changed), service_id))
         elif action == 'service-copy':
             source = reusable_service(db, body['service'])
             assignment = int(body['assignment'])
@@ -1325,9 +1331,9 @@ def mutate(action, body, actor=None):
                 if active and active[0] == project:
                     # Explicit gaps preserve history and prevent alerts spanning a pause.
                     db.execute("""INSERT INTO samples
-                        (run,service,timestamp,value,status,error,revision,display_value)
-                        VALUES(?,?,?,NULL,?,'',?,NULL)""",
-                        (run, service['id'], changed, 'unknown' if enabled else 'paused', service['revision']))
+                        (run,service,timestamp,value,status,error,revision,display_value,measurement_revision)
+                        VALUES(?,?,?,NULL,?,'',?,NULL,?)""",
+                        (run, service['id'], changed, 'unknown' if enabled else 'paused', service['revision'], service['measurement_revision']))
         elif action == 'remove-service':
             # Keep ownership for history and later full-device deletion.
             db.execute("UPDATE services SET enabled=0 WHERE id=? AND kind!='ping'",
@@ -1634,7 +1640,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Keep the legacy latest-200 response for older clients.
                     with connect() as db:
                         result = [dict(row) for row in db.execute(
-                            'SELECT timestamp,value,status,display_value,revision FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
+                            'SELECT timestamp,value,status,display_value,revision,measurement_revision FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
                             (int(query['service'][0]), int(query['run'][0])))]
                 self.send(json.dumps(result))
             except history.HistoryError as error:
@@ -1712,6 +1718,7 @@ class Handler(BaseHTTPRequestHandler):
                     notifications.ensure_tables(candidate)
                     candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
                     migrate_modbus_functions(candidate)
+                    history.ensure_tables(candidate)
                     auth.ensure_accounts(candidate)
                     # Older backups have no accounts: retain current accounts so
                     # restoring equipment cannot silently reset access to a default.

@@ -1,4 +1,5 @@
 """Bounded history reads and graph summaries over a requested deployment/time range."""
+import json
 import math
 import threading
 import time
@@ -9,6 +10,47 @@ GRAPH_LIMIT = 2000
 BUCKETS = 300
 GAP_STATUSES = {'blocked', 'paused', 'unknown', 'unreachable'}
 _HISTORY_SLOTS = threading.BoundedSemaphore(4)
+
+
+# Credentials and alarm policies do not change the quantity being collected.
+MEASUREMENT_FIELDS = ('kind', 'target', 'scale', 'units', 'value_type', 'state_map')
+
+
+def measurement_definition(service):
+    fields = ('name', 'kind', 'target', 'unit', 'modbus_function', 'scale',
+              'units', 'value_type', 'state_map')
+    result = {key: service[key] for key in fields}
+    if isinstance(result['state_map'], str):
+        result['state_map'] = json.loads(result['state_map'])
+    return result
+
+
+def measurement_changed(existing, updated):
+    fields = MEASUREMENT_FIELDS + (('unit', 'modbus_function') if updated['kind'] == 'modbus' else ())
+    def normalized(value, field):
+        if field == 'state_map':
+            mapping = json.loads(value) if isinstance(value, str) else value
+            # Severity assignments are alarm rules; label/code changes alter interpretation.
+            return {key: item['label'] for key, item in mapping.items()}
+        return value
+    return any(normalized(existing[field], field) != normalized(updated[field], field) for field in fields)
+
+
+def ensure_tables(db):
+    """Use constant defaults for legacy history, without rewriting millions of samples."""
+    for table in ('services', 'samples'):
+        if 'measurement_revision' not in {row[1] for row in db.execute(f'PRAGMA table_info({table})')}:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN measurement_revision INTEGER NOT NULL DEFAULT 1')
+    db.execute("""CREATE TABLE IF NOT EXISTS service_measurements (
+        service INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        measurement_revision INTEGER NOT NULL, definition TEXT NOT NULL,
+        PRIMARY KEY(service,measurement_revision))""")
+
+
+def remember_measurement(db, service):
+    """Retain the interpretation of an old segment, excluding secrets and alarm limits."""
+    db.execute('INSERT OR IGNORE INTO service_measurements VALUES(?,?,?)',
+               (service['id'], service['measurement_revision'], json.dumps(measurement_definition(service))))
 
 
 class HistoryError(ValueError):
@@ -45,10 +87,21 @@ def read(connect, query):
 def _read(connect, query):
     service, run, start, end, mode, cursor = parameters(query)
     with connect() as db:
-        definition = db.execute('''SELECT s.value_type FROM services s JOIN assignments a ON a.id=s.assignment
+        definition = db.execute('''SELECT s.* FROM services s JOIN assignments a ON a.id=s.assignment
             JOIN runs r ON r.project=a.project WHERE s.id=? AND r.id=?''', (service, run)).fetchone()
         if definition is None:
             raise HistoryError('Service or deployment is no longer available.')
+        current_revision = definition['measurement_revision']
+        selected_revision = int(query.get('measurement', [current_revision])[0])
+        measurements = {row['measurement_revision']: json.loads(row['definition']) for row in db.execute(
+            'SELECT * FROM service_measurements WHERE service=?', (service,))}
+        measurements[current_revision] = measurement_definition(definition)
+        if selected_revision not in measurements:
+            raise HistoryError('Choose an available measurement version.')
+        graph_definition = dict(measurements[selected_revision], measurement_revision=selected_revision,
+                                warning=definition['warning'] if selected_revision == current_revision else None,
+                                critical=definition['critical'] if selected_revision == current_revision else None)
+        versions = [dict(value, measurement_revision=key) for key, value in sorted(measurements.items())]
         retention = int(db.execute("SELECT value FROM settings WHERE key='retention_days'").fetchone()[0])
     if mode == 'table':
         with connect() as db:
@@ -84,23 +137,23 @@ def _read(connect, query):
         with connect() as db:
             lower = start if position is None else position[0]
             after = '' if position is None else ' AND (timestamp>? OR id>?)'
-            args = (service, lower, end, run) + (() if position is None else position)
+            args = (service, lower, end, run, selected_revision) + (() if position is None else position)
             batch = [dict(row) for row in db.execute('''SELECT * FROM samples INDEXED BY sample_lookup
-                WHERE service=? AND timestamp>=? AND timestamp<=? AND run=?''' + after +
+                WHERE service=? AND timestamp>=? AND timestamp<=? AND run=? AND measurement_revision=?''' + after +
                 ' ORDER BY timestamp,id LIMIT 1000', args)]
         if not batch:
             break
         for row in batch:
             total += 1
             if (previous is None or row['timestamp'] - previous['timestamp'] > 60
-                    or row['revision'] != previous['revision']
+                    or row['measurement_revision'] != previous['measurement_revision']
                     or not usable(row) or not usable(previous)):
                 segment += 1
             row['_segment'] = segment
             row['aggregated'] = True
             if total <= GRAPH_LIMIT:
                 raw.append(row)
-            if definition[0] == 'state' and not state_overflow:
+            if graph_definition['value_type'] == 'state' and not state_overflow:
                 if previous is None or (row['value'], row['status'], segment) != (previous['value'], previous['status'], previous['_segment']):
                     if previous is not None:
                         transitions.append(previous)
@@ -120,7 +173,7 @@ def _read(connect, query):
         position = (batch[-1]['timestamp'], batch[-1]['id'])
     if total <= GRAPH_LIMIT:
         selected = raw
-    elif definition[0] == 'state' and not state_overflow:
+    elif graph_definition['value_type'] == 'state' and not state_overflow:
         selected = transitions + ([previous] if previous is not None else [])
     else:
         selected = [row for summary in buckets.values() for row in summary.values()]
@@ -130,4 +183,5 @@ def _read(connect, query):
         row['gap_before'] = last_segment is not None and row['_segment'] != last_segment
         last_segment = row.pop('_segment')
     return {'rows': list(reversed(selected)), 'total': total, 'aggregated': total > GRAPH_LIMIT,
-            'state_overflow': state_overflow, 'retention_days': retention, 'next': None}
+            'state_overflow': state_overflow, 'retention_days': retention, 'next': None,
+            'measurement': graph_definition, 'measurements': versions}
