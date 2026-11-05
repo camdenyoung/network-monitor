@@ -213,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 85</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 86</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -705,6 +705,7 @@
     <button id="new-device-default">Add service default</button>
     <div class="display-controls">
       <label>Reusable service<select id="device-default-template"></select></label>
+      <label>Service name on this device<input id="device-default-template-name" maxlength="100" required disabled></label>
       <button id="add-device-default-template">Add from library</button>
     </div>
     <div class="display-controls">
@@ -2028,6 +2029,9 @@
       defaultsDevice = Number(id);
       if (!state.devices.some(row => row.id === defaultsDevice)) throw new Error('Inventory device no longer exists.');
       el('device-default-feedback').textContent = '';
+      el('device-default-template').value = '';
+      el('device-default-template-name').value = '';
+      el('device-default-template-name').disabled = true;
       renderDeviceDefaults();
       el('device-default-manager').showModal();
     }
@@ -2042,7 +2046,10 @@
         <button data-edit-device-default="${row.id}">Edit</button>
         <button data-delete-device-default="${row.id}">Remove</button>
       </div>`).join('') || '<p>No service defaults yet. Add a definition, use the library, or adopt an existing project configuration.</p>';
+      const previousTemplate = el('device-default-template').value;
       updateOptions('device-default-template', state.service_templates, row => row.name, 'Choose a library service…');
+      // Refreshes preserve custom names; only a changed/removed selection resets it.
+      if (el('device-default-template').value !== previousTemplate) updateDefaultTemplateName();
       const sources = state.assignments.filter(row => row.device === defaultsDevice && !row.removed &&
         state.services.some(service => service.assignment === row.id && service.kind !== 'ping' && service.enabled !== 0));
       updateOptions('device-default-source', sources,
@@ -2064,19 +2071,40 @@
 
     el('close-device-defaults').onclick = () => el('device-default-manager').close();
     el('new-device-default').onclick = () => openDeviceDefaultEditor();
-    async function changeDeviceDefaults(action, details, button) {
+    function updateDefaultTemplateName() {
+      const template = state.service_templates.find(row => String(row.id) === el('device-default-template').value);
+      el('device-default-template-name').value = template?.name || '';
+      el('device-default-template-name').disabled = !template;
+    }
+    el('device-default-template').onchange = updateDefaultTemplateName;
+
+    async function changeDeviceDefaults(action, details, button, onSaved) {
       button.disabled = true;
       try {
         await request(action, {device: defaultsDevice, ...details});
         el('device-default-feedback').textContent = 'Device service defaults saved. Existing projects are unchanged.';
-        await refresh();
+        onSaved?.();
+        try { await refresh(); }
+        catch (error) { notify('Device defaults saved. Dashboard refresh failed; reload to see changes.'); }
       } catch (error) { el('device-default-feedback').textContent = error.message; }
       finally { button.disabled = false; }
     }
     el('add-device-default-template').onclick = () => {
+      const button = el('add-device-default-template');
+      if (button.disabled) return;
+      const device = defaultsDevice;
       const template = el('device-default-template').value;
+      const draft = el('device-default-template-name').value;
+      const name = draft.trim();
       if (!template) { el('device-default-feedback').textContent = 'Choose a library service first.'; return; }
-      return changeDeviceDefaults('device-default-from-template', {template}, el('add-device-default-template'));
+      if (!name || name.length > 100) { el('device-default-feedback').textContent = 'Enter a service name of 1–100 characters.'; return; }
+      return changeDeviceDefaults('device-default-from-template', {template, name}, button, () => {
+        // Do not clear a different device/selection or a newer draft after a slow save.
+        if (defaultsDevice === device && el('device-default-template').value === template && el('device-default-template-name').value === draft) {
+          el('device-default-template').value = '';
+          updateDefaultTemplateName();
+        }
+      });
     };
     el('adopt-device-defaults').onclick = () => {
       const assignment = el('device-default-source').value;

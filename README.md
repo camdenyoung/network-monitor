@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 85
+# Network Monitor v0.5.2 · Build 86
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -548,6 +548,10 @@ Deployment descriptions are included in SQLite backups but not public status API
 In **Permanent inventory**, open the device list and choose **Service defaults**
 for a device. Add/edit/remove definitions, add one from the reusable library, or
 choose an existing project configuration and **Replace defaults from project**.
+When adding from the library, choose **Service name on this device** before adding.
+It starts with the library name and can be shortened, for example from Siklu EH RSSI
+to RSSI. Only the device's copy is renamed; future project assignments use that name,
+while the library entry and existing project services remain unchanged.
 This explicit adoption copies credentials on the server and leaves the project
 untouched. Existing projects are not chosen automatically during upgrade.
 

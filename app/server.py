@@ -1252,7 +1252,12 @@ def mutate(action, body, actor=None):
                 raise ValueError('Unknown device service default')
         elif action == 'device-default-from-template':
             template = library_template(db, body['template'])
-            save_inventory_default(db, int(body['device']), service_details(dict(template)))
+            configuration = dict(template)
+            if 'name' in body:
+                if not isinstance(body['name'], str):
+                    raise ValueError('Service name must be text')
+                configuration['name'] = body['name']
+            save_inventory_default(db, int(body['device']), service_details(configuration))
         elif action == 'device-defaults-from-assignment':
             replace_defaults_from_assignment(db, int(body['device']), int(body['assignment']))
         elif action == 'service':

@@ -126,6 +126,29 @@ class InventoryDefaultsTests(unittest.TestCase):
         self.assertEqual(self.defaults(), [])
         self.assertEqual(self.services(assignment), copies)
 
+    def test_library_copy_accepts_a_device_name_without_changing_source_or_existing_projects(self):
+        server.mutate('template-create', self.definition(name='Siklu EH RSSI'))
+        template = server.snapshot()['service_templates'][0]
+        before = self.services(1)
+        server.mutate('device-default-from-template', {'device':1,'template':template['id'],'name':' RSSI '})
+        default = self.defaults()[0]
+        self.assertEqual(default['name'], 'RSSI')
+        self.assertEqual(default['community'], 'private-test-community')
+        self.assertEqual(default['target'], template['target'])
+        self.assertEqual(server.snapshot()['service_templates'][0]['name'], 'Siklu EH RSSI')
+        self.assertEqual(self.services(1), before)
+        assignment = self.assign_next()
+        self.assertEqual([row['name'] for row in self.services(assignment) if row['kind'] != 'ping'], ['RSSI'])
+        for name in ('', '   ', 'x' * 101, 123, None):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                server.mutate('device-default-from-template', {'device':1,'template':template['id'],'name':name})
+        with self.assertRaises(sqlite3.IntegrityError):
+            server.mutate('device-default-from-template', {'device':1,'template':template['id'],'name':'RSSI'})
+        self.assertEqual(self.defaults(), [default])
+        # Older clients that omit the override retain the library's original name.
+        server.mutate('device-default-from-template', {'device':2,'template':template['id']})
+        self.assertEqual(self.defaults(2)[0]['name'], 'Siklu EH RSSI')
+
     def test_validation_device_ownership_and_deletion(self):
         server.mutate('device-default-create', self.definition(device=1))
         default = self.defaults()[0]

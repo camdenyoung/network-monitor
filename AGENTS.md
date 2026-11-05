@@ -252,7 +252,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.2, Build 85. Show it after the title on both the main and
+Current displayed release is v0.5.2, Build 86. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -834,3 +834,11 @@ Install the partial resolved_issue_lookup index on startup/restore. Bound query 
 to 3s and four concurrent searches. UI retains filter/page on refresh, debounces
 input and rejects stale responses when query/deployment changes. Clear returns to
 latest 10. No acknowledgement actions or new notifications are introduced.
+
+Inventory Add from library supports an optional server-side name override for
+its independent device_service_defaults copy. Keep missing-name compatibility
+(library name), but reject explicit blank/non-text/overlong names and existing
+per-device duplicates. Never change the template, credentials or existing projects.
+The UI prefills the device name on template selection, preserves custom drafts on
+polling/failed saves, and clears selection/name after confirmed success. Do not
+clear another device/selection or a newer draft if the save finishes late.

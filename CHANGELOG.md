@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 86 — v0.5.2 (Admin project configuration updates)
+
+- Allow naming a library service's copy when adding it to a permanent inventory device's defaults; future assignments inherit the chosen name without renaming the library or existing project services.
+- Prefill the library name, preserve custom drafts during refresh/errors, validate names and reset after a confirmed add.
+
 ### Build 85 — v0.5.2 (Admin project configuration updates)
 
 - Show the ten most recently recovered resolved issues by default and add a search field with Clear search.
