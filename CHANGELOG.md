@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 74 — v0.4.4 (Modbus register types branch)
+
+- Move Project configuration before Permanent inventory in the Admin configuration tabs and keyboard order.
+- Add searchable, collapsed-by-default library services with an expand/collapse arrow, match counts and Show 50 more, matching inventory behaviour. Preserve search and expansion during refreshes.
+- Show the Admin header monitoring status as a green Active or yellow Paused bordered badge beside the project/deployment.
+
 ### Build 73 — v0.4.4 (Modbus register types branch)
 
 - Format newly captured numeric readings to 15 significant digits for display, removing floating-point tails caused by scales such as 0.1. Both dashboards, history and notifications share the stored display text. Preserve raw numeric samples and threshold comparisons, and keep state labels unchanged.

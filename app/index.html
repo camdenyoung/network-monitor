@@ -33,6 +33,10 @@
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
+    .project-run-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .monitoring-badge { border: 1px solid; border-radius: 6px; padding: 5px 10px; font-weight: 600; }
+    .monitoring-active { color: #64dfad; border-color: #429d7a; background: #163e32; }
+    .monitoring-paused { color: #ffcb69; border-color: #dba946; background: #3d321f; }
     .service-controls { display: flex; align-items: start; gap: 6px; }
     #service-catalogue .metric { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; }
     .catalogue-details { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
@@ -194,7 +198,16 @@
   </style>
 </head>
 <body data-role="viewer">
-  <header><div><h1>Network Monitor <small class="app-version">v0.4.4 · Build 73</small></h1><p>Project based network monitoring</p></div><span id="active">Monitoring paused</span></header>
+  <header>
+    <div>
+      <h1>Network Monitor <small class="app-version">v0.4.4 · Build 74</small></h1>
+      <p>Project based network monitoring</p>
+    </div>
+    <div class="project-run-summary" role="status">
+      <span id="monitoring-state" class="monitoring-badge monitoring-paused">Paused</span>
+      <span id="active">No deployment selected</span>
+    </div>
+  </header>
   <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
@@ -271,8 +284,8 @@
     <div id="dashboard" class="grid"></div>
   </div>
   <div data-admin class="display-controls" role="tablist" aria-label="Configuration sections">
-    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
     <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-selected="false">Project configuration</button>
+    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
     <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-selected="false">Reusable service library</button>
     <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-selected="false">User management</button>
     <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Issue reminders</button>
@@ -403,7 +416,16 @@
     <small>Merge keeps exact, case-sensitive name matches and adds new names. Replace removes current library entries.
       Neither mode changes project services or device defaults. Maximum file size: 5 MB.</small>
     <p id="library-feedback" class="form-feedback" role="status"></p>
-    <div id="service-library"></div>
+    <div class="display-controls">
+      <label>Search library<input id="library-search" type="search" maxlength="100" placeholder="Service name, protocol, OID/register/port, or units"></label>
+      <button id="library-clear">Clear search</button>
+    </div>
+    <details id="library-details">
+      <summary id="library-count">Library services</summary>
+      <p id="library-results"></p>
+      <div id="service-library"></div>
+      <button id="library-more" hidden>Show 50 more</button>
+    </details>
   </section></div>
   <div data-admin id="user-management-panel" hidden><section>
     <h2>Users</h2><p>Admins can configure the monitor. Operators can view monitoring and acknowledge issues. View Only users can inspect status and history. Choose whether an assigned password must be changed at the next login. Email is stored for a future password reset flow.</p>
@@ -1073,8 +1095,8 @@
 
     // Configuration areas are exclusive tabs. Start closed on each page load.
     const configurationSections = [
-      ['permanent-inventory', 'Permanent inventory'],
       ['project-configuration', 'Project configuration'],
+      ['permanent-inventory', 'Permanent inventory'],
       ['service-library-panel', 'Reusable service library'],
       ['user-management-panel', 'User management'],
       ['reminder-panel', 'Issue reminders'],
@@ -1498,8 +1520,10 @@
       monitoringButton.title = !run && !pausedRun ? 'Start a deployment to enable monitoring.'
         : !run && String(pausedRun.project) !== selectedProject ? 'Select the paused project to resume its deployment.'
         : run ? 'Monitoring is running. Click to pause.' : 'Monitoring is paused. Click to resume.';
-      el('active').textContent = run ? 'Active: ' + state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
-        : pausedRun ? 'Paused: ' + state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'Monitoring paused';
+      el('monitoring-state').textContent = run ? 'Active' : 'Paused';
+      el('monitoring-state').className = 'monitoring-badge ' + (run ? 'monitoring-active' : 'monitoring-paused');
+      el('active').textContent = run ? state.projects.find(row => row.id === run.project)?.name + ' · deployment ' + run.id
+        : pausedRun ? state.projects.find(row => row.id === pausedRun.project)?.name + ' · deployment ' + pausedRun.id : 'No deployment selected';
       const deviceLabel = row => row.name + ' · ' + (row.address || 'IP required');
       const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
       // Pausing/hiding a host does not remove its assignment. Archived hosts may
@@ -1516,13 +1540,7 @@
         return `<tr><td>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(row.alias)} / ${escapeHtml(device?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`;
       }).join('') + '</table>';
       renderServiceCatalogue();
-      el('service-library').innerHTML = state.service_templates.map(template => `
-        <article><strong>${escapeHtml(template.name)}</strong>
-          <p>${escapeHtml(template.kind)} · ${escapeHtml(template.target)} · ${escapeHtml(template.units)}</p>
-          <button data-apply-template="${template.id}">Add to host</button>
-          <button data-edit-template="${template.id}">Edit</button>
-          <button data-delete-template="${template.id}">Delete</button>
-        </article>`).join('') || '<p>No library services yet.</p>';
+      renderServiceLibrary();
       if (el('service-transfer').open) updateTransferHosts();
       if (el('device-default-manager').open) renderDeviceDefaults();
       if (currentUser?.role === 'admin') await loadAdmin();
@@ -1535,6 +1553,42 @@
       connectionGuard.healthy();
       connectAcknowledgementUpdates();
     }
+
+    let libraryLimit = 50;
+    function renderServiceLibrary() {
+      if (!state) return;
+      const templates = state.service_templates || [];
+      const query = el('library-search').value.trim().toLowerCase();
+      const matches = templates.filter(template => [template.name, template.kind, template.target, template.units]
+        .some(value => String(value ?? '').toLowerCase().includes(query)));
+      el('library-count').textContent = `Library services (${templates.length})`;
+      el('library-results').textContent = `Showing ${Math.min(libraryLimit, matches.length)} of ${matches.length} matching services`;
+      el('library-more').hidden = libraryLimit >= matches.length;
+      // Match inventory: do not render a large catalogue while it is collapsed.
+      if (!el('library-details').open) {
+        el('service-library').innerHTML = '';
+        return;
+      }
+      el('service-library').innerHTML = matches.slice(0, libraryLimit).map(template => `
+        <article><strong>${escapeHtml(template.name)}</strong>
+          <p>${escapeHtml(template.kind)} · ${escapeHtml(template.target)} · ${escapeHtml(template.units)}</p>
+          <button data-apply-template="${template.id}">Add to host</button>
+          <button data-edit-template="${template.id}">Edit</button>
+          <button data-delete-template="${template.id}">Delete</button>
+        </article>`).join('') || '<p>No library services match this search.</p>';
+    }
+    el('library-details').ontoggle = renderServiceLibrary;
+    el('library-search').oninput = () => {
+      libraryLimit = 50;
+      if (el('library-search').value.trim()) el('library-details').open = true;
+      renderServiceLibrary();
+    };
+    el('library-clear').onclick = () => {
+      el('library-search').value = '';
+      libraryLimit = 50;
+      renderServiceLibrary();
+    };
+    el('library-more').onclick = () => { libraryLimit += 50; renderServiceLibrary(); };
 
     let inventoryLimit = 50;
     function renderInventory() {

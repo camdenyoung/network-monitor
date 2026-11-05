@@ -610,6 +610,45 @@ await sortedPublic.refresh();
 assert.equal(publicNodes.get('status-session-link').textContent, 'Change password');
 assert.equal(publicNodes.get('status-session-link').getAttribute('href'), '/login?next=%2Fstatus');
 console.log('Collapsible/searchable inventory, project panel preview and public login indicators passed.');
+// Library search mirrors inventory: collapsed by default, bounded, and refresh-safe.
+assert.ok(html.indexOf('id="toggle-project-configuration"') < html.indexOf('id="toggle-permanent-inventory"'));
+assert.equal(element('service-library').innerHTML, '');
+const savedLibrary = fixture.service_templates;
+fixture.service_templates = Array.from({length:60}, (_, id) => ({id:9000+id,
+    name:`Voltage ${id}`,kind:'modbus',target:'80',units:'V'}));
+context.renderServiceLibrary();
+element('library-search').value = 'vOlTaGe';
+element('library-search').oninput();
+assert.equal(element('library-details').open,true);
+assert.equal(element('library-results').textContent,'Showing 50 of 60 matching services');
+assert.doesNotMatch(element('service-library').innerHTML,/Voltage 50/);
+element('library-more').onclick();
+assert.match(element('service-library').innerHTML,/Voltage 59/);
+assert.match(element('service-library').innerHTML,/data-apply-template="9059"/);
+assert.match(element('service-library').innerHTML,/data-edit-template="9059"/);
+assert.match(element('service-library').innerHTML,/data-delete-template="9059"/);
+element('library-details').open=false;
+element('library-details').ontoggle();
+assert.equal(element('service-library').innerHTML,'');
+await context.refresh();
+assert.equal(element('library-details').open,false);
+assert.equal(element('library-search').value,'vOlTaGe');
+for (const query of ['MODBUS','80','V']) {
+    element('library-search').value=query;
+    element('library-search').oninput();
+    assert.equal(element('library-results').textContent,'Showing 50 of 60 matching services');
+}
+element('library-search').value='no match';
+element('library-search').oninput();
+assert.match(element('service-library').innerHTML,/No library services match/);
+element('library-clear').onclick();
+assert.equal(element('library-search').value,'');
+assert.equal(element('library-results').textContent,'Showing 50 of 60 matching services');
+fixture.service_templates=savedLibrary;
+element('library-details').open=false;
+context.renderServiceLibrary();
+console.log('Library search/collapse preserves filters, paging and service actions; project configuration precedes inventory.');
+
 
 // Section preferences persist independently and remain applied during polling.
 for (const [key, panel, initialHidden] of [
@@ -693,7 +732,7 @@ for (const panel of configurationPanels) {
 }
 element('toggle-permanent-inventory').onclick();
 let navigationPrevented = false;
-element('toggle-permanent-inventory').onkeydown({key:'ArrowRight',preventDefault(){navigationPrevented=true;}});
+element('toggle-permanent-inventory').onkeydown({key:'ArrowLeft',preventDefault(){navigationPrevented=true;}});
 assert.equal(navigationPrevented, true);
 assert.equal(element('project-configuration').hidden, false);
 assert.equal(element('permanent-inventory').hidden, true);
@@ -727,14 +766,18 @@ await namedMain.refresh();
 assert.equal(element('monitoring-toggle').textContent, 'Resume all monitoring');
 assert.equal(element('monitoring-toggle').disabled, false);
 assert.equal(element('monitoring-toggle').getAttribute('aria-pressed'), 'false');
-assert.match(element('active').textContent, /Paused: Test · deployment 1/);
+assert.match(element('active').textContent, /Test · deployment 1/);
+assert.equal(element('monitoring-state').textContent, 'Paused');
+assert.equal(element('monitoring-state').className, 'monitoring-badge monitoring-paused');
 fixture.settings.active_run = '1';
 fixture.settings.paused_run = '0';
 await namedMain.refresh();
 assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
 assert.equal(element('monitoring-toggle').disabled, false);
 assert.equal(element('monitoring-toggle').getAttribute('aria-pressed'), 'true');
-console.log('Resume controls preserve paused deployment identity.');
+assert.equal(element('monitoring-state').textContent, 'Active');
+assert.equal(element('monitoring-state').className, 'monitoring-badge monitoring-active');
+console.log('Resume controls preserve paused deployment identity and display the matching coloured status badge.');
 
 const monitoringRequests = [];
 const originalNamedFetch = namedMain.fetch;

@@ -227,7 +227,7 @@ configuration. Keep inventory creation/search/edit/removal there; project assign
 and service configuration remain under Project configuration.
 
 Main dashboard configuration sections use exclusive colour-coded tabs instead
-of disclosure arrows: Permanent inventory, Project configuration, Reusable service
+of disclosure arrows: Project configuration, Permanent inventory, Reusable service
 library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
 These panels start hidden on page load. Selecting a tab shows only that configuration
 area, without hiding issue/live host sections; selection is not persisted.
@@ -251,7 +251,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.4.4, Build 73. Show it after the title on both the main and
+Current displayed release is v0.4.4, Build 74. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -773,3 +773,10 @@ Keep the TCP-to-RTU gateway transport on port 502 and existing unsigned single
 Numeric display_value uses 15 significant digits to remove binary scaling residue.
 Keep raw sample values and threshold/persistence calculations unchanged; state labels
 remain authoritative. Existing recorded history/evidence is not rewritten.
+
+Admin configuration tabs place Project configuration before Permanent inventory,
+including keyboard navigation order. Reusable service library mirrors inventory
+with collapsed-by-default details, case-insensitive name/protocol/target/units search,
+auto-expand on searching and 50-entry Show more. Preserve query/open/limit on refresh,
+and retain library create/import/export and row actions. Header status uses separate
+green Active/yellow Paused bordered badges before project/deployment text.
