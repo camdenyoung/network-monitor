@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 81
+# Network Monitor v0.5.2 · Build 82
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -438,8 +438,9 @@ issues. Other configuration areas use the lower colour-coded tabs. Only one
 configuration area can be open at a time; all start closed after a page reload.
 The Project assignments device list has a separate collapsed-by-default arrow.
 The complete Project configuration area has a shared outer border. Successful
-saves show a dismissible six-second toast at the top right, as well as inline
-confirmation.
+saves show dismissible six-second toasts at the top right, as well as inline
+confirmation. Toasts stack with the newest first; each has its own countdown bar
+and auto-close timer. New confirmations do not replace or restart earlier ones.
 Issue-list and live-status visibility preferences remain separate.
 
 Older username-only acknowledgements display the account Full Name after it is

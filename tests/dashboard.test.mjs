@@ -12,6 +12,8 @@ function element(id) {
         const fields = new Map();
         nodes.set(id, {
             value: '', innerHTML: '', textContent: '', open: false, fields,
+            insertAdjacentHTML(position, markup) { this.innerHTML = position === 'afterbegin' ? markup + this.innerHTML : this.innerHTML + markup; },
+            remove() { this.removed = true; },
             classList: { toggle() {}, add() {}, remove() {} },
             querySelectorAll() { return []; },
             querySelector() { return { focus() {} }; },
@@ -2484,22 +2486,42 @@ await creationContext.refresh();
 assert.equal(element('project').value,'97');
 assert.equal(projectCreationForm.elements.namedItem('name').value,'');
 assert.deepEqual(creationCalls,['/api/project']);
-assert.equal(element('save-toast').hidden,false);
-assert.equal(element('save-toast-message').textContent,'Project added successfully.');
+assert.equal(element('save-toasts').hidden,false);
+assert.equal(element('save-toast-message-1').textContent,'Project added successfully.');
+assert.match(element('save-toasts').innerHTML,/save-toast-progress/);
+assert.match(element('save-toasts').innerHTML,/--toast-duration: 6000ms/);
 assert.equal(projectCreationForm.feedback.textContent,'Project added successfully.');
+const firstToastTimer = [...toastTimers.values()][0];
 creationContext.notify('Second setting saved.',true);
-assert.equal(toastTimers.size,1);
+assert.equal(toastTimers.size,2);
+assert.equal(vm.runInContext('saveToasts.size',creationContext),2);
+assert.equal([...toastTimers.values()][0],firstToastTimer,'New confirmations do not restart earlier timers');
+assert.equal(element('save-toast-message-2').textContent,'Second setting saved.');
+assert.ok(element('save-toasts').innerHTML.indexOf('id="save-toast-2"') < element('save-toasts').innerHTML.indexOf('id="save-toast-1"'));
+firstToastTimer();
+assert.equal(element('save-toast-1').removed,true);
+assert.equal(element('save-toasts').hidden,false);
+assert.equal(vm.runInContext('saveToasts.size',creationContext),1);
 [...toastTimers.values()][0]();
-assert.equal(element('save-toast').hidden,true);
+assert.equal(element('save-toast-2').removed,true);
+assert.equal(element('save-toasts').hidden,true);
 creationContext.notify('<Saved safely>',true);
-assert.equal(element('save-toast-message').textContent,'<Saved safely>');
-element('dismiss-save-toast').onclick();
-assert.equal(element('save-toast').hidden,true);
+assert.equal(element('save-toast-message-3').textContent,'<Saved safely>');
+assert.doesNotMatch(element('save-toasts').innerHTML,/<Saved safely>/);
+creationContext.notify('Fourth confirmation',true);
+element('save-toasts').onclick({target:{closest:() => ({dataset:{dismissToast:'3'}})}});
+assert.equal(element('save-toast-3').removed,true);
+assert.equal(vm.runInContext('saveToasts.size',creationContext),1);
+assert.equal(toastTimers.size,1);
+creationContext.dismissSaveToast(3); // Dismissal is harmless after its timer was cancelled.
+[...toastTimers.values()][0]();
+assert.equal(element('save-toast-4').removed,true);
+assert.equal(element('save-toasts').hidden,true);
 rejectProject = true;
 projectCreationForm.elements.namedItem('name').value='Duplicate';
 await projectCreationForm.submit({preventDefault(){}});
 assert.equal(projectCreationForm.elements.namedItem('name').value,'Duplicate');
-assert.equal(element('save-toast').hidden,true);
+assert.equal(element('save-toasts').hidden,true);
 assert.equal(element('project').value,'97');
 assert.equal(projectCreationForm.feedback.textContent,'Project name already used');
 element('assignments-details').open=true;
@@ -2510,4 +2532,4 @@ element('assignments-details').ontoggle();
 assert.equal(element('assignments').innerHTML,'');
 await creationContext.refresh();
 assert.equal(element('assignments-details').open,false);
-console.log('Project configuration layout, white paused-monitoring text, new-project selection, collapsible assignments and success-only toast behaviour passed.');
+console.log('Project setup and independent stacked toast timers, countdown markup, safe messages, expiry and dismissal passed.');

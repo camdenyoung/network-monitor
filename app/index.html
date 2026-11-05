@@ -35,9 +35,14 @@
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
-    .save-toast { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; align-items: center; gap: 16px; max-width: min(440px, calc(100vw - 40px)); box-sizing: border-box; padding: 14px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; }
-    .save-toast span { overflow-wrap: anywhere; }
+    .save-toast-list { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: min(440px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; pointer-events: none; }
+    .save-toast { position: relative; flex-shrink: 0; overflow: hidden; box-sizing: border-box; padding: 14px 18px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; pointer-events: auto; }
+    .save-toast-content { display: flex; align-items: center; gap: 16px; }
+    .save-toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     .save-toast button { flex-shrink: 0; }
+    .save-toast-progress { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: #64dfad; transform-origin: left; animation: toast-countdown var(--toast-duration) linear forwards; }
+    @keyframes toast-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+    @media (prefers-reduced-motion: reduce) { .save-toast-progress { animation-timing-function: steps(6, end); } }
     .project-run-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
     .monitoring-badge { border: 1px solid; border-radius: 6px; padding: 5px 10px; font-weight: 600; }
     .monitoring-active { color: #64dfad; border-color: #429d7a; background: #163e32; }
@@ -208,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 81</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 82</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -226,7 +231,7 @@
     </div>
   </nav>
   <p id="message" role="status"></p>
-  <div id="save-toast" class="save-toast" hidden><span id="save-toast-message" role="status" aria-live="polite" aria-atomic="true"></span><button id="dismiss-save-toast" type="button" aria-label="Dismiss confirmation">×</button></div>
+  <div id="save-toasts" class="save-toast-list" aria-label="Save confirmations" hidden></div>
   <p id="project-deletion-notice" data-admin role="status" hidden></p>
   <section id="deployment-toolbar" class="toolbar project-toolbar">
     <div class="project-logo-slot">
@@ -1741,16 +1746,38 @@
       }).join('');
     }
 
-    let saveToastTimer;
-    function showSaveToast(message) {
-      if (saveToastTimer !== undefined) globalThis.clearTimeout?.(saveToastTimer);
-      el('save-toast-message').textContent = message;
-      el('save-toast').hidden = false;
-      saveToastTimer = globalThis.setTimeout?.(() => { el('save-toast').hidden = true; }, 6000);
+    const SAVE_TOAST_DURATION = 6000;
+    let saveToastSequence = 0;
+    const saveToasts = new Map();
+
+    function dismissSaveToast(id) {
+      if (!saveToasts.has(id)) return;
+      const timer = saveToasts.get(id);
+      if (timer !== undefined) globalThis.clearTimeout?.(timer);
+      saveToasts.delete(id);
+      el(`save-toast-${id}`)?.remove();
+      el('save-toasts').hidden = saveToasts.size === 0;
     }
-    el('dismiss-save-toast').onclick = () => {
-      if (saveToastTimer !== undefined) globalThis.clearTimeout?.(saveToastTimer);
-      el('save-toast').hidden = true;
+
+    function showSaveToast(message) {
+      const id = ++saveToastSequence;
+      const list = el('save-toasts');
+      // Insert only the new item so existing countdown bars and timers keep running.
+      list.insertAdjacentHTML('afterbegin', `
+        <div id="save-toast-${id}" class="save-toast" style="--toast-duration: ${SAVE_TOAST_DURATION}ms" role="status" aria-live="polite" aria-atomic="true">
+          <div class="save-toast-content">
+            <span id="save-toast-message-${id}" class="save-toast-message"></span>
+            <button type="button" data-dismiss-toast="${id}" aria-label="Dismiss confirmation">×</button>
+          </div>
+          <div class="save-toast-progress" aria-hidden="true"></div>
+        </div>`);
+      el(`save-toast-message-${id}`).textContent = message;
+      list.hidden = false;
+      saveToasts.set(id, globalThis.setTimeout?.(() => dismissSaveToast(id), SAVE_TOAST_DURATION));
+    }
+    el('save-toasts').onclick = event => {
+      const button = event.target.closest('button[data-dismiss-toast]');
+      if (button) dismissSaveToast(Number(button.dataset.dismissToast));
     };
 
     function notify(message, success = false) {

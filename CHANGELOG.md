@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 82 — v0.5.2 (Admin project configuration updates)
+
+- Stack save-confirmation toasts at the top right, newest first, with independent six-second lifetimes and close buttons.
+- Add a countdown progress bar to each toast without restarting existing bars when new confirmations arrive; support reduced-motion preferences.
+
 ### Build 81 — v0.5.2 (Admin project configuration updates)
 
 - Move save-confirmation toasts to the top right and add a rounded outer border around the whole Project configuration area, matching the Live Hosts panel.
