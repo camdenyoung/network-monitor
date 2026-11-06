@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.4, Build 89. Show it after the title on both the main and
+Current displayed release is v0.5.5, Build 91. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -855,3 +855,7 @@ Keep signed-in browser display preferences; anonymous actions must not change th
 Logout clears hosts immediately and increments statusSessionEpoch so a pre-logout
 GET cannot restore them. Shared responsive helpers expose clear() on both pages
 and clear their hidden measurement probe/cache without changing layout preferences.
+
+Permanent inventory lists sort by the user-facing Device ID/name, case-insensitive
+with natural numeric ordering (SW2 before SW10), before applying the display limit.
+Apply the same order to search results; sort a filtered copy without mutating state.devices.

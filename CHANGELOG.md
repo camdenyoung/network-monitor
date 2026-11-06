@@ -4,6 +4,15 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 91 — v0.5.5
+
+- Merge alphabetical Device ID ordering for Permanent inventory and search results into main, with case-insensitive natural numeric sorting before pagination.
+- Verify with all 228 backend tests plus dashboard, connection recovery and responsive host-view checks.
+
+### Build 90 — v0.5.4 (inventory Device ID ordering branch)
+
+- Sort Permanent inventory and its search results alphabetically by Device ID, ignoring case and using natural numeric ordering before pagination.
+
 ### Build 89 — v0.5.4
 
 - Merge signed-in-only Status Dashboard Live Hosts into main. Anonymous visitors retain public issue lists and branding but receive no live hosts/readings or host controls.

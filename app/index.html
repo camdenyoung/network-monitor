@@ -213,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.4 · Build 89</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.5 · Build 91</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -1659,8 +1659,11 @@
     function renderInventory() {
       if (!state) return;
       const query = el('inventory-search').value.trim().toLowerCase();
+      // Sort the filtered copy before paging, leaving shared inventory/selector state intact.
       const matches = state.devices.filter(device => [device.name, device.model, device.address]
-        .some(value => (value || '').toLowerCase().includes(query)));
+        .some(value => (value || '').toLowerCase().includes(query)))
+        .sort((left, right) => left.name.localeCompare(right.name, undefined,
+          {numeric: true, sensitivity: 'base'}) || left.id - right.id);
       el('inventory-count').textContent = `Inventory devices (${state.devices.length})`;
       el('inventory-results').textContent = `Showing ${Math.min(inventoryLimit, matches.length)} of ${matches.length} matching devices`;
       el('inventory-more').hidden = inventoryLimit >= matches.length;
