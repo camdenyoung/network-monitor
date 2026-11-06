@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 92 — v0.5.5 (duplicate inventory device branch)
+
+- Add an Admin-only Duplicate action for permanent inventory, copying all service defaults independently while requiring a new Device ID and IP. Preserve projects, assignments and history.
+- Enforce unique canonical IPs on inventory create/edit/address updates/duplication, with clear conflict messages. Preserve existing inventory during upgrade/restore.
+- Keep duplication atomic, preserve rejected form values and prevent duplicate submissions or dismissal during a save.
+
 ### Build 91 — v0.5.5
 
 - Merge alphabetical Device ID ordering for Permanent inventory and search results into main, with case-insensitive natural numeric sorting before pagination.

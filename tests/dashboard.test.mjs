@@ -2707,3 +2707,74 @@ assert.equal(accessNode('service-filter-options').innerHTML,'');
 assert.equal(accessNode('toggle-hosts').hidden,true);
 assert.match(accessNode('incidents').innerHTML,/Affected host/);
 console.log('Anonymous/expired/temporary-password status hides host data and controls; signed-in roles retain preferences; logout discards stale authenticated replies.');
+
+// Inventory duplication captures its source, requires fresh identity/address and retains rejected drafts.
+const duplicateCalls = [];
+let duplicateReject = true, releaseDuplicateRequest;
+const duplicationFixture = {projects:[],devices:[
+  {id:1,name:'Source <A>',model:'Industrial',address:'192.0.2.1'},
+  {id:2,name:'Other',model:'Radio',address:'192.0.2.2'}],assignments:[],runs:[],
+  settings:{active_run:'0',paused_run:'0',retention_days:'30'},services:[],latest:[],
+  service_templates:[],device_service_defaults:[{...stateService,id:9,device:1}],
+  legacy_addresses:[],incident_lists:{active:[],acknowledged:[],resolved:[],suppressed:[]}};
+const duplicationBrowser = vm.createContext({document:context.document,FormData:context.FormData,setInterval(){},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      duplicateCalls.push({path,body:JSON.parse(options.body)});
+      if (!duplicateReject) await new Promise(resolve => {releaseDuplicateRequest=resolve;});
+      return {ok:!duplicateReject,json:async () => duplicateReject
+        ? {error:'IP address 192.0.2.1 is already assigned to Source <A>.'} : {ok:true,device:3}};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'admin',csrf:'duplicate-token'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : duplicationFixture};
+  }});
+new vm.Script(script).runInContext(duplicationBrowser);
+await duplicationBrowser.initializeSession();
+element('inventory-details').open=true;
+element('inventory-search').value='';
+duplicationBrowser.renderInventory();
+assert.match(element('inventory').innerHTML,/data-duplicate-device="1"/);
+duplicationBrowser.openDeviceDuplicate(1);
+const duplicationForm = element('device-duplicate-form');
+assert.equal(duplicationForm.elements.namedItem('name').value,'');
+assert.equal(duplicationForm.elements.namedItem('address').value,'');
+assert.equal(duplicationForm.elements.namedItem('model').value,'Industrial');
+assert.equal(element('device-duplicate-source').textContent,'Source <A> · 1 service defaults');
+element('cancel-device-duplicate').onclick();
+element('device-duplicate-dialog').onclose();
+await duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+assert.equal(duplicateCalls.length,0);
+duplicationBrowser.openDeviceDuplicate(1);
+duplicationForm.elements.namedItem('name').value='New device';
+duplicationForm.elements.namedItem('address').value='192.0.2.1';
+await duplicationBrowser.refresh();
+assert.equal(duplicationForm.elements.namedItem('name').value,'New device');
+await duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+assert.equal(duplicateCalls[0].path,'/api/device-duplicate');
+assert.equal(duplicateCalls[0].body.device,1);
+assert.equal(element('device-duplicate-dialog').open,true);
+assert.match(element('device-duplicate-feedback').textContent,/already assigned/);
+assert.equal(duplicationForm.elements.namedItem('address').value,'192.0.2.1');
+duplicateReject=false;
+duplicationForm.elements.namedItem('address').value='192.0.2.3';
+const duplicateSaving = duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+await duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+assert.equal(duplicateCalls.length,2);
+element('cancel-device-duplicate').onclick();
+assert.equal(element('device-duplicate-dialog').open,true);
+let duplicateEscapeBlocked = false;
+element('device-duplicate-dialog').oncancel({preventDefault(){duplicateEscapeBlocked=true;}});
+assert.equal(duplicateEscapeBlocked,true);
+duplicationBrowser.openDeviceDuplicate(2);
+assert.equal(element('device-duplicate-source').textContent,'Source <A> · 1 service defaults');
+releaseDuplicateRequest();
+await duplicateSaving;
+assert.equal(duplicateCalls[1].body.device,1);
+assert.equal(duplicateCalls[1].body.address,'192.0.2.3');
+assert.equal(element('device-duplicate-dialog').open,false);
+assert.equal(duplicationForm.elements.namedItem('name').value,'');
+assert.match(element('inventory-feedback').textContent,/duplicated with its service defaults/);
+vm.runInContext("currentUser.role='operator'",duplicationBrowser);
+assert.throws(() => duplicationBrowser.openDeviceDuplicate(1),/Admin access/);
+console.log('Duplicate inventory dialog preserves drafts, captures the source, prevents duplicate submissions, blocks dismissal while saving and restricts Admin access.');

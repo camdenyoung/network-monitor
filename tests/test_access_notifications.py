@@ -220,6 +220,27 @@ class AccessAndNotificationTests(unittest.TestCase):
             return dict(db.execute('''SELECT s.*, d.address FROM services s
                 JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device''').fetchone())
 
+    def test_device_duplication_requires_admin_csrf_and_reports_ip_conflicts(self):
+        self.create_host()
+        operator_token, operator = self.create_operator()
+        body = {'device':1,'name':'Switch-2','address':'192.168.1.2'}
+        for token, csrf, expected in ((None,None,401),(self.viewer_token,self.viewer['csrf'],403),
+                                      (operator_token,operator['csrf'],403),(self.admin_token,None,403)):
+            self.assertEqual(self.request('/api/device-duplicate', body, token, csrf)['status'], expected)
+        response = self.request('/api/device-duplicate', body, self.admin_token, self.admin['csrf'])
+        self.assertEqual(response['status'], 200)
+        device = json.loads(response['content'])['device']
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM assignments WHERE device=?', (device,)).fetchone()[0], 0)
+        conflicts = [('/api/device', {'name':'Conflict','address':'192.168.1.1'}),
+                     ('/api/device-edit', {'device':device,'name':'Changed','address':'192.168.1.1'}),
+                     ('/api/device-address', {'device':device,'address':'192.168.1.1'}),
+                     ('/api/device-duplicate', {**body,'name':'Conflict','address':'192.168.1.1'})]
+        for path, values in conflicts:
+            conflict = self.request(path, values, self.admin_token, self.admin['csrf'])
+            self.assertEqual(conflict['status'], 400)
+            self.assertIn('already assigned to Switch-1', conflict['content'])
+
     def test_resolved_search_covers_all_current_issues_with_ten_result_pages(self):
         host = self.create_host()
         with server.connect() as db:

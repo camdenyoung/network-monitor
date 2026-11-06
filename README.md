@@ -1,4 +1,4 @@
-# Network Monitor v0.5.5 · Build 91
+# Network Monitor v0.5.5 · Build 92
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -551,6 +551,20 @@ dialog, validated on the server. runs stores the description and original start
 timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
 preserves them; older runs retain an empty description rather than invented text.
 Deployment descriptions are included in SQLite backups but not public status APIs.
+
+## Duplicate inventory equipment
+
+In **Permanent inventory**, expand the device list and choose **Duplicate**.
+Enter a new unique Device ID and IP address; the model is prefilled and editable.
+The new IP starts blank to avoid accidentally monitoring the source equipment.
+The duplicate includes all service defaults and their credentials/settings as
+independent copies. Project assignments, aliases, service history and issues are
+not copied. Assign the new device to a project when ready.
+
+Adding, editing or duplicating inventory rejects an IP already assigned to another
+device and identifies that device in the error. Equivalent IPv6 spellings count as
+the same address. A device can retain its own address when edited. Existing
+inventory is preserved on upgrade/restore; new saves enforce the conflict check.
 
 ## Device service defaults
 

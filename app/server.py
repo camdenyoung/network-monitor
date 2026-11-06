@@ -322,7 +322,35 @@ def migrate_inventory_addresses(db):
 
 def inventory_address(value):
     """Inventory records require an IPv4 or IPv6 literal, not command options."""
+    if not isinstance(value, str):
+        raise ValueError('Enter a valid IP address')
     return str(ipaddress.ip_address(value.strip()))
+
+
+class InventoryAddressConflict(ValueError):
+    """Safe inventory feedback that can identify the device already using an IP."""
+
+
+def require_unique_inventory_address(db, address, excluding_device=None):
+    """Compare canonical IPs in the serialized mutation transaction, including legacy rows.
+
+    Do not rebuild existing inventory on upgrade: older backups and isolated
+    benchmark datasets may contain shared addresses. New API writes must be unique.
+    """
+    def key(value):
+        parsed = ipaddress.ip_address(value.strip())
+        return getattr(parsed, 'ipv4_mapped', None) or parsed
+
+    candidate = key(address)
+    for device in db.execute('SELECT id,name,address FROM devices ORDER BY id'):
+        if device['id'] == excluding_device or not device['address']:
+            continue
+        try:
+            existing = key(device['address'])
+        except (ValueError, AttributeError):
+            continue  # An unconfigured/legacy address does not claim a valid IP.
+        if existing == candidate:
+            raise InventoryAddressConflict(f"IP address {address} is already assigned to {device['name']}.")
 
 
 def migrate_service_lifecycle(db):
@@ -519,8 +547,11 @@ def ensure_host_checks(db):
 
 def device_details(body):
     """Validate editable inventory fields before writing any of them."""
-    name = body['name'].strip()
-    model = body.get('model', '').strip()
+    name = body['name']
+    model = body.get('model', '')
+    if not isinstance(name, str) or not isinstance(model, str):
+        raise ValueError('Device ID and model must be text')
+    name, model = name.strip(), model.strip()
     if not name or len(name) > 100 or len(model) > 100:
         raise ValueError('Invalid device name or model')
     return name, model, inventory_address(body['address'])
@@ -1041,6 +1072,7 @@ def acknowledge_status_incident(db, incident_id, actor):
 def mutate(action, body, actor=None):
     acknowledgement_changed = False
     created_project = None
+    created_device = None
     with LOCK, connect() as db:
         deletion = project_deletion.unfinished(db)
         operational = ('ack', 'status-ack', 'unack', 'status-unack', 'pause', 'resume', 'notification-pause', 'project-delete')
@@ -1089,10 +1121,14 @@ def mutate(action, body, actor=None):
             db.execute('DELETE FROM project_logos WHERE project=?', (int(body['project']),))
         elif action == 'device':
             details = device_details(body)
+            require_unique_inventory_address(db, details[2])
             db.execute('INSERT INTO devices(id,name,model,address) VALUES(?,?,?,?)',
                        (next_record_id(db, 'devices'), *details))
         elif action == 'device-edit':
+            device = int(body['device'])
+            require_inventory_device(db, device)
             details = device_details(body)
+            require_unique_inventory_address(db, details[2], excluding_device=device)
             cursor = db.execute('UPDATE devices SET name=?,model=?,address=? WHERE id=?',
                                 (*details, int(body['device'])))
             if cursor.rowcount != 1:
@@ -1100,8 +1136,23 @@ def mutate(action, body, actor=None):
         elif action == 'delete-device':
             delete_device(db, int(body['device']))
         elif action == 'device-address':
-            db.execute('UPDATE devices SET address=? WHERE id=?',
-                       (inventory_address(body['address']), int(body['device'])))
+            device = int(body['device'])
+            require_inventory_device(db, device)
+            address = inventory_address(body['address'])
+            require_unique_inventory_address(db, address, excluding_device=device)
+            db.execute('UPDATE devices SET address=? WHERE id=?', (address, device))
+        elif action == 'device-duplicate':
+            source = db.execute('SELECT * FROM devices WHERE id=?', (int(body['device']),)).fetchone()
+            if source is None:
+                raise ValueError('Source inventory device no longer exists')
+            details = device_details({**body, 'model': body.get('model', source['model'])})
+            require_unique_inventory_address(db, details[2])
+            created_device = next_record_id(db, 'devices')
+            db.execute('INSERT INTO devices(id,name,model,address) VALUES(?,?,?,?)', (created_device, *details))
+            # Copy complete independent defaults, including credentials; never copy
+            # assignments, project services, samples, issues or runtime state.
+            for default in db.execute('SELECT * FROM device_service_defaults WHERE device=? ORDER BY id', (source['id'],)).fetchall():
+                save_inventory_default(db, created_device, tuple(default[field] for field in SERVICE_CONFIGURATION_FIELDS))
         elif action == 'assignment':
             project, device = int(body['project']), int(body['device'])
             require_inventory_device(db, device)
@@ -1355,6 +1406,8 @@ def mutate(action, body, actor=None):
         live_updates.publish_acknowledgement_change()
     if created_project is not None:
         return {'project': created_project}
+    if created_device is not None:
+        return {'device': created_device}
 
 
 def update_card_incidents(data):
@@ -1810,6 +1863,8 @@ class Handler(BaseHTTPRequestHandler):
                     if result is not None:
                         return self.send(json.dumps({'ok': True, **result}))
             self.send('{"ok":true}')
+        except InventoryAddressConflict as error:
+            self.send(json.dumps({'error': str(error)}), status=400)
         except project_deletion.DeletionError as error:
             self.send(json.dumps({'error': str(error)}), status=400)
         except service_library.LibraryImportError as error:

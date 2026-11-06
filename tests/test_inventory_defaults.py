@@ -16,8 +16,8 @@ class InventoryDefaultsTests(unittest.TestCase):
         server.initialize()
         for name in ('Original', 'Next'):
             server.mutate('project', {'name': name})
-        for name in ('SW1', 'SW2'):
-            server.mutate('device', {'name': name, 'address': '192.0.2.1', 'model': 'Switch'})
+        for index, name in enumerate(('SW1', 'SW2'), 1):
+            server.mutate('device', {'name': name, 'address': f'192.0.2.{index}', 'model': 'Switch'})
         server.mutate('assignment', {'project': 1, 'device': 1, 'alias': 'Original host'})
         server.mutate('service', self.definition(assignment=1, name='Original RSSI'))
 

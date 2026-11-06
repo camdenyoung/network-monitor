@@ -29,6 +29,7 @@
     .checkbox-field { grid-template-rows: auto 35px; }
     .checkbox-field input { align-self: center; }
     .checkbox-inline { display: flex; align-items: center; gap: 10px; min-height: 35px; }
+    #device-duplicate-source { overflow-wrap: anywhere; }
     .user-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #435b78; border-radius: 8px; padding: 14px; margin-top: 12px; }
     .user-details { flex: 1 1 320px; overflow-wrap: anywhere; }
     .user-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -213,7 +214,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.5 · Build 91</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.5 · Build 92</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -697,6 +698,20 @@
       <button type="button" id="cancel-device-edit">Cancel</button>
     </form>
     <p id="device-edit-feedback" role="status"></p>
+  </dialog>
+  <dialog id="device-duplicate-dialog" aria-labelledby="device-duplicate-title" aria-describedby="device-duplicate-source">
+    <h2 id="device-duplicate-title">Duplicate inventory device</h2>
+    <p id="device-duplicate-source"></p>
+    <p>Copies the inventory details and all service defaults into an independent device.
+      Enter a new Device ID and unique IP address. Project assignments, history and issues are not copied.</p>
+    <form id="device-duplicate-form">
+      <label>New Device ID<input name="name" required maxlength="100" autofocus></label>
+      <label>Model<input name="model" maxlength="100"></label>
+      <label>New IP address<input name="address" required placeholder="192.168.1.20" autocomplete="off"></label>
+      <button class="primary">Duplicate device</button>
+      <button id="cancel-device-duplicate" type="button">Cancel</button>
+    </form>
+    <p id="device-duplicate-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="device-default-manager" aria-labelledby="device-default-title">
     <h2 id="device-default-title">Device service defaults</h2>
@@ -1681,6 +1696,7 @@
           <strong>${escapeHtml(device.name)}</strong> · ${escapeHtml(device.model)}
           <p>${escapeHtml(device.address || 'IP required; monitoring paused')}${review}</p>
           <button data-edit-device="${device.id}">Edit</button>
+          <button data-duplicate-device="${device.id}">Duplicate</button>
           <button data-device-defaults="${device.id}">Service defaults (${(state.device_service_defaults || []).filter(row => row.device === device.id).length})</button>
           <button data-delete-device="${device.id}">Delete permanently</button>
         </article>`;
@@ -2031,6 +2047,60 @@
         // Keep the editor and entered values available for correction.
         el('device-edit-feedback').textContent = error.message;
       } finally {
+        buttons.forEach(button => { button.disabled = false; });
+      }
+    };
+
+    let duplicateDeviceSource = null;
+    let duplicateDeviceBusy = false;
+
+    function openDeviceDuplicate(id) {
+      if (currentUser?.role !== 'admin') throw new Error('Admin access required.');
+      if (duplicateDeviceBusy) return;
+      const source = state.devices.find(row => row.id === Number(id));
+      if (!source) throw new Error('Source inventory device no longer exists.');
+      duplicateDeviceSource = source.id;
+      const form = el('device-duplicate-form');
+      form.reset();
+      form.elements.namedItem('model').value = source.model || '';
+      // A clone must not accidentally reuse either the source's ID or its IP.
+      form.elements.namedItem('name').value = '';
+      form.elements.namedItem('address').value = '';
+      const count = (state.device_service_defaults || []).filter(row => row.device === source.id).length;
+      el('device-duplicate-source').textContent = `${source.name} · ${count} service defaults`;
+      el('device-duplicate-feedback').textContent = '';
+      el('device-duplicate-dialog').showModal();
+    }
+    el('cancel-device-duplicate').onclick = () => {
+      if (!duplicateDeviceBusy) el('device-duplicate-dialog').close();
+    };
+    el('device-duplicate-dialog').onclose = () => {
+      if (!duplicateDeviceBusy) duplicateDeviceSource = null;
+    };
+    el('device-duplicate-dialog').oncancel = event => {
+      if (duplicateDeviceBusy) event.preventDefault();
+    };
+    el('device-duplicate-form').onsubmit = async event => {
+      event.preventDefault();
+      if (duplicateDeviceBusy || duplicateDeviceSource === null) return;
+      const source = duplicateDeviceSource;
+      const form = event.target;
+      const buttons = form.querySelectorAll('button');
+      duplicateDeviceBusy = true;
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        await request('device-duplicate', {...Object.fromEntries(new FormData(form)), device:source});
+        duplicateDeviceSource = null;
+        el('device-duplicate-dialog').close();
+        form.reset();
+        inventoryFeedback('Inventory device duplicated with its service defaults. Assign it to a project when ready.', true);
+        try { await refresh(); }
+        catch (error) { notify('Device duplicated. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) {
+        // Keep the requested ID/address for correction if validation rejects the copy.
+        el('device-duplicate-feedback').textContent = error.message;
+      } finally {
+        duplicateDeviceBusy = false;
         buttons.forEach(button => { button.disabled = false; });
       }
     };
@@ -2900,6 +2970,7 @@
         if (data.editDeviceDefault) openDeviceDefaultEditor(data.editDeviceDefault);
         if (data.deleteDeviceDefault) openAdministrativeConfirmation('delete-default', {device: defaultsDevice, default_service: data.deleteDeviceDefault});
         if (data.editDevice) openDeviceEditor(data.editDevice);
+        if (data.duplicateDevice) openDeviceDuplicate(data.duplicateDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
         if (data.ack) await acknowledgeIssue(data.ack);
