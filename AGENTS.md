@@ -34,7 +34,8 @@ The user requested readable, consistently indented code and explanatory comments
   active assignments, current service configs/flags, logo and status settings against
   shared inventory. Never copy runs, samples, issues, sessions or outbox messages.
 - Public status supports persisted hostname/alias/host-status/severity sorting.
-- Status acknowledgement is an opt-in per-project Admin setting, default off.
+- Status acknowledgement is a per-project Admin setting, enabled for newly created
+  projects. Preserve existing flags on startup/restore and copy the flag on duplication.
   Require a signed-in Admin/Operator and CSRF; enforce the flag/current project,
   visible monitored source and dependency visibility on /api/status-ack. Anonymous
   users and View Only users remain read-only.
@@ -226,9 +227,9 @@ Permanent inventory is its own top-level Admin section, separate from Project
 configuration. Keep inventory creation/search/edit/removal there; project assignment
 and service configuration remain under Project configuration.
 
-Main dashboard configuration sections use exclusive colour-coded tabs instead
-of disclosure arrows: Project configuration, Permanent inventory, Reusable service
-library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
+Main dashboard configuration sections are exclusive. Project configuration uses
+a top disclosure button before the issue visibility controls; other areas use
+lower colour-coded tabs (inventory, library, users, reminders, providers and backups).
 These panels start hidden on page load. Selecting a tab shows only that configuration
 area, without hiding issue/live host sections; selection is not persisted.
 Issue-list and live-status visibility preferences remain separate.
@@ -251,7 +252,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.2, Build 78. Show it after the title on both the main and
+Current displayed release is v0.5.3, Build 87. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -774,8 +775,8 @@ Numeric display_value uses 15 significant digits to remove binary scaling residu
 Keep raw sample values and threshold/persistence calculations unchanged; state labels
 remain authoritative. Existing recorded history/evidence is not rewritten.
 
-Admin configuration tabs place Project configuration before Permanent inventory,
-including keyboard navigation order. Reusable service library mirrors inventory
+Admin Project configuration is above Active issues, below its top control button.
+Keep its button outside lower-tab arrow-key navigation; coordinate exclusive visibility. Reusable service library mirrors inventory
 with collapsed-by-default details, case-insensitive name/protocol/target/units search,
 auto-expand on searching and 50-entry Show more. Preserve query/open/limit on refresh,
 and retain library create/import/export and row actions. Header status uses separate
@@ -798,3 +799,46 @@ Range graph queries filter measurement before aggregation; graph UI offers previ
 versions with their stored units/type/maps. Exact table includes every version.
 Historical statuses/values remain recorded; current thresholds overlay only the
 current version. Keep bounded queries, retention, stale-read guards and backups.
+
+New project creation returns its ID after commit; the Admin form selects it without
+activation. pendingCreatedProject holds that choice across stale in-flight refreshes
+until the project appears; a manual project selection clears the pending choice.
+Project assignments use collapsed-by-default native details/summary and retain their
+open state through refreshes, without changing host monitoring/visibility flags.
+Successful notify calls add a top-right, dismissible six-second save toast using
+textContent and a polite live region, alongside the existing inline feedback.
+Project name/status/logo saves explicitly notify after a confirmed write. Error
+responses do not reset forms or produce success toasts. Paused monitoring button
+text stays white; the separate Paused header badge remains yellow.
+
+Keep the full Admin #project-configuration region inside one rounded border with
+16px padding, matching the Live Hosts panel. Preserve the nested section borders.
+
+Save confirmations stack newest-first in #save-toasts. Insert only the new item;
+never rerender existing toasts (which would restart progress animations). Each has
+its own timer/ID, close button and CSS countdown tied to SAVE_TOAST_DURATION.
+Dismissal/expiry removes only that item and clears its timer; hide the container
+when empty. Populate message spans via textContent. Cap the stack viewport height
+and allow scrolling; use stepped countdowns under prefers-reduced-motion.
+
+Toast stacks use a compact 320px width, shrinking to fit narrow viewports.
+Unacknowledgement keeps inline issue feedback and list updates without a toast.
+
+Admin Resolved issues displays the latest 10, ordered by closed DESC/id DESC.
+Keep snapshot's bounded 200-row list for compatibility. app/resolved.py supplies
+an authenticated /api/resolved search across all eligible resolved issues in the
+current active deployment, 10 per page with closed/id cursors, literal Unicode
+casefold matching and no monitor LOCK. Scope by active_run, non-removed assignment
+and enabled service. Retain display-name enrichment and legacy ping evidence text.
+Install the partial resolved_issue_lookup index on startup/restore. Bound query work
+to 3s and four concurrent searches. UI retains filter/page on refresh, debounces
+input and rejects stale responses when query/deployment changes. Clear returns to
+latest 10. No acknowledgement actions or new notifications are introduced.
+
+Inventory Add from library supports an optional server-side name override for
+its independent device_service_defaults copy. Keep missing-name compatibility
+(library name), but reject explicit blank/non-text/overlong names and existing
+per-device duplicates. Never change the template, credentials or existing projects.
+The UI prefills the device name on template selection, preserves custom drafts on
+polling/failed saves, and clears selection/name after confirmed success. Do not
+clear another device/selection or a newer draft if the save finishes late.

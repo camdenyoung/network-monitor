@@ -35,6 +35,14 @@
     button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
     .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
     .paused { color: #a9bad0; }
+    .save-toast-list { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: min(320px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; pointer-events: none; }
+    .save-toast { position: relative; flex-shrink: 0; overflow: hidden; box-sizing: border-box; padding: 14px 18px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; pointer-events: auto; }
+    .save-toast-content { display: flex; align-items: center; gap: 16px; }
+    .save-toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .save-toast button { flex-shrink: 0; }
+    .save-toast-progress { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: #64dfad; transform-origin: left; animation: toast-countdown var(--toast-duration) linear forwards; }
+    @keyframes toast-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+    @media (prefers-reduced-motion: reduce) { .save-toast-progress { animation-timing-function: steps(6, end); } }
     .project-run-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
     .monitoring-badge { border: 1px solid; border-radius: 6px; padding: 5px 10px; font-weight: 600; }
     .monitoring-active { color: #64dfad; border-color: #429d7a; background: #163e32; }
@@ -110,6 +118,9 @@
     .host-list .service-controls { display: grid; grid-template-columns: 70px 88px; align-items: start; gap: 6px; }
     .host-list .service-controls > button, .host-list .action-menu > summary { box-sizing: border-box; margin: 0; padding: 5px 8px; font-size: 13px; line-height: 20px; }
     .host-list .metric-header > button { margin: 0; }
+    #project-configuration { border: 1px solid #435b78; border-radius: 10px; margin: 16px 0; padding: 16px; }
+    #project-configuration > section:first-child { margin-top: 0; }
+    #project-configuration > section:last-child { margin-bottom: 0; }
     #live-status-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
     /* Reserve at least one third of the row so Admin hosts never exceed 3 columns. */
     #dashboard.grid { margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(290px, calc((100% - 32px) / 3))), 1fr)); }
@@ -154,7 +165,7 @@
     .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
     #monitoring-toggle[aria-pressed="true"], #notifications-toggle[aria-pressed="true"] { background: #176959; }
     #notifications-toggle.notifications-paused { background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
-    #monitoring-toggle.monitoring-paused { background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
+    #monitoring-toggle.monitoring-paused { color: #e8eff8; background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
     @keyframes paused-monitoring {
       0%, 100% { background: #765019; }
       50% { background: #352819; }
@@ -202,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.2 · Build 78</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.3 · Build 87</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -220,6 +231,7 @@
     </div>
   </nav>
   <p id="message" role="status"></p>
+  <div id="save-toasts" class="save-toast-list" aria-label="Save confirmations" hidden></div>
   <p id="project-deletion-notice" data-admin role="status" hidden></p>
   <section id="deployment-toolbar" class="toolbar project-toolbar">
     <div class="project-logo-slot">
@@ -252,73 +264,14 @@
     </div>
   </section>
   <div class="display-controls" role="group" aria-label="Dashboard section visibility">
+    <button data-admin id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-pressed="false">Project configuration</button>
     <button id="toggle-acknowledged" aria-controls="acknowledged-panel" aria-expanded="false">Show Acknowledged issues</button>
     <button id="toggle-suppressed" aria-controls="suppressed-panel" aria-expanded="false">Show Suppressed service issues</button>
     <button id="toggle-resolved" aria-controls="resolved-panel" aria-expanded="false">Show Resolved issues</button>
     <button id="toggle-live" aria-controls="live-status-panel" aria-expanded="true">Hide live host/service status</button>
   </div>
-  <section>
-    <h2>Active issues</h2>
-    <p id="incident-feedback" class="form-feedback" role="status"></p>
-    <div id="incidents"></div>
-  </section>
-  <section id="acknowledged-panel" hidden><h2>Acknowledged issues</h2><div id="acknowledged-incidents"></div></section>
-  <section id="suppressed-panel" hidden><h2>Suppressed service issues</h2><div id="suppressed-incidents"></div></section>
-  <section id="resolved-panel" hidden><h2>Resolved issues</h2><div id="resolved-incidents"></div></section>
-  <div id="live-status-panel" aria-labelledby="live-hosts-title">
-    <h2 id="live-hosts-title">Live Hosts</h2>
-    <div class="display-controls" role="group" aria-label="Host display options">
-      <button id="view-cards" aria-pressed="true">Cards</button>
-      <button id="view-list" aria-pressed="false">List</button>
-      <label>Sort hosts<select id="host-sort">
-        <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
-        <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
-        <option value="status-ok">Host status: healthy first</option><option value="severity">Issue severity</option>
-      </select></label>
-      <button id="toggle-services" aria-pressed="true">Hide services</button>
-      <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
-      <datalist id="service-filter-options"></datalist>
-      <button id="clear-service-filter">All services</button>
-    </div>
-    <small id="host-view-fit-note" role="status" hidden>Cards shown to fit this screen. Widen the window or hide services to use List.</small>
-    <p id="host-view-summary"></p>
-    <small>Service filters narrow host readings. Issue lists show all issues.</small>
-    <div id="dashboard" class="grid"></div>
-  </div>
-  <div data-admin class="display-controls" role="tablist" aria-label="Configuration sections">
-    <button id="toggle-project-configuration" aria-controls="project-configuration" aria-expanded="false" aria-selected="false">Project configuration</button>
-    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
-    <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-selected="false">Reusable service library</button>
-    <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-selected="false">User management</button>
-    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Issue reminders</button>
-    <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-selected="false">Telegram notifications</button>
-    <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-selected="false">WhatsApp Business notifications</button>
-    <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-selected="false">Backup, restore, and retention</button>
-  </div>
-  <div data-admin id="permanent-inventory" hidden>
-    <section>
-      <h2>Permanent inventory</h2>
-      <form data-action="device">
-        <label>Device ID<input name="name" required maxlength="100"></label>
-        <label>Model<input name="model" maxlength="100"></label>
-        <label>IP address<input name="address" required placeholder="192.168.1.10"></label>
-        <button>Add device</button>
-      </form>
-      <p id="inventory-feedback" class="form-feedback" role="status"></p>
-      <div class="display-controls">
-        <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
-        <button id="inventory-clear">Clear search</button>
-      </div>
-      <details id="inventory-details">
-        <summary id="inventory-count">Inventory devices</summary>
-        <p id="inventory-results"></p>
-        <div id="inventory"></div>
-        <button id="inventory-more" hidden>Show 50 more</button>
-      </details>
-    </section>
-  </div>
   <div data-admin id="project-configuration" hidden>
-    <section><h2>Projects</h2>
+    <section><h2>Add Project</h2>
       <form data-action="project">
         <label>Project name<input name="name" required maxlength="100"></label>
         <label>Use uploaded logo (optional)<select name="logo_project" id="new-project-logo"><option value="">No logo</option></select></label>
@@ -396,7 +349,86 @@
       <div id="service-catalogue"></div>
       <button id="catalogue-more" hidden>Show 20 more</button>
     </section>
-    <section><h2>Project assignments</h2><p>Notification flags control issue messages for each host.</p><p id="assignment-feedback" class="form-feedback" role="status"></p><div id="assignments" class="scroll"></div></section>
+    <section>
+      <h2>Project assignments</h2>
+      <p>Notification flags control issue messages for each host.</p>
+      <p id="assignment-feedback" class="form-feedback" role="status"></p>
+      <details id="assignments-details">
+        <summary id="assignments-count">Assigned devices</summary>
+        <div id="assignments" class="scroll"></div>
+      </details>
+    </section>
+  </div>
+  <section>
+    <h2>Active issues</h2>
+    <p id="incident-feedback" class="form-feedback" role="status"></p>
+    <div id="incidents"></div>
+  </section>
+  <section id="acknowledged-panel" hidden><h2>Acknowledged issues</h2><div id="acknowledged-incidents"></div></section>
+  <section id="suppressed-panel" hidden><h2>Suppressed service issues</h2><div id="suppressed-incidents"></div></section>
+  <section id="resolved-panel" hidden>
+    <h2>Resolved issues</h2>
+    <div class="display-controls">
+      <label>Search resolved issues<input id="resolved-search" type="search" maxlength="100" placeholder="Issue #, device, alias, service, or value"></label>
+      <button id="clear-resolved-search" type="button">Clear search</button>
+    </div>
+    <p id="resolved-summary" role="status"></p>
+    <div id="resolved-incidents"></div>
+    <div id="resolved-search-pages" class="display-controls" hidden>
+      <button id="resolved-newest" type="button">Newest matches</button>
+      <button id="resolved-older" type="button">Older matches</button>
+    </div>
+  </section>
+  <div id="live-status-panel" aria-labelledby="live-hosts-title">
+    <h2 id="live-hosts-title">Live Hosts</h2>
+    <div class="display-controls" role="group" aria-label="Host display options">
+      <button id="view-cards" aria-pressed="true">Cards</button>
+      <button id="view-list" aria-pressed="false">List</button>
+      <label>Sort hosts<select id="host-sort">
+        <option value="hostname">Hostname A–Z</option><option value="hostname-desc">Hostname Z–A</option>
+        <option value="alias">Alias A–Z</option><option value="status">Host status: problems first</option>
+        <option value="status-ok">Host status: healthy first</option><option value="severity">Issue severity</option>
+      </select></label>
+      <button id="toggle-services" aria-pressed="true">Hide services</button>
+      <label>Service filter<input id="service-filter" type="search" maxlength="100" list="service-filter-options" placeholder="All services · e.g. RSSI"></label>
+      <datalist id="service-filter-options"></datalist>
+      <button id="clear-service-filter">All services</button>
+    </div>
+    <small id="host-view-fit-note" role="status" hidden>Cards shown to fit this screen. Widen the window or hide services to use List.</small>
+    <p id="host-view-summary"></p>
+    <small>Service filters narrow host readings. Issue lists show all issues.</small>
+    <div id="dashboard" class="grid"></div>
+  </div>
+  <div data-admin class="display-controls" role="tablist" aria-label="Configuration sections">
+    <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
+    <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-selected="false">Reusable service library</button>
+    <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-selected="false">User management</button>
+    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Issue reminders</button>
+    <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-selected="false">Telegram notifications</button>
+    <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-selected="false">WhatsApp Business notifications</button>
+    <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-selected="false">Backup, restore, and retention</button>
+  </div>
+  <div data-admin id="permanent-inventory" hidden>
+    <section>
+      <h2>Permanent inventory</h2>
+      <form data-action="device">
+        <label>Device ID<input name="name" required maxlength="100"></label>
+        <label>Model<input name="model" maxlength="100"></label>
+        <label>IP address<input name="address" required placeholder="192.168.1.10"></label>
+        <button>Add device</button>
+      </form>
+      <p id="inventory-feedback" class="form-feedback" role="status"></p>
+      <div class="display-controls">
+        <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
+        <button id="inventory-clear">Clear search</button>
+      </div>
+      <details id="inventory-details">
+        <summary id="inventory-count">Inventory devices</summary>
+        <p id="inventory-results"></p>
+        <div id="inventory"></div>
+        <button id="inventory-more" hidden>Show 50 more</button>
+      </details>
+    </section>
   </div>
   <div data-admin id="service-library-panel" hidden><section>
     <h2>Predefined services</h2>
@@ -673,6 +705,7 @@
     <button id="new-device-default">Add service default</button>
     <div class="display-controls">
       <label>Reusable service<select id="device-default-template"></select></label>
+      <label>Service name on this device<input id="device-default-template-name" maxlength="100" required disabled></label>
       <button id="add-device-default-template">Add from library</button>
     </div>
     <div class="display-controls">
@@ -976,6 +1009,7 @@
     let telegramLoaded = false;
     let whatsappLoaded = false;
     let selectedProject = '';
+    let pendingCreatedProject = null;
     let editingProject = '';
     let serviceEditorMode = 'service-edit';
     let serviceEditorSource = null;
@@ -1096,7 +1130,8 @@
     }, true);
     globalThis.addEventListener?.('resize', () => { closeActionMenus(); updateResponsiveControls(); });
 
-    // Configuration areas are exclusive tabs. Start closed on each page load.
+    // The top project disclosure and lower configuration tabs are exclusive.
+    // Keep their keyboard groups separate and start every area closed on page load.
     const configurationSections = [
       ['project-configuration', 'Project configuration'],
       ['permanent-inventory', 'Permanent inventory'],
@@ -1107,35 +1142,39 @@
       ['whatsapp-panel', 'WhatsApp Business notifications'],
       ['backup-panel', 'Backup, restore, and retention'],
     ];
-    let configurationTabStop = 0;
+    let configurationTabStop = 1;
     function selectConfiguration(panelId, focus = false) {
-      if (panelId !== null) configurationTabStop = configurationSections.findIndex(([id]) => id === panelId);
+      if (panelId !== null && panelId !== 'project-configuration') configurationTabStop = configurationSections.findIndex(([id]) => id === panelId);
       configurationSections.forEach(([id], index) => {
         const selected = id === panelId;
         const button = el(`toggle-${id}`);
         el(id).hidden = !selected;
-        button.setAttribute('aria-selected', String(selected));
+        if (id === 'project-configuration') button.setAttribute('aria-pressed', String(selected));
+        else button.setAttribute('aria-selected', String(selected));
         button.setAttribute('aria-expanded', String(selected));
-        button.setAttribute('tabindex', selected || (panelId === null && index === configurationTabStop) ? '0' : '-1');
+        button.setAttribute('tabindex', id === 'project-configuration' || selected || (index === configurationTabStop && (panelId === null || panelId === 'project-configuration')) ? '0' : '-1');
       });
       if (focus) el(`toggle-${panelId}`).focus();
     }
     configurationSections.forEach(([panelId, label], index) => {
       const button = el(`toggle-${panelId}`);
       button.textContent = label;
-      button.setAttribute('role', 'tab');
-      el(panelId).setAttribute('role', 'tabpanel');
+      button.setAttribute('role', panelId === 'project-configuration' ? 'button' : 'tab');
+      el(panelId).setAttribute('role', panelId === 'project-configuration' ? 'region' : 'tabpanel');
       el(panelId).setAttribute('aria-labelledby', button.id || `toggle-${panelId}`);
       button.onclick = () => selectConfiguration(el(panelId).hidden ? panelId : null);
+      if (panelId === 'project-configuration') return;
       button.onkeydown = event => {
+        const tabs = configurationSections.filter(([id]) => id !== 'project-configuration');
+        const tabIndex = tabs.findIndex(([id]) => id === panelId);
         let next;
-        if (event.key === 'ArrowRight') next = (index + 1) % configurationSections.length;
-        else if (event.key === 'ArrowLeft') next = (index - 1 + configurationSections.length) % configurationSections.length;
+        if (event.key === 'ArrowRight') next = (tabIndex + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft') next = (tabIndex - 1 + tabs.length) % tabs.length;
         else if (event.key === 'Home') next = 0;
-        else if (event.key === 'End') next = configurationSections.length - 1;
+        else if (event.key === 'End') next = tabs.length - 1;
         else return;
         event.preventDefault();
-        selectConfiguration(configurationSections[next][0], true);
+        selectConfiguration(tabs[next][0], true);
       };
     });
     selectConfiguration(null);
@@ -1467,7 +1506,11 @@
       const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
       // Choose the current deployment once; polling must preserve manual choices.
       // A selected paused deployment is still the current project during setup.
-      if (!state.projects.some(project => String(project.id) === selectedProject)) {
+      if (pendingCreatedProject !== null && state.projects.some(project => String(project.id) === pendingCreatedProject)) {
+        selectedProject = pendingCreatedProject;
+        pendingCreatedProject = null;
+      }
+      if (pendingCreatedProject === null && !state.projects.some(project => String(project.id) === selectedProject)) {
         const preferred = [run?.project, pausedRun?.project, state.projects[0]?.id]
           .find(id => state.projects.some(project => project.id === id));
         selectedProject = preferred == null ? '' : String(preferred);
@@ -1538,10 +1581,7 @@
       if (document.activeElement !== el('retention')) el('retention').value = state.settings.retention_days;
       renderInventory();
       renderHosts();
-      el('assignments').innerHTML = '<table><tr><th>Device ID - Alias / Address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => {
-        const device = state.devices.find(device => device.id === row.device);
-        return `<tr><td>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(row.alias)} / ${escapeHtml(device?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`;
-      }).join('') + '</table>';
+      renderProjectAssignments();
       renderServiceCatalogue();
       renderServiceLibrary();
       if (el('service-transfer').open) updateTransferHosts();
@@ -1551,11 +1591,26 @@
       el('incidents').innerHTML = renderIncidents(lists.active, true) || '<p>No active issues.</p>';
       el('acknowledged-incidents').innerHTML = renderIncidents(lists.acknowledged) || '<p>No acknowledged issues.</p>';
       el('suppressed-incidents').innerHTML = renderIncidents(lists.suppressed, false, true) || '<p>No suppressed service issues.</p>';
-      el('resolved-incidents').innerHTML = renderIncidents(lists.resolved) || '<p>No resolved issues.</p>';
+      renderResolvedIssues();
       updateResponsiveControls();
       connectionGuard.healthy();
       connectAcknowledgementUpdates();
     }
+
+    function renderProjectAssignments() {
+      if (!state) return;
+      const assignments = state.assignments.filter(row => String(row.project) === selectedProject && !row.removed);
+      el('assignments-count').textContent = `Assigned devices (${assignments.length})`;
+      if (!el('assignments-details').open) {
+        el('assignments').innerHTML = '';
+        return;
+      }
+      el('assignments').innerHTML = '<table><tr><th>Device ID - Alias / Address</th><th>Monitoring</th><th>Display</th><th>Notifications</th><th>Assignment</th></tr>' + assignments.map(row => {
+        const device = state.devices.find(device => device.id === row.device);
+        return `<tr><td>${escapeHtml(device?.name || 'Unknown device')} - ${escapeHtml(row.alias)} / ${escapeHtml(device?.address || 'IP required')} <button data-edit-alias="${row.id}">Edit alias</button></td>${['monitoring','visible','notifications'].map(field => `<td><button data-toggle="${row.id}" data-field="${field}">${row[field] ? 'Enabled' : 'Disabled'}</button></td>`).join('')}<td><button data-remove-assignment="${row.id}">Remove from project</button></td></tr>`;
+      }).join('') + '</table>';
+    }
+    el('assignments-details').ontoggle = renderProjectAssignments;
 
     let libraryLimit = 50;
     function renderServiceLibrary() {
@@ -1704,9 +1759,109 @@
       }).join('');
     }
 
+    let resolvedRequest = 0;
+    let resolvedSearchTimer;
+    let resolvedQuery = '';
+    let resolvedRun = null;
+    let resolvedBefore = null;
+    let resolvedNext = null;
+
+    async function renderResolvedIssues() {
+      if (!state) return;
+      const query = el('resolved-search').value.trim();
+      const run = Number(state.settings.active_run);
+      if (query !== resolvedQuery || run !== resolvedRun) {
+        resolvedBefore = null;
+        resolvedNext = null;
+        el('resolved-incidents').innerHTML = '';
+      }
+      resolvedQuery = query;
+      resolvedRun = run;
+      const requestId = ++resolvedRequest;
+      if (!query) {
+        const rows = state.incident_lists.resolved.slice(0, 10);
+        el('resolved-incidents').innerHTML = renderIncidents(rows) || '<p>No resolved issues.</p>';
+        el('resolved-summary').textContent = `Latest ${rows.length} resolved issues. Search covers all resolved issues in the current deployment.`;
+        el('resolved-search-pages').hidden = true;
+        return;
+      }
+      el('resolved-summary').textContent = 'Searching resolved issues…';
+      el('resolved-search-pages').hidden = false;
+      el('resolved-newest').disabled = true;
+      el('resolved-older').disabled = true;
+      try {
+        let url = `/api/resolved?run=${run}&search=${encodeURIComponent(query)}`;
+        if (resolvedBefore !== null) url += `&before=${resolvedBefore.before}&before_time=${resolvedBefore.before_time}`;
+        const response = await dashboardFetch(url);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not search resolved issues.');
+        // A changed filter, deployment or newer refresh must not paint stale matches.
+        if (requestId !== resolvedRequest || el('resolved-search').value.trim() !== query || Number(state.settings.active_run) !== run) return;
+        resolvedNext = result.next;
+        el('resolved-incidents').innerHTML = renderIncidents(result.rows) || '<p>No resolved issues match this search.</p>';
+        el('resolved-summary').textContent = `${result.rows.length} matching resolved issues on this page · Current deployment · Up to 10 per page`;
+        el('resolved-newest').disabled = resolvedBefore === null;
+        el('resolved-older').disabled = resolvedNext == null;
+      } catch (error) {
+        if (requestId === resolvedRequest) el('resolved-summary').textContent = error.message;
+      }
+    }
+    el('resolved-search').oninput = () => {
+      resolvedRequest++;
+      if (resolvedSearchTimer !== undefined) globalThis.clearTimeout?.(resolvedSearchTimer);
+      if (globalThis.setTimeout) resolvedSearchTimer = globalThis.setTimeout(renderResolvedIssues, 200);
+      else return renderResolvedIssues();
+    };
+    el('clear-resolved-search').onclick = () => {
+      if (resolvedSearchTimer !== undefined) globalThis.clearTimeout?.(resolvedSearchTimer);
+      el('resolved-search').value = '';
+      return renderResolvedIssues();
+    };
+    el('resolved-newest').onclick = () => { resolvedBefore = null; return renderResolvedIssues(); };
+    el('resolved-older').onclick = () => {
+      if (resolvedNext == null) return;
+      resolvedBefore = resolvedNext;
+      return renderResolvedIssues();
+    };
+
+    const SAVE_TOAST_DURATION = 6000;
+    let saveToastSequence = 0;
+    const saveToasts = new Map();
+
+    function dismissSaveToast(id) {
+      if (!saveToasts.has(id)) return;
+      const timer = saveToasts.get(id);
+      if (timer !== undefined) globalThis.clearTimeout?.(timer);
+      saveToasts.delete(id);
+      el(`save-toast-${id}`)?.remove();
+      el('save-toasts').hidden = saveToasts.size === 0;
+    }
+
+    function showSaveToast(message) {
+      const id = ++saveToastSequence;
+      const list = el('save-toasts');
+      // Insert only the new item so existing countdown bars and timers keep running.
+      list.insertAdjacentHTML('afterbegin', `
+        <div id="save-toast-${id}" class="save-toast" style="--toast-duration: ${SAVE_TOAST_DURATION}ms" role="status" aria-live="polite" aria-atomic="true">
+          <div class="save-toast-content">
+            <span id="save-toast-message-${id}" class="save-toast-message"></span>
+            <button type="button" data-dismiss-toast="${id}" aria-label="Dismiss confirmation">×</button>
+          </div>
+          <div class="save-toast-progress" aria-hidden="true"></div>
+        </div>`);
+      el(`save-toast-message-${id}`).textContent = message;
+      list.hidden = false;
+      saveToasts.set(id, globalThis.setTimeout?.(() => dismissSaveToast(id), SAVE_TOAST_DURATION));
+    }
+    el('save-toasts').onclick = event => {
+      const button = event.target.closest('button[data-dismiss-toast]');
+      if (button) dismissSaveToast(Number(button.dataset.dismissToast));
+    };
+
     function notify(message, success = false) {
       el('message').textContent = message;
       el('message').classList.toggle('success', success);
+      if (success) showSaveToast(message);
     }
 
     function report(error) {
@@ -1777,7 +1932,7 @@
     };
 
     document.querySelectorAll('form[data-action]').forEach(form => {
-      // Inline feedback remains visible beside the form, even on a long page.
+      // Keep inline confirmation alongside the shared toast for off-screen forms.
       const feedback = document.createElement('output');
       feedback.className = 'form-feedback';
       feedback.setAttribute('role', 'status');
@@ -1793,7 +1948,13 @@
         button.disabled = true;
         feedback.textContent = '';
         try {
-          await request(action, body);
+          const result = await request(action, body);
+          // Wait for this new ID to appear in a refresh; an older in-flight GET
+          // must not reset the selection back to the previously active project.
+          if (action === 'project' && result.project) {
+            selectedProject = String(result.project);
+            pendingCreatedProject = selectedProject;
+          }
           // Reset only after a confirmed write; failed requests retain entered data.
           if (action !== 'retention') form.reset();
           feedback.textContent = successMessages[action];
@@ -1868,6 +2029,9 @@
       defaultsDevice = Number(id);
       if (!state.devices.some(row => row.id === defaultsDevice)) throw new Error('Inventory device no longer exists.');
       el('device-default-feedback').textContent = '';
+      el('device-default-template').value = '';
+      el('device-default-template-name').value = '';
+      el('device-default-template-name').disabled = true;
       renderDeviceDefaults();
       el('device-default-manager').showModal();
     }
@@ -1882,7 +2046,10 @@
         <button data-edit-device-default="${row.id}">Edit</button>
         <button data-delete-device-default="${row.id}">Remove</button>
       </div>`).join('') || '<p>No service defaults yet. Add a definition, use the library, or adopt an existing project configuration.</p>';
+      const previousTemplate = el('device-default-template').value;
       updateOptions('device-default-template', state.service_templates, row => row.name, 'Choose a library service…');
+      // Refreshes preserve custom names; only a changed/removed selection resets it.
+      if (el('device-default-template').value !== previousTemplate) updateDefaultTemplateName();
       const sources = state.assignments.filter(row => row.device === defaultsDevice && !row.removed &&
         state.services.some(service => service.assignment === row.id && service.kind !== 'ping' && service.enabled !== 0));
       updateOptions('device-default-source', sources,
@@ -1904,19 +2071,40 @@
 
     el('close-device-defaults').onclick = () => el('device-default-manager').close();
     el('new-device-default').onclick = () => openDeviceDefaultEditor();
-    async function changeDeviceDefaults(action, details, button) {
+    function updateDefaultTemplateName() {
+      const template = state.service_templates.find(row => String(row.id) === el('device-default-template').value);
+      el('device-default-template-name').value = template?.name || '';
+      el('device-default-template-name').disabled = !template;
+    }
+    el('device-default-template').onchange = updateDefaultTemplateName;
+
+    async function changeDeviceDefaults(action, details, button, onSaved) {
       button.disabled = true;
       try {
         await request(action, {device: defaultsDevice, ...details});
         el('device-default-feedback').textContent = 'Device service defaults saved. Existing projects are unchanged.';
-        await refresh();
+        onSaved?.();
+        try { await refresh(); }
+        catch (error) { notify('Device defaults saved. Dashboard refresh failed; reload to see changes.'); }
       } catch (error) { el('device-default-feedback').textContent = error.message; }
       finally { button.disabled = false; }
     }
     el('add-device-default-template').onclick = () => {
+      const button = el('add-device-default-template');
+      if (button.disabled) return;
+      const device = defaultsDevice;
       const template = el('device-default-template').value;
+      const draft = el('device-default-template-name').value;
+      const name = draft.trim();
       if (!template) { el('device-default-feedback').textContent = 'Choose a library service first.'; return; }
-      return changeDeviceDefaults('device-default-from-template', {template}, el('add-device-default-template'));
+      if (!name || name.length > 100) { el('device-default-feedback').textContent = 'Enter a service name of 1–100 characters.'; return; }
+      return changeDeviceDefaults('device-default-from-template', {template, name}, button, () => {
+        // Do not clear a different device/selection or a newer draft after a slow save.
+        if (defaultsDevice === device && el('device-default-template').value === template && el('device-default-template-name').value === draft) {
+          el('device-default-template').value = '';
+          updateDefaultTemplateName();
+        }
+      });
     };
     el('adopt-device-defaults').onclick = () => {
       const assignment = el('device-default-source').value;
@@ -2400,6 +2588,7 @@
       try {
         await request('project-edit', {project: selectedProject, name});
         el('project-feedback').textContent = 'Project name updated successfully.';
+        notify(el('project-feedback').textContent, true);
         await refresh();
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
@@ -2412,6 +2601,7 @@
         await request('project-duplicate', {project: selectedProject, name: form.elements.namedItem('name').value});
         form.reset();
         el('project-feedback').textContent = 'Project duplicated successfully. Select it from the project menu to review or activate it.';
+        notify(el('project-feedback').textContent, true);
         await refresh();
       } catch (error) { el('project-feedback').textContent = error.message; }
       finally { button.disabled = false; }
@@ -2422,6 +2612,7 @@
         await request('project-status-settings', {project: selectedProject,
           enabled: event.target.elements.namedItem('enabled').checked});
         el('project-feedback').textContent = 'Status dashboard acknowledgement settings saved.';
+        notify(el('project-feedback').textContent, true);
         await refresh();
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
@@ -2448,6 +2639,7 @@
         if (!response.ok) throw new Error('Logo upload failed. Check the image and your session.');
         form.reset();
         el('project-feedback').textContent = 'Project logo updated successfully.';
+        notify(el('project-feedback').textContent, true);
         await refresh();
       } catch (error) { el('project-feedback').textContent = error.message; }
       finally { button.disabled = false; }
@@ -2456,11 +2648,12 @@
       try {
         await request('project-logo-remove', {project: selectedProject});
         el('project-feedback').textContent = 'Project logo removed.';
+        notify(el('project-feedback').textContent, true);
         await refresh();
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
 
-    el('project').onchange = () => { selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
+    el('project').onchange = () => { pendingCreatedProject = null; selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
     let pendingDeploymentDelete = null;
     el('delete-selected-deployment').onclick = () => {
       const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
@@ -2628,7 +2821,6 @@
         pendingUnacknowledgement = null;
         el('unacknowledgement-dialog').close();
         el('incident-feedback').textContent = 'Acknowledgement removed. Issue lists updated.';
-        notify('Acknowledgement removed.', true);
         try { await refresh(); }
         catch (error) { notify('Acknowledgement removed. Dashboard refresh failed; reload to see changes.'); }
       } catch (error) { el('unacknowledgement-feedback').textContent = error.message; }

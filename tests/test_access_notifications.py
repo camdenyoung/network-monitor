@@ -220,6 +220,40 @@ class AccessAndNotificationTests(unittest.TestCase):
             return dict(db.execute('''SELECT s.*, d.address FROM services s
                 JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device''').fetchone())
 
+    def test_resolved_search_covers_all_current_issues_with_ten_result_pages(self):
+        host = self.create_host()
+        with server.connect() as db:
+            db.executemany("""INSERT INTO incidents(run,service,opened,closed,status,number,
+                trigger_value,trigger_display,trigger_units,trigger_timestamp)
+                VALUES(1,?,1,?,'critical',?,2,'Port Down','%',1)""",
+                ((host['id'], 9999 if number == 1 else 500, number) for number in range(1, 232)))
+        self.assertEqual(server.snapshot()['incident_lists']['resolved'][0]['number'], 1)
+        path = '/api/resolved?run=1&search=SWITCH-1'
+        self.assertEqual(self.request(path)['status'], 401)
+        self.assertEqual(self.request('/api/resolved?run=2&search=Switch', token=self.viewer_token)['status'], 400)
+        found = []
+        while path:
+            response = self.request(path, token=self.viewer_token)
+            self.assertEqual(response['status'], 200)
+            page = json.loads(response['content'])
+            self.assertLessEqual(len(page['rows']), 10)
+            found.extend(row['number'] for row in page['rows'])
+            cursor = page['next']
+            path = ('/api/resolved?run=1&search=SWITCH-1&before=' + str(cursor['before'])
+                    + '&before_time=' + str(cursor['before_time'])) if cursor else None
+        self.assertEqual(len(found), 231)
+        self.assertEqual(len(set(found)), 231)
+        self.assertEqual(found[0], 1)  # Latest recovery, even though its issue ID is oldest.
+        for query in ('Stage', 'Port%20Down', 'Port%20Down%20%25', '%25'):
+            result = self.request('/api/resolved?run=1&search=' + query, token=self.viewer_token)
+            self.assertEqual(len(json.loads(result['content'])['rows']), 10)
+        for query in ('_', '%27%20OR%201%3D1--', 'no-match'):
+            result = self.request('/api/resolved?run=1&search=' + query, token=self.viewer_token)
+            self.assertEqual(json.loads(result['content'])['rows'], [])
+        self.assertEqual(self.request('/api/resolved?run=1&search=Switch&before=1', token=self.viewer_token)['status'], 400)
+        server.mutate('assignment-remove', {'assignment':1})
+        self.assertEqual(json.loads(self.request('/api/resolved?run=1&search=Switch', token=self.viewer_token)['content'])['rows'], [])
+
     def configure_channels(self):
         with server.connect() as db:
             notifications.save_configuration(db, {
@@ -1192,6 +1226,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             server.poll_one(host, 1)
         incident = server.snapshot()['incident_lists']['active'][0]
         token, operator = self.create_operator()
+        server.mutate('project-status-settings', {'project':1,'enabled':False})
         self.assertEqual(self.request('/api/status-ack', {'id': incident['id']}, token, operator['csrf'])['status'], 400)
         self.assertEqual(self.request('/api/project-status-settings', {'project':1,'enabled':True},
                                       self.admin_token,self.admin['csrf'])['status'], 200)
@@ -1474,6 +1509,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('ack', {'id': issue_id}, actor=self.admin)
         issue = server.snapshot()['incident_lists']['acknowledged'][0]
         body = {'id': issue_id, 'expected_revision': issue['ack_revision']}
+        server.mutate('project-status-settings', {'project':1,'enabled':False})
         self.assertEqual(self.request('/api/status-unack', body, self.admin_token, self.admin['csrf'])['status'], 400)
         server.mutate('project-status-settings', {'project': 1, 'enabled': True})
         server.mutate('toggle', {'id': 1, 'field': 'visible'})

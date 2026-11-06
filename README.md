@@ -1,4 +1,4 @@
-# Network Monitor v0.5.2 · Build 78
+# Network Monitor v0.5.3 · Build 87
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -101,6 +101,12 @@ list while the fault is open. All recovered issues appear in the resolved
 list. All three lists are scoped to the active deployment. The three assignment controls
 are independent; notification flags enable or mute outbound messages per host.
 
+The Admin **Resolved issues** section shows the ten most recently recovered
+issues by default. Search by issue number, device ID/IP, alias, service, status or
+recorded value to find matches across all resolved issues in the current deployment.
+Results use ten-item pages with Older matches/Newest matches controls. Clear search
+to return to the latest ten; search text and the current page survive live refreshes.
+
 ## Implemented
 
 - Permanent inventory with full ID/name, model and IP editing; confirmed permanent
@@ -108,7 +114,8 @@ are independent; notification flags enable or mute outbound messages per host.
   and legacy address records across all projects. Shared projects/runs survive.
 - Shared device IP; saved project assignments with
   per-project aliases. Inventory IP edits apply to all projects.
-- One active project, separate deployment runs, retained historical records.
+- One active project, separate deployment runs, retained historical records,
+  project duplication and confirmed project deletion.
 - Independent monitoring and visibility controls.
 - Bounded concurrent polling (24 workers), 15-second cycle delay.
 - Host-first dependency checks: child services are suppressed while the host ping
@@ -130,8 +137,9 @@ are independent; notification flags enable or mute outbound messages per host.
 - In-place service editing from host cards or the configuration catalogue, including
   protocol, OID/register/port, thresholds, scaling, units, Modbus unit ID, persistence,
   and optional credential replacement. Blank edited credentials stay unchanged.
-- Warning/critical thresholds, configurable persistence, issue recovery and local
-  acknowledgement; unknown/stale status after 60 seconds without a reading.
+- Warning/critical thresholds, configurable persistence, recovery hysteresis and
+  flap protection. Issue recovery, acknowledgement/unacknowledgement and configurable
+  reminders; unknown/stale status after 60 seconds without a reading.
 - Service history with time presets/custom dates, deployment selection, bounded graphs and exact-reading table pages; retention in days.
 - Consistent SQLite backup and validated restore with polling paused afterwards.
 - Local web UI, Compose health check, non-root container, persistent volume.
@@ -161,28 +169,40 @@ CLI recovery command and versioned encrypted archives remain planned.
 
 ## Explicit limitations / next milestones
 
-- No public relay or chat-based remote acknowledgement yet. Outbound Telegram and WhatsApp
-  Business notifications are supported directly from the local server.
-- Built-in TLS and credential encryption remain pending.
-  Account passwords are hashed; network/provider credentials in backups remain plaintext.
-- No verified manufacturer profiles: do not invent OIDs or Mean Well registers.
-- SNMP v2c only. Raw counters are not throughput; counter-rate calculation, counter
-  rollover handling, SNMPv3 and vendor profiles are required next.
-- Modbus TCP port 502 with configurable unit ID, unsigned 16-bit Holding (03) or Input (04) registers with scale.
-  RTU/gateways, signed/multi-register values, bitfields and
-  manufacturer fault decoding are pending confirmation of the actual DRS interface.
-- Host cards show ICMP online/offline/unknown independently of additional services.
-  Paired-radio views and a combined host/service health rollup remain pending.
-  Networks that block ICMP will show hosts as offline and suppress their child services.
-- Inventory creation/editing/deletion and service creation/editing/removal are present; multi-service device profiles, project cloning, and project readiness
-  checks remain to be added.
-- History supports up to 31 days per request. Long graphs are summarised; exact readings remain available through table pages. Requests have bounded work/concurrency; choose a shorter range if a slow-storage query reaches its time budget.
-- No hysteresis, upstream network dependencies, maintenance windows, configurable polling intervals,
-  or notification reminders yet. Recovery uses the same thresholds as triggering.
-- No scheduled/off-site/encrypted backups, pre-upgrade backup automation, schema
-  migration tooling, or downgrade support yet.
+- No public relay or notification-link remote acknowledgement yet. Telegram and
+  WhatsApp Business notifications are sent directly from the local server;
+  acknowledgements are available on the local dashboards for authorised users.
+- Built-in TLS and credential encryption remain pending. Account passwords are
+  hashed; network/provider credentials in the database and backups remain plaintext.
+- No built-in verified manufacturer profiles. Configure OIDs/registers against the
+  relevant equipment documentation; reusable services and inventory defaults are supported.
+- SNMP v2c only. Counter-rate calculation, rollover handling and SNMPv3 remain
+  unimplemented; raw counter readings are not throughput rates.
+- Modbus supports TCP port 502, configurable unit ID, unsigned single 16-bit
+  Holding (03)/Input (04) registers and scaling. TCP-to-RTU converting gateways
+  can provide access to RTU devices. Direct serial RTU, raw RTU-over-TCP transports,
+  signed/multi-register values, bitfield extraction and built-in manufacturer fault
+  decoding are not implemented.
+- Host online/offline status uses ICMP. Service issues appear separately and tint
+  host cards by severity. Paired-radio/topology views, upstream network dependencies
+  and alternatives to ICMP host checks remain unimplemented. Blocking ICMP causes
+  the host to appear offline and suppresses its child services.
+- Inventory CRUD, per-device service defaults, project duplication and project
+  deletion are implemented. Named multi-service device profiles and project
+  readiness checks remain unimplemented.
+- History supports up to 31 days per request. Long graphs are summarised; exact
+  readings remain available through table pages. Requests have bounded work and
+  concurrency; choose a shorter range if a slow-storage query reaches its time budget.
+- Recovery hysteresis, flap protection and configurable issue reminders are
+  implemented. Scheduled maintenance windows and configurable polling intervals
+  remain unimplemented.
+- Automatic startup/restore migrations and full database backup/restore are
+  implemented. Scheduled/off-site/encrypted backups, pre-upgrade backup automation,
+  standalone migration tooling and downgrade support remain unimplemented.
 - Polling is a cycle, not a precise interval: slow endpoints lengthen the cycle.
-  Load testing against 150 actual or simulated endpoints is still required.
+  A repeatable synthetic capacity harness is provided in [LOAD_TESTING.md](LOAD_TESTING.md).
+  Results depend on hardware, storage, network conditions and device behaviour;
+  the harness does not measure browser rendering or reproduce every real-device fault.
 
 ## Verification
 
@@ -278,12 +298,28 @@ Create an approved template with **three positional body text parameters**:
 Enable the provider, save and send a test. Provider approval, sender provisioning,
 API permissions, billing and group eligibility are managed in Meta, outside this app.
 
+## Recovery hysteresis and flap protection
+
+Numeric services can set **Recovery hysteresis (metric units)** in the service
+editor. A zero margin disables hysteresis. Escalation uses the configured Warning
+and Critical thresholds; recovery must also clear the margin, for the configured
+number of consecutive readings. For example, Warning below -65 dBm with a margin
+of 3 requires -62 dBm or better to recover. State-code services do not use hysteresis.
+
+Flap protection detects repeated confirmed status changes within its configured
+window, suppresses repeated issue notifications during flapping and requires a
+continuous stable period before ending the flap episode. Monitoring and dashboard
+updates continue. Flap settings are available for automatic host checks and services.
+
 ## Delivery behaviour
 
 New confirmed issues and optional recoveries are queued independently for each
 enabled provider. Per-host notification flags and host dependencies are respected.
 Enabling a provider does not replay old issues. Each event is queued once per
-provider; reminders and remote acknowledgement are not implemented yet.
+provider. Configurable reminders repeat for eligible open, unacknowledged issues;
+acknowledgement, notification pauses, dependency suppression and flap protection
+prevent inappropriate reminders. Notification-link remote acknowledgement through
+an external relay remains unimplemented.
 
 Queues survive restarts. Transient failures retry with backoff, up to five attempts;
 permanent errors stop immediately. Admins see pending/sent/failed/cancelled states
@@ -292,9 +328,9 @@ settings cancels pending messages so they cannot move to a different destination
 Restoring a backup cancels unsent messages and pauses polling.
 
 “Sent” means accepted by the provider, not a verified read/delivery receipt. A
-network timeout after provider acceptance can cause a duplicate on retry. No real
-provider delivery has been verified without credentials. Tokens are hidden in the
-UI and logs, but remain in admin backups; protect those backups.
+network timeout after provider acceptance can cause a duplicate on retry. Use
+Send test to verify provider delivery in your environment. Tokens are hidden in
+the UI and logs, but remain in admin backups; protect those backups.
 
 Admins can select **Operator** when adding or editing a user. Operators can view
 monitoring/history and acknowledge issues, but all configuration remains
@@ -325,7 +361,7 @@ Both dashboards place **Active issues** above hosts. List rows have rounded
 card-style borders and spacing with the same severity colours as cards. Navigation
 and download links use consistent button styling across the app.
 
-Under **Inventory and project configuration → Edit selected project**, Admins can
+Under **Project configuration → Edit selected project**, Admins can
 rename the selected project and upload, replace, or remove its event logo. Logos
 accept PNG/JPEG up to 2 MB and 4096 pixels per side. The selected project logo is
 shown on the main dashboard; the active project logo is shown on public status.
@@ -402,10 +438,17 @@ Permanent inventory is its own top-level Admin section, separate from Project
 configuration. Keep inventory creation/search/edit/removal there; project assignment
 and service configuration remain under Project configuration.
 
-Main dashboard configuration sections use colour-coded Show/Hide buttons instead
-of disclosure arrows: Permanent inventory, Project configuration, Reusable service
-library, User management, Telegram, WhatsApp Business, and Backup/restore/retention.
-These panels always start hidden on page load and do not persist visibility.
+Project configuration opens from the top control row, immediately before the
+Acknowledged issues control. Its area appears below those buttons and above Active
+issues. Other configuration areas use the lower colour-coded tabs. Only one
+configuration area can be open at a time; all start closed after a page reload.
+The Project assignments device list has a separate collapsed-by-default arrow.
+The complete Project configuration area has a shared outer border. Successful
+saves show dismissible six-second toasts at the top right, as well as inline
+confirmation. Toasts stack with the newest first; each has its own countdown bar
+and auto-close timer. The compact stack is 320px wide and shrinks on small screens.
+New confirmations do not replace or restart earlier ones. Unacknowledgement uses
+inline confirmation and the updated issue lists rather than a toast.
 Issue-list and live-status visibility preferences remain separate.
 
 Older username-only acknowledgements display the account Full Name after it is
@@ -505,6 +548,10 @@ Deployment descriptions are included in SQLite backups but not public status API
 In **Permanent inventory**, open the device list and choose **Service defaults**
 for a device. Add/edit/remove definitions, add one from the reusable library, or
 choose an existing project configuration and **Replace defaults from project**.
+When adding from the library, choose **Service name on this device** before adding.
+It starts with the library name and can be shortened, for example from Siklu EH RSSI
+to RSSI. Only the device's copy is renamed; future project assignments use that name,
+while the library entry and existing project services remain unchanged.
 This explicit adoption copies credentials on the server and leaves the project
 untouched. Existing projects are not chosen automatically during upgrade.
 
@@ -514,8 +561,13 @@ do not affect the other. Re-adding a removed assignment restores its old setup;
 duplicating a project copies that project's configuration. Copies start with
 monitoring enabled. Inventory defaults are included in complete backups.
 
-Admin configuration areas now act as tabs: only one is visible at a time, and
-switching tabs preserves unfinished forms. They start closed after a page reload.
+The top Project configuration button and lower configuration tabs are exclusive;
+switching areas preserves unfinished forms. They start closed after a page reload.
+Creating a project selects it for editing without starting a deployment or changing
+the monitored project. New projects allow Status Dashboard acknowledgements by
+signed-in Admins/Operators by default. Existing projects retain their settings;
+duplicating a project copies its acknowledgement setting. Anonymous users and
+View Only users cannot acknowledge issues.
 The public status dashboard pulses its background three times when a new active
 issue appears after the initial load: red for Critical/Unreachable, yellow for Warning. Existing or reappearing issues do not
 retrigger it; reduced-motion browsers receive a brief static red highlight.

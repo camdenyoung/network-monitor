@@ -12,6 +12,8 @@ function element(id) {
         const fields = new Map();
         nodes.set(id, {
             value: '', innerHTML: '', textContent: '', open: false, fields,
+            insertAdjacentHTML(position, markup) { this.innerHTML = position === 'afterbegin' ? markup + this.innerHTML : this.innerHTML + markup; },
+            remove() { this.removed = true; },
             classList: { toggle() {}, add() {}, remove() {} },
             querySelectorAll() { return []; },
             querySelector() { return { focus() {} }; },
@@ -77,6 +79,9 @@ const context = vm.createContext({
 new vm.Script(script).runInContext(context);
 await context.refresh();
 assert.match(element('dashboard').innerHTML, /SW001 - Stage/);
+assert.equal(element('assignments').innerHTML, '');
+element('assignments-details').open = true;
+element('assignments-details').ontoggle();
 assert.match(element('assignments').innerHTML, /Device ID - Alias \/ Address/);
 assert.match(element('assignments').innerHTML, /SW001 - Stage \/ 127\.0\.0\.1/);
 assert.match(element('dashboard').innerHTML, /class="action-menu"/);
@@ -725,21 +730,21 @@ for (const panel of configurationPanels) {
     assert.equal(element(panel).hidden, true);
     element(`toggle-${panel}`).onclick();
     assert.equal(element(panel).hidden, false);
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'true');
+    assert.equal(element(`toggle-${panel}`).getAttribute(panel === 'project-configuration' ? 'aria-pressed' : 'aria-selected'), 'true');
+    assert.equal(element(`toggle-${panel}`).getAttribute(panel === 'project-configuration' ? 'aria-pressed' : 'aria-selected'), 'true');
     for (const other of configurationPanels.filter(id => id !== panel)) assert.equal(element(other).hidden, true);
     element(`toggle-${panel}`).onclick();
     assert.equal(element(panel).hidden, true, 'Clicking the current tab closes it');
-    assert.equal(element(`toggle-${panel}`).getAttribute('aria-selected'), 'false');
+    assert.equal(element(`toggle-${panel}`).getAttribute(panel === 'project-configuration' ? 'aria-pressed' : 'aria-selected'), 'false');
     assert.equal(element(`toggle-${panel}`).getAttribute('tabindex'), '0');
 }
 element('toggle-permanent-inventory').onclick();
 let navigationPrevented = false;
-element('toggle-permanent-inventory').onkeydown({key:'ArrowLeft',preventDefault(){navigationPrevented=true;}});
+element('toggle-permanent-inventory').onkeydown({key:'ArrowRight',preventDefault(){navigationPrevented=true;}});
 assert.equal(navigationPrevented, true);
-assert.equal(element('project-configuration').hidden, false);
+assert.equal(element('service-library-panel').hidden, false);
 assert.equal(element('permanent-inventory').hidden, true);
-assert.equal(element('toggle-project-configuration').focused, true);
+assert.equal(element('toggle-service-library-panel').focused, true);
 element('toggle-permanent-inventory').onclick();
 await sectionReload.refresh();
 assert.equal(element('permanent-inventory').hidden, false);
@@ -1043,10 +1048,33 @@ assert.equal(String(defaultSubmission.body.default_service), '7');
 assert.equal(defaultSubmission.body.name, 'Changed device default');
 assert.equal(element('service-editor').open, false);
 assert.equal(element('device-default-manager').open, true);
+assert.equal(element('device-default-template-name').disabled,true);
 element('device-default-template').value = '8';
+element('device-default-template').onchange();
+assert.equal(element('device-default-template-name').value,'Library RSSI');
+assert.equal(element('device-default-template-name').disabled,false);
+element('device-default-template-name').value='RSSI';
+await defaultsContext.refresh();
+assert.equal(element('device-default-template-name').value,'RSSI');
+rejectDefaultSave = true;
+await element('add-device-default-template').onclick();
+assert.equal(element('device-default-template').value,'8');
+assert.equal(element('device-default-template-name').value,'RSSI');
+assert.equal(element('device-default-feedback').textContent,'Duplicate service name');
+rejectDefaultSave = false;
+const priorDefaultSubmission = defaultSubmission;
+element('device-default-template-name').value='   ';
+await element('add-device-default-template').onclick();
+assert.equal(defaultSubmission,priorDefaultSubmission);
+assert.match(element('device-default-feedback').textContent,/Enter a service name/);
+element('device-default-template-name').value='RSSI';
 await element('add-device-default-template').onclick();
 assert.equal(defaultSubmission.path, '/api/device-default-from-template');
 assert.equal(defaultSubmission.body.template, '8');
+assert.equal(defaultSubmission.body.name,'RSSI');
+assert.equal(element('device-default-template').value,'');
+assert.equal(element('device-default-template-name').value,'');
+assert.equal(element('device-default-template-name').disabled,true);
 element('device-default-source').value = '1';
 await element('adopt-device-defaults').onclick();
 assert.equal(element('app-confirmation').open, true);
@@ -1830,10 +1858,13 @@ assert.equal(undoRequests.length,1);
 assert.match(element('unacknowledgement-feedback').textContent,/changed/);
 element('cancel-unacknowledgement').onclick();
 undoContext.openUnacknowledgement(501);
+const toastCountBeforeUndo = vm.runInContext('saveToasts.size',undoContext);
 const undoSave = element('confirm-unacknowledgement').onclick();
 await element('confirm-unacknowledgement').onclick();
 await undoSave;
 assert.equal(undoRequests.length,2);
+assert.equal(vm.runInContext('saveToasts.size',undoContext),toastCountBeforeUndo);
+assert.match(element('incident-feedback').textContent,/Acknowledgement removed/);
 assert.equal(undoRequests.at(-1).body.expected_revision,2);
 assert.equal(undoRequests.at(-1).headers['X-CSRF-Token'],'undo-token');
 assert.equal(element('unacknowledgement-dialog').open,false);
@@ -2438,3 +2469,154 @@ for (const publicPage of [false,true]) {
   }
 }
 console.log('Both dashboards disable List while forced to Cards, preserve List through refresh/service toggles, and honour explicit Cards choices.');
+
+// Project setup stays above issues, keeps a fresh selection through stale refreshes,
+// and confirms writes with a dismissible, auto-hiding toast without moving focus.
+assert.ok(html.indexOf('id="toggle-project-configuration"') < html.indexOf('id="toggle-acknowledged"'));
+assert.ok(html.indexOf('id="toggle-live"') < html.indexOf('id="project-configuration"'));
+assert.ok(html.indexOf('id="project-configuration"') < html.indexOf('<h2>Active issues</h2>'));
+assert.match(html, /#monitoring-toggle\.monitoring-paused\s*\{[^}]*color: #e8eff8/);
+const projectCreationForm = element('project-creation-test');
+projectCreationForm.dataset = {action:'project'};
+projectCreationForm.after = feedback => {projectCreationForm.feedback = feedback;};
+projectCreationForm.addEventListener = (name, listener) => {projectCreationForm.submit = listener;};
+let publishedProject = false, rejectProject = false;
+const creationCalls = [], toastTimers = new Map();
+let toastTimerId = 0;
+const creationFixture = {...fixture,projects:[{id:1,name:'Existing',status_ack_enabled:0}],
+  settings:{...fixture.settings,active_run:'1'}};
+const creationContext = vm.createContext({document:{...context.document,
+  querySelectorAll:selector => selector === 'form[data-action]' ? [projectCreationForm] : [],
+  createElement:() => element('project-creation-feedback')},
+  FormData:context.FormData, setInterval(){},
+  setTimeout(callback){toastTimers.set(++toastTimerId,callback);return toastTimerId;},
+  clearTimeout(id){toastTimers.delete(id);},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      creationCalls.push(path);
+      return {ok:!rejectProject,json:async () => rejectProject ? {error:'Project name already used'} : {ok:true,project:97}};
+    }
+    if (path === '/api/me') return {ok:true,json:async () => ({id:1,role:'admin',csrf:'test'})};
+    if (path === '/api/users') return {ok:true,json:async () => []};
+    if (path === '/api/telegram' || path === '/api/whatsapp') return {ok:true,json:async () => ({configuration:{},outbox:[]})};
+    return {ok:true,json:async () => ({...creationFixture,
+      projects:publishedProject ? [...creationFixture.projects,{id:97,name:'New project',status_ack_enabled:1}] : creationFixture.projects})};
+  }});
+new vm.Script(script).runInContext(creationContext);
+await creationContext.initializeSession();
+projectCreationForm.elements.namedItem('name').value='New project';
+await projectCreationForm.submit({preventDefault(){}});
+assert.equal(vm.runInContext('selectedProject',creationContext),'97');
+publishedProject = true;
+await creationContext.refresh();
+assert.equal(element('project').value,'97');
+assert.equal(projectCreationForm.elements.namedItem('name').value,'');
+assert.deepEqual(creationCalls,['/api/project']);
+assert.equal(element('save-toasts').hidden,false);
+assert.equal(element('save-toast-message-1').textContent,'Project added successfully.');
+assert.match(element('save-toasts').innerHTML,/save-toast-progress/);
+assert.match(element('save-toasts').innerHTML,/--toast-duration: 6000ms/);
+assert.equal(projectCreationForm.feedback.textContent,'Project added successfully.');
+const firstToastTimer = [...toastTimers.values()][0];
+creationContext.notify('Second setting saved.',true);
+assert.equal(toastTimers.size,2);
+assert.equal(vm.runInContext('saveToasts.size',creationContext),2);
+assert.equal([...toastTimers.values()][0],firstToastTimer,'New confirmations do not restart earlier timers');
+assert.equal(element('save-toast-message-2').textContent,'Second setting saved.');
+assert.ok(element('save-toasts').innerHTML.indexOf('id="save-toast-2"') < element('save-toasts').innerHTML.indexOf('id="save-toast-1"'));
+firstToastTimer();
+assert.equal(element('save-toast-1').removed,true);
+assert.equal(element('save-toasts').hidden,false);
+assert.equal(vm.runInContext('saveToasts.size',creationContext),1);
+[...toastTimers.values()][0]();
+assert.equal(element('save-toast-2').removed,true);
+assert.equal(element('save-toasts').hidden,true);
+creationContext.notify('<Saved safely>',true);
+assert.equal(element('save-toast-message-3').textContent,'<Saved safely>');
+assert.doesNotMatch(element('save-toasts').innerHTML,/<Saved safely>/);
+creationContext.notify('Fourth confirmation',true);
+element('save-toasts').onclick({target:{closest:() => ({dataset:{dismissToast:'3'}})}});
+assert.equal(element('save-toast-3').removed,true);
+assert.equal(vm.runInContext('saveToasts.size',creationContext),1);
+assert.equal(toastTimers.size,1);
+creationContext.dismissSaveToast(3); // Dismissal is harmless after its timer was cancelled.
+[...toastTimers.values()][0]();
+assert.equal(element('save-toast-4').removed,true);
+assert.equal(element('save-toasts').hidden,true);
+rejectProject = true;
+projectCreationForm.elements.namedItem('name').value='Duplicate';
+await projectCreationForm.submit({preventDefault(){}});
+assert.equal(projectCreationForm.elements.namedItem('name').value,'Duplicate');
+assert.equal(element('save-toasts').hidden,true);
+assert.equal(element('project').value,'97');
+assert.equal(projectCreationForm.feedback.textContent,'Project name already used');
+element('assignments-details').open=true;
+element('assignments-details').ontoggle();
+assert.match(element('assignments-count').textContent,/Assigned devices/);
+element('assignments-details').open=false;
+element('assignments-details').ontoggle();
+assert.equal(element('assignments').innerHTML,'');
+await creationContext.refresh();
+assert.equal(element('assignments-details').open,false);
+console.log('Project setup and independent stacked toast timers, countdown markup, safe messages, expiry and dismissal passed.');
+
+// Default resolved list is ten; search spans older data without stale replies repainting it.
+const resolvedCalls = [];
+const resolvedRows = Array.from({length:15},(_,index) => ({id:900-index,number:900-index,
+  service:2,status:'warning',opened:now-100,closed:now-index,trigger_value:24.1,
+  trigger_display:'24.1',trigger_units:'V',trigger_timestamp:now-100}));
+const resolvedFixture = {...fixture,settings:{...fixture.settings,active_run:'1'},
+  incident_lists:{active:[],acknowledged:[],suppressed:[],resolved:resolvedRows}};
+let slowResolved;
+const resolvedContext = vm.createContext({document:context.document,FormData:context.FormData,setInterval(){},
+  fetch:async path => {
+    if (path.startsWith('/api/resolved?')) {
+      const query = new URL(path,'http://monitor.test').searchParams;
+      resolvedCalls.push(query);
+      if (query.get('search') === 'slow') await new Promise(resolve => {slowResolved=resolve;});
+      if (query.get('search') === 'error') return {ok:false,json:async () => ({error:'Search unavailable'})};
+      const older = query.has('before');
+      return {ok:true,json:async () => ({rows:query.get('search') === 'none' ? []
+        : [{...resolvedRows[0],number:older ? 20 : 42}],
+        next:older ? null : {before:40,before_time:now-30},run:1})};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'viewer',csrf:'test'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : resolvedFixture};
+  }});
+new vm.Script(script).runInContext(resolvedContext);
+await resolvedContext.initializeSession();
+await resolvedContext.refresh();
+assert.equal((element('resolved-incidents').innerHTML.match(/<div class="metric">/g)||[]).length,10);
+assert.match(element('resolved-summary').textContent,/Latest 10/);
+assert.equal(resolvedCalls.length,0);
+element('resolved-search').value='voltage';
+await element('resolved-search').oninput();
+assert.match(element('resolved-incidents').innerHTML,/Issue #42/);
+assert.equal(element('resolved-search-pages').hidden,false);
+assert.equal(element('resolved-older').disabled,false);
+await element('resolved-older').onclick();
+assert.equal(resolvedCalls.at(-1).get('before'),'40');
+assert.match(element('resolved-incidents').innerHTML,/Issue #20/);
+await resolvedContext.refresh();
+await resolvedContext.renderResolvedIssues();
+assert.equal(resolvedCalls.at(-1).get('before'),'40');
+assert.equal(element('resolved-search').value,'voltage');
+await element('resolved-newest').onclick();
+assert.equal(resolvedCalls.at(-1).has('before'),false);
+element('resolved-search').value='none';
+await element('resolved-search').oninput();
+assert.match(element('resolved-incidents').innerHTML,/No resolved issues match/);
+element('resolved-search').value='error';
+await element('resolved-search').oninput();
+assert.equal(element('resolved-summary').textContent,'Search unavailable');
+element('resolved-search').value='slow';
+const pendingResolved = element('resolved-search').oninput();
+await element('clear-resolved-search').onclick();
+slowResolved();
+await pendingResolved;
+assert.equal(element('resolved-search').value,'');
+assert.equal((element('resolved-incidents').innerHTML.match(/<div class="metric">/g)||[]).length,10);
+assert.match(element('resolved-summary').textContent,/Latest 10/);
+assert.equal(element('resolved-search-pages').hidden,true);
+console.log('Resolved issues show ten latest recoveries; full search, paging, refresh persistence, empty/error states and stale replies passed.');

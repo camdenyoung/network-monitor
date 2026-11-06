@@ -4,6 +4,52 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 87 — v0.5.3
+
+- Merge the README corrections and Admin project setup improvements into main, including the bordered top configuration area, automatic selection of new projects, collapsible assignments and acknowledgement defaults for new projects.
+- Include compact stacked save toasts with individual countdowns, resolved-issue search with ten-item pages, and per-device names for library services copied into inventory defaults.
+- Release as v0.5.3 and advance the displayed build. Verify with all 226 backend tests plus dashboard, connection recovery and responsive host-view checks.
+
+### Build 86 — v0.5.2 (Admin project configuration updates)
+
+- Allow naming a library service's copy when adding it to a permanent inventory device's defaults; future assignments inherit the chosen name without renaming the library or existing project services.
+- Prefill the library name, preserve custom drafts during refresh/errors, validate names and reset after a confirmed add.
+
+### Build 85 — v0.5.2 (Admin project configuration updates)
+
+- Show the ten most recently recovered resolved issues by default and add a search field with Clear search.
+- Search all resolved issues in the current deployment, including older matches beyond the dashboard snapshot limit, with ten-result pages and recovery-time ordering.
+- Preserve search/page during live refreshes, reject stale replies and enforce authenticated, bounded, indexed reads.
+
+### Build 84 — v0.5.2 (Admin project configuration updates)
+
+- Rename the first Project configuration heading from Projects to Add Project.
+
+### Build 83 — v0.5.2 (Admin project configuration updates)
+
+- Narrow save-confirmation toasts to 320px while retaining small-screen fitting, stacking and individual countdowns.
+- Remove the unacknowledgement success toast; retain inline confirmation and live issue-list updates.
+
+### Build 82 — v0.5.2 (Admin project configuration updates)
+
+- Stack save-confirmation toasts at the top right, newest first, with independent six-second lifetimes and close buttons.
+- Add a countdown progress bar to each toast without restarting existing bars when new confirmations arrive; support reduced-motion preferences.
+
+### Build 81 — v0.5.2 (Admin project configuration updates)
+
+- Move save-confirmation toasts to the top right and add a rounded outer border around the whole Project configuration area, matching the Live Hosts panel.
+
+### Build 80 — v0.5.2 (Admin project configuration updates)
+
+- Move Project configuration to the top controls and display its area above Active issues, coordinated with the lower configuration tabs. Keep paused monitoring button text white.
+- Select newly created projects without activating monitoring, preserving the selection through stale refreshes. Default new projects to allowing signed-in Admin/Operator status acknowledgements; retain existing project settings.
+- Add a collapsed assignment device list and dismissible save-confirmation toasts while retaining inline messages.
+
+### Build 79 — v0.5.2 (README capability review branch)
+
+- Correct outdated README limitations for hysteresis, flap protection, reminders, project duplication, inventory defaults, Modbus gateways and synthetic load testing.
+- Document recovery hysteresis and flap protection; update delivery behaviour to reflect implemented reminders and retain genuine outstanding limitations.
+
 ### Build 78 — v0.5.2
 
 - Merge the service-history fix: alarm-setting edits retain graph continuity, while measurement changes create separately selectable versions with their original units/state labels.
