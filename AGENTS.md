@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.5, Build 91. Show it after the title on both the main and
+Current displayed release is v0.5.6, Build 94. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -859,3 +859,41 @@ and clear their hidden measurement probe/cache without changing layout preferenc
 Permanent inventory lists sort by the user-facing Device ID/name, case-insensitive
 with natural numeric ordering (SW2 before SW10), before applying the display limit.
 Apply the same order to search results; sort a filtered copy without mutating state.devices.
+
+Permanent inventory Duplicate opens an Admin-only app-styled dialog with a captured
+source ID, blank new Device ID/IP and editable prefilled model. /api/device-duplicate
+requires Admin/CSRF, validates a fresh unique name/IP, allocates a durable device ID
+and copies every SERVICE_CONFIGURATION_FIELDS value from all source defaults in
+the same transaction. Return the new device ID only after commit. Copy no assignments,
+project services, readings, issues or runtime state. Preserve rejected drafts and
+prevent duplicate submits or Cancel/Escape while saving; distinguish refresh failure
+from write failure. Copies and their defaults remain independent of the source.
+require_unique_inventory_address runs inside mutate's LOCK/transaction for device
+create/edit/address updates/duplication, excluding the edited row. Canonicalize
+IPv4/IPv6, compare IPv4-mapped IPv6 equivalently, and return InventoryAddressConflict
+as safe HTTP feedback identifying the existing Device ID. Do not expose arbitrary
+ValueError messages or credentials. Existing legacy/restored inventory is not
+rewritten, and benchmark seeds intentionally insert shared simulator IPs directly;
+do not add a global unique index that breaks those datasets. Tests cover clone
+ownership/configuration, rollback, concurrency, IP aliases, API roles/CSRF and UI.
+
+Inventory transfer: app/inventory_transfer.py owns version-1 network-monitor-inventory
+JSON (name/model/address/service_defaults per device; no database IDs or projects).
+Admin-only /api/inventory-export includes raw default credentials and a host-local
+filename timestamp. /api/inventory-preview and /api/inventory-import require Admin/CSRF.
+Merge skips existing exact Device IDs; update adds new and updates matched model/IP
+and the complete defaults set, retaining default IDs when names match. Never delete
+absent inventory or modify assignments, project services/history, accounts or library.
+Allow blank imported IPs as unconfigured; ordinary device creation/duplication still
+requires an IP. Validate all definitions via the shared service validator, cap 10 MB,
+5,000 devices and 10,000 defaults, and reject unknown IDs/fields and duplicate names.
+Validate final canonical IP ownership before any writes, permitting atomic swaps;
+untouched legacy duplicates are preserved. Bound conflict owner lists. Apply under
+mutate's LOCK/transaction and roll back every change on failure. address_key is shared
+with normal unique-IP validation, including IPv4-mapped IPv6 normalization.
+Preview contains no communities and includes default removals. HMAC binds file/mode
+and current inventory/defaults using a process-only random key. Revalidate on confirm;
+changed inventory, edited files or restart require re-review. No pending DB jobs or
+schema migrations. The in-app dialog captures file/mode/token, prevents double saves
+and closing during writes, blocks IP conflicts, preserves rejected inputs and resets
+only after success. Export/import does not include project logos or deployment data.

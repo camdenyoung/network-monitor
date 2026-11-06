@@ -2707,3 +2707,164 @@ assert.equal(accessNode('service-filter-options').innerHTML,'');
 assert.equal(accessNode('toggle-hosts').hidden,true);
 assert.match(accessNode('incidents').innerHTML,/Affected host/);
 console.log('Anonymous/expired/temporary-password status hides host data and controls; signed-in roles retain preferences; logout discards stale authenticated replies.');
+
+// Inventory duplication captures its source, requires fresh identity/address and retains rejected drafts.
+const duplicateCalls = [];
+let duplicateReject = true, releaseDuplicateRequest;
+const duplicationFixture = {projects:[],devices:[
+  {id:1,name:'Source <A>',model:'Industrial',address:'192.0.2.1'},
+  {id:2,name:'Other',model:'Radio',address:'192.0.2.2'}],assignments:[],runs:[],
+  settings:{active_run:'0',paused_run:'0',retention_days:'30'},services:[],latest:[],
+  service_templates:[],device_service_defaults:[{...stateService,id:9,device:1}],
+  legacy_addresses:[],incident_lists:{active:[],acknowledged:[],resolved:[],suppressed:[]}};
+const duplicationBrowser = vm.createContext({document:context.document,FormData:context.FormData,setInterval(){},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      duplicateCalls.push({path,body:JSON.parse(options.body)});
+      if (!duplicateReject) await new Promise(resolve => {releaseDuplicateRequest=resolve;});
+      return {ok:!duplicateReject,json:async () => duplicateReject
+        ? {error:'IP address 192.0.2.1 is already assigned to Source <A>.'} : {ok:true,device:3}};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'admin',csrf:'duplicate-token'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : duplicationFixture};
+  }});
+new vm.Script(script).runInContext(duplicationBrowser);
+await duplicationBrowser.initializeSession();
+element('inventory-details').open=true;
+element('inventory-search').value='';
+duplicationBrowser.renderInventory();
+assert.match(element('inventory').innerHTML,/data-duplicate-device="1"/);
+duplicationBrowser.openDeviceDuplicate(1);
+const duplicationForm = element('device-duplicate-form');
+assert.equal(duplicationForm.elements.namedItem('name').value,'');
+assert.equal(duplicationForm.elements.namedItem('address').value,'');
+assert.equal(duplicationForm.elements.namedItem('model').value,'Industrial');
+assert.equal(element('device-duplicate-source').textContent,'Source <A> · 1 service defaults');
+element('cancel-device-duplicate').onclick();
+element('device-duplicate-dialog').onclose();
+await duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+assert.equal(duplicateCalls.length,0);
+duplicationBrowser.openDeviceDuplicate(1);
+duplicationForm.elements.namedItem('name').value='New device';
+duplicationForm.elements.namedItem('address').value='192.0.2.1';
+await duplicationBrowser.refresh();
+assert.equal(duplicationForm.elements.namedItem('name').value,'New device');
+await duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+assert.equal(duplicateCalls[0].path,'/api/device-duplicate');
+assert.equal(duplicateCalls[0].body.device,1);
+assert.equal(element('device-duplicate-dialog').open,true);
+assert.match(element('device-duplicate-feedback').textContent,/already assigned/);
+assert.equal(duplicationForm.elements.namedItem('address').value,'192.0.2.1');
+duplicateReject=false;
+duplicationForm.elements.namedItem('address').value='192.0.2.3';
+const duplicateSaving = duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+await duplicationForm.onsubmit({preventDefault(){},target:duplicationForm});
+assert.equal(duplicateCalls.length,2);
+element('cancel-device-duplicate').onclick();
+assert.equal(element('device-duplicate-dialog').open,true);
+let duplicateEscapeBlocked = false;
+element('device-duplicate-dialog').oncancel({preventDefault(){duplicateEscapeBlocked=true;}});
+assert.equal(duplicateEscapeBlocked,true);
+duplicationBrowser.openDeviceDuplicate(2);
+assert.equal(element('device-duplicate-source').textContent,'Source <A> · 1 service defaults');
+releaseDuplicateRequest();
+await duplicateSaving;
+assert.equal(duplicateCalls[1].body.device,1);
+assert.equal(duplicateCalls[1].body.address,'192.0.2.3');
+assert.equal(element('device-duplicate-dialog').open,false);
+assert.equal(duplicationForm.elements.namedItem('name').value,'');
+assert.match(element('inventory-feedback').textContent,/duplicated with its service defaults/);
+vm.runInContext("currentUser.role='operator'",duplicationBrowser);
+assert.throws(() => duplicationBrowser.openDeviceDuplicate(1),/Admin access/);
+console.log('Duplicate inventory dialog preserves drafts, captures the source, prevents duplicate submissions, blocks dismissal while saving and restricts Admin access.');
+
+// Inventory imports review a captured file/mode, block conflicts, and confirm only once.
+const inventoryTransferForm = element('inventory-import-form');
+const inventoryTransferCalls = [];
+let inventoryTransferConflict = false, inventoryTransferReject = false, inventoryTransferHold = false;
+let releaseInventoryTransfer;
+const inventoryTransferDocument = {format:'network-monitor-inventory',version:1,devices:[{
+  name:'Imported <device>',model:'Radio',address:'192.0.2.50',service_defaults:[{
+    name:'RSSI',kind:'snmp',target:'.1.2.3',community:'INVENTORY_TEST_SECRET',direction:'below'}]}]};
+const inventoryTransferFile = {size:1000,text:async () => JSON.stringify(inventoryTransferDocument)};
+const inventoryTransferBrowser = vm.createContext({document:context.document,FormData:context.FormData,setInterval(){},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      const body = JSON.parse(options.body);
+      inventoryTransferCalls.push({path,body});
+      if (path === '/api/inventory-preview') return {ok:true,json:async () => ({
+        added:body.mode === 'merge' ? 1 : 0,updated:body.mode === 'update' ? 1 : 0,skipped:1,defaults:1,
+        token:'review-token',entries:[{action:body.mode === 'update' ? 'update' : 'add',name:body.inventory.devices[0].name,
+          model:'Radio',address:'192.0.2.50',previous_address:body.mode === 'update' ? '192.0.2.1' : null,defaults:1}],
+        conflicts:inventoryTransferConflict ? [{name:'Imported',address:'192.0.2.50',owners:['Existing']}] : []})};
+      if (inventoryTransferHold) await new Promise(resolve => {releaseInventoryTransfer=resolve;});
+      return {ok:!inventoryTransferReject,json:async () => inventoryTransferReject
+        ? {error:'Inventory changed. Review the file again.'} : {added:0,updated:1,skipped:1,defaults:1}};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'admin',csrf:'inventory-import-token'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : duplicationFixture};
+  }});
+new vm.Script(script).runInContext(inventoryTransferBrowser);
+await inventoryTransferBrowser.initializeSession();
+inventoryTransferForm.elements.namedItem('inventory').files=[inventoryTransferFile];
+inventoryTransferForm.elements.namedItem('mode').value='merge';
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.equal(element('inventory-import-dialog').open,true);
+assert.match(element('inventory-import-summary').textContent,/1 to add/);
+assert.match(element('inventory-import-items').textContent,/Imported <device>/);
+assert.doesNotMatch(element('inventory-import-items').textContent,/INVENTORY_TEST_SECRET/);
+assert.equal(inventoryTransferCalls.length,1);
+element('cancel-inventory-import').onclick();
+await element('confirm-inventory-import').onclick();
+assert.equal(inventoryTransferCalls.length,1);
+inventoryTransferConflict=true;
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.equal(element('confirm-inventory-import').disabled,true);
+assert.match(element('inventory-import-conflicts').textContent,/also assigned to Existing/);
+await element('confirm-inventory-import').onclick();
+assert.equal(inventoryTransferCalls.filter(call => call.path === '/api/inventory-import').length,0);
+element('cancel-inventory-import').onclick();
+inventoryTransferConflict=false;
+inventoryTransferForm.elements.namedItem('mode').value='update';
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.match(element('inventory-import-summary').textContent,/1 to update/);
+assert.match(element('inventory-import-items').textContent,/192.0.2.1 → 192.0.2.50/);
+inventoryTransferReject=true;
+await element('confirm-inventory-import').onclick();
+assert.equal(element('inventory-import-dialog').open,true);
+assert.match(element('inventory-import-error').textContent,/Inventory changed/);
+assert.equal(inventoryTransferForm.elements.namedItem('inventory').files[0],inventoryTransferFile);
+element('cancel-inventory-import').onclick();
+inventoryTransferReject=false;
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+// Changing the underlying form cannot retarget the reviewed import.
+inventoryTransferForm.elements.namedItem('mode').value='merge';
+inventoryTransferForm.elements.namedItem('inventory').files=[{size:10,text:async () => '{}'}];
+inventoryTransferHold=true;
+const pendingInventoryTransfer = element('confirm-inventory-import').onclick();
+await element('confirm-inventory-import').onclick();
+element('cancel-inventory-import').onclick();
+assert.equal(element('inventory-import-dialog').open,true);
+let inventoryTransferEscapeBlocked=false;
+element('inventory-import-dialog').oncancel({preventDefault(){inventoryTransferEscapeBlocked=true;}});
+assert.equal(inventoryTransferEscapeBlocked,true);
+const inventoryCommit = inventoryTransferCalls.at(-1);
+assert.equal(inventoryCommit.path,'/api/inventory-import');
+assert.equal(inventoryCommit.body.mode,'update');
+assert.equal(inventoryCommit.body.inventory.devices[0].name,'Imported <device>');
+assert.equal(inventoryCommit.body.token,'review-token');
+releaseInventoryTransfer();
+await pendingInventoryTransfer;
+assert.equal(element('inventory-import-dialog').open,false);
+assert.match(element('inventory-feedback').textContent,/0 added, 1 updated, 1 skipped/);
+const inventoryCallsBeforeInvalid = inventoryTransferCalls.length;
+inventoryTransferForm.elements.namedItem('inventory').files=[{size:11*1024*1024,text:async () => {throw Error('Should not read oversized file');}}];
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.match(element('inventory-feedback').textContent,/10 MB/);
+inventoryTransferForm.elements.namedItem('inventory').files=[{size:10,text:async () => '{bad'}];
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.match(element('inventory-feedback').textContent,/valid inventory JSON/);
+assert.equal(inventoryTransferCalls.length,inventoryCallsBeforeInvalid);
+console.log('Inventory import previews, merge/update modes, conflicts, cancellation, stale review errors, immutable file capture and single confirmation passed.');

@@ -29,6 +29,8 @@
     .checkbox-field { grid-template-rows: auto 35px; }
     .checkbox-field input { align-self: center; }
     .checkbox-inline { display: flex; align-items: center; gap: 10px; min-height: 35px; }
+    .inventory-import-preview { max-height: 300px; overflow-y: auto; white-space: pre-line; overflow-wrap: anywhere; padding: 12px; border: 1px solid #435b78; border-radius: 6px; }
+    #device-duplicate-source { overflow-wrap: anywhere; }
     .user-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #435b78; border-radius: 8px; padding: 14px; margin-top: 12px; }
     .user-details { flex: 1 1 320px; overflow-wrap: anywhere; }
     .user-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -213,7 +215,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.5 · Build 91</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.6 · Build 94</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -419,6 +421,21 @@
       </form>
       <p id="inventory-feedback" class="form-feedback" role="status"></p>
       <div class="display-controls">
+        <a class="button-link" href="/api/inventory-export" download>Export inventory</a>
+      </div>
+      <form id="inventory-import-form">
+        <label>Inventory JSON file<input name="inventory" type="file" accept="application/json,.json" required></label>
+        <label>Import mode<select name="mode">
+          <option value="merge">Merge — add new devices only</option>
+          <option value="update">Update existing — add new and update matches</option>
+        </select></label>
+        <button>Review inventory import</button>
+      </form>
+      <small>Matches Device IDs exactly (case-sensitive). Update existing replaces device defaults with the file's definitions;
+        existing project services/history and devices absent from the file are kept. IP changes apply to all projects using that device.</small>
+      <p>Exports include stored SNMP communities. Protect these files. Maximum import size: 10 MB.</p>
+
+      <div class="display-controls">
         <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
         <button id="inventory-clear">Clear search</button>
       </div>
@@ -551,6 +568,19 @@
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="inventory-import-dialog" class="library-import-dialog" aria-labelledby="inventory-import-title">
+    <h2 id="inventory-import-title">Review inventory import</h2>
+    <p id="inventory-import-summary"></p>
+    <p>Project assignments, existing project services and history will be preserved.
+      New devices are not assigned to projects automatically. Blank IPs remain unconfigured.</p>
+    <div id="inventory-import-items" class="inventory-import-preview"></div>
+    <p id="inventory-import-conflicts" role="status"></p>
+    <div class="display-controls">
+      <button id="confirm-inventory-import" class="primary">Import inventory</button>
+      <button id="cancel-inventory-import" autofocus>Cancel</button>
+    </div>
+    <p id="inventory-import-error" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="library-import-dialog" class="library-import-dialog" aria-labelledby="library-import-title">
     <h2 id="library-import-title">Import service library?</h2>
     <p id="library-import-summary"></p>
@@ -697,6 +727,20 @@
       <button type="button" id="cancel-device-edit">Cancel</button>
     </form>
     <p id="device-edit-feedback" role="status"></p>
+  </dialog>
+  <dialog id="device-duplicate-dialog" aria-labelledby="device-duplicate-title" aria-describedby="device-duplicate-source">
+    <h2 id="device-duplicate-title">Duplicate inventory device</h2>
+    <p id="device-duplicate-source"></p>
+    <p>Copies the inventory details and all service defaults into an independent device.
+      Enter a new Device ID and unique IP address. Project assignments, history and issues are not copied.</p>
+    <form id="device-duplicate-form">
+      <label>New Device ID<input name="name" required maxlength="100" autofocus></label>
+      <label>Model<input name="model" maxlength="100"></label>
+      <label>New IP address<input name="address" required placeholder="192.168.1.20" autocomplete="off"></label>
+      <button class="primary">Duplicate device</button>
+      <button id="cancel-device-duplicate" type="button">Cancel</button>
+    </form>
+    <p id="device-duplicate-feedback" class="form-feedback" role="status"></p>
   </dialog>
   <dialog id="device-default-manager" aria-labelledby="device-default-title">
     <h2 id="device-default-title">Device service defaults</h2>
@@ -1681,6 +1725,7 @@
           <strong>${escapeHtml(device.name)}</strong> · ${escapeHtml(device.model)}
           <p>${escapeHtml(device.address || 'IP required; monitoring paused')}${review}</p>
           <button data-edit-device="${device.id}">Edit</button>
+          <button data-duplicate-device="${device.id}">Duplicate</button>
           <button data-device-defaults="${device.id}">Service defaults (${(state.device_service_defaults || []).filter(row => row.device === device.id).length})</button>
           <button data-delete-device="${device.id}">Delete permanently</button>
         </article>`;
@@ -2031,6 +2076,129 @@
         // Keep the editor and entered values available for correction.
         el('device-edit-feedback').textContent = error.message;
       } finally {
+        buttons.forEach(button => { button.disabled = false; });
+      }
+    };
+
+    let pendingInventoryImport = null;
+    let inventoryImportBusy = false;
+    let inventoryPreviewBusy = false;
+    el('inventory-import-form').onsubmit = async event => {
+      event.preventDefault();
+      if (inventoryPreviewBusy || inventoryImportBusy) return;
+      const form = event.target;
+      const button = form.querySelector('button');
+      inventoryPreviewBusy = true;
+      button.disabled = true;
+      try {
+        const file = form.elements.namedItem('inventory').files[0];
+        const mode = form.elements.namedItem('mode').value;
+        if (!file) throw new Error('Choose an inventory JSON file.');
+        if (file.size > 10 * 1024 * 1024) throw new Error('Inventory files must be no larger than 10 MB.');
+        let inventory;
+        try { inventory = JSON.parse(await file.text()); }
+        catch (error) { throw new Error('Choose a valid inventory JSON file.'); }
+        // The server validates every record and returns a credential-free review.
+        const preview = await request('inventory-preview', {mode,inventory});
+        pendingInventoryImport = {mode,inventory,token:preview.token};
+        const updates = mode === 'update' ? 'Matching inventory details and service defaults will be updated from the file.' : 'Existing Device IDs will be kept unchanged.';
+        el('inventory-import-summary').textContent = `${preview.added} to add · ${preview.updated} to update · ${preview.skipped} to skip · ${preview.defaults} service defaults. ${updates}`;
+        el('inventory-import-items').textContent = preview.entries.map(item => item.action === 'skip'
+          ? `Skip ${item.name} · ${item.reason}`
+          : `${item.action === 'add' ? 'Add' : 'Update'} ${item.name} · Model: ${item.model || '—'} · IP: ${item.previous_address != null ? (item.previous_address || 'unconfigured') + ' → ' : ''}${item.address || 'unconfigured'} · ${item.defaults} service defaults${item.default_names?.length ? ': ' + item.default_names.join(', ') : ''}${item.removed_defaults?.length ? ' · Remove defaults: ' + item.removed_defaults.join(', ') : ''}`).join('\n');
+        el('inventory-import-conflicts').textContent = preview.conflicts.length
+          ? preview.conflicts.map(item => `${item.name}: IP ${item.address} is also assigned to ${item.owners.join(', ')}${item.additional_owners ? ' (+' + item.additional_owners + ' more)' : ''}.`).join(' ')
+          : preview.added + preview.updated ? 'No IP conflicts.' : 'No inventory changes to import.';
+        el('confirm-inventory-import').disabled = preview.conflicts.length > 0 || preview.added + preview.updated === 0;
+        el('inventory-import-error').textContent = '';
+        el('inventory-import-dialog').showModal();
+      } catch (error) { inventoryFeedback(error.message); }
+      finally { inventoryPreviewBusy = false; button.disabled = false; }
+    };
+    el('cancel-inventory-import').onclick = () => {
+      if (inventoryImportBusy) return;
+      pendingInventoryImport = null;
+      el('inventory-import-dialog').close();
+    };
+    el('inventory-import-dialog').onclose = () => {
+      if (!inventoryImportBusy) pendingInventoryImport = null;
+    };
+    el('inventory-import-dialog').oncancel = event => {
+      if (inventoryImportBusy) event.preventDefault();
+      else pendingInventoryImport = null;
+    };
+    el('confirm-inventory-import').onclick = async () => {
+      const button = el('confirm-inventory-import');
+      if (!pendingInventoryImport || button.disabled || inventoryImportBusy) return;
+      inventoryImportBusy = true;
+      button.disabled = true;
+      el('cancel-inventory-import').disabled = true;
+      try {
+        const result = await request('inventory-import', pendingInventoryImport);
+        pendingInventoryImport = null;
+        el('inventory-import-dialog').close();
+        el('inventory-import-form').reset();
+        inventoryFeedback(`Inventory imported: ${result.added} added, ${result.updated} updated, ${result.skipped} skipped.`, true);
+        try { await refresh(); }
+        catch (error) { notify('Inventory imported. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('inventory-import-error').textContent = error.message; }
+      finally {
+        inventoryImportBusy = false;
+        button.disabled = false;
+        el('cancel-inventory-import').disabled = false;
+      }
+    };
+
+    let duplicateDeviceSource = null;
+    let duplicateDeviceBusy = false;
+
+    function openDeviceDuplicate(id) {
+      if (currentUser?.role !== 'admin') throw new Error('Admin access required.');
+      if (duplicateDeviceBusy) return;
+      const source = state.devices.find(row => row.id === Number(id));
+      if (!source) throw new Error('Source inventory device no longer exists.');
+      duplicateDeviceSource = source.id;
+      const form = el('device-duplicate-form');
+      form.reset();
+      form.elements.namedItem('model').value = source.model || '';
+      // A clone must not accidentally reuse either the source's ID or its IP.
+      form.elements.namedItem('name').value = '';
+      form.elements.namedItem('address').value = '';
+      const count = (state.device_service_defaults || []).filter(row => row.device === source.id).length;
+      el('device-duplicate-source').textContent = `${source.name} · ${count} service defaults`;
+      el('device-duplicate-feedback').textContent = '';
+      el('device-duplicate-dialog').showModal();
+    }
+    el('cancel-device-duplicate').onclick = () => {
+      if (!duplicateDeviceBusy) el('device-duplicate-dialog').close();
+    };
+    el('device-duplicate-dialog').onclose = () => {
+      if (!duplicateDeviceBusy) duplicateDeviceSource = null;
+    };
+    el('device-duplicate-dialog').oncancel = event => {
+      if (duplicateDeviceBusy) event.preventDefault();
+    };
+    el('device-duplicate-form').onsubmit = async event => {
+      event.preventDefault();
+      if (duplicateDeviceBusy || duplicateDeviceSource === null) return;
+      const source = duplicateDeviceSource;
+      const form = event.target;
+      const buttons = form.querySelectorAll('button');
+      duplicateDeviceBusy = true;
+      buttons.forEach(button => { button.disabled = true; });
+      try {
+        await request('device-duplicate', {...Object.fromEntries(new FormData(form)), device:source});
+        duplicateDeviceSource = null;
+        el('device-duplicate-dialog').close();
+        form.reset();
+        inventoryFeedback('Inventory device duplicated with its service defaults. Assign it to a project when ready.', true);
+        try { await refresh(); }
+        catch (error) { notify('Device duplicated. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) {
+        // Keep the requested ID/address for correction if validation rejects the copy.
+        el('device-duplicate-feedback').textContent = error.message;
+      } finally {
+        duplicateDeviceBusy = false;
         buttons.forEach(button => { button.disabled = false; });
       }
     };
@@ -2900,6 +3068,7 @@
         if (data.editDeviceDefault) openDeviceDefaultEditor(data.editDeviceDefault);
         if (data.deleteDeviceDefault) openAdministrativeConfirmation('delete-default', {device: defaultsDevice, default_service: data.deleteDeviceDefault});
         if (data.editDevice) openDeviceEditor(data.editDevice);
+        if (data.duplicateDevice) openDeviceDuplicate(data.duplicateDevice);
         if (data.deleteDevice) await removeDevice(data.deleteDevice, event.target);
         if (data.toggle) await performAction('toggle', {id: data.toggle, field: data.field});
         if (data.ack) await acknowledgeIssue(data.ack);

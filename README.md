@@ -1,4 +1,4 @@
-# Network Monitor v0.5.5 · Build 91
+# Network Monitor v0.5.6 · Build 94
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -551,6 +551,47 @@ dialog, validated on the server. runs stores the description and original start
 timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
 preserves them; older runs retain an empty description rather than invented text.
 Deployment descriptions are included in SQLite backups but not public status APIs.
+
+## Transfer permanent inventory
+
+In **Permanent inventory**, choose **Export inventory** to download versioned JSON
+containing every device's Device ID, model, IP and service defaults, including
+stored SNMP communities. Protect the file. This is separate from a complete backup:
+projects, assignments, aliases, history, issues, accounts and the reusable service
+library are not included. The filename uses the server's local date/time.
+
+Choose an inventory JSON file and an import mode, then **Review inventory import**:
+
+- **Merge** adds new Device IDs and skips exact matches without changing them.
+- **Update existing** also updates matching devices' model/IP and replaces their
+  service-default set with the file's definitions. Defaults with matching names
+  retain their internal IDs. Devices absent from the file remain untouched.
+
+Device IDs match exactly, including case. Existing project services, assignments
+and history are preserved; defaults apply to future new assignments. Inventory IP
+changes still apply to every project using that device. Blank IPs can be transferred
+as unconfigured inventory; new devices are never assigned to projects automatically.
+
+The preview shows additions, updates, skips, default names/removals and IP conflicts.
+Resolve conflicts before importing. Equivalent IPv6 spellings count as the same IP;
+valid IP swaps are applied atomically. The whole file is validated before changes,
+and a failed import rolls back every change. If inventory changed after preview or
+the server restarted, close the preview and review again. Imports are Admin-only,
+with a 10 MB / 5,000-device / 10,000-total-default limit. No Replace-all mode exists.
+
+## Duplicate inventory equipment
+
+In **Permanent inventory**, expand the device list and choose **Duplicate**.
+Enter a new unique Device ID and IP address; the model is prefilled and editable.
+The new IP starts blank to avoid accidentally monitoring the source equipment.
+The duplicate includes all service defaults and their credentials/settings as
+independent copies. Project assignments, aliases, service history and issues are
+not copied. Assign the new device to a project when ready.
+
+Adding, editing or duplicating inventory rejects an IP already assigned to another
+device and identifies that device in the error. Equivalent IPv6 spellings count as
+the same address. A device can retain its own address when edited. Existing
+inventory is preserved on upgrade/restore; new saves enforce the conflict check.
 
 ## Device service defaults
 
