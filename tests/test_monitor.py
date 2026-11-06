@@ -1245,7 +1245,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(state['assignments'][0]['incident_status'], 'critical')
         critical = next(row for row in state['incident_lists']['active'] if row['status'] == 'critical')
         server.mutate('ack', {'id': critical['id']}, actor={'id': 1})
-        self.assertEqual(server.status_overview()['devices'][0]['incident_status'], 'critical')
+        self.assertEqual(server.status_overview(include_hosts=True)['devices'][0]['incident_status'], 'critical')
         with patch.object(server, 'read_metric', return_value=50):
             server.poll_one(temperature, 1)
             server.poll_one(temperature, 1)
@@ -1288,7 +1288,7 @@ class MonitorTests(unittest.TestCase):
         with patch.object(server, 'read_metric') as read:
             server.poll_one(self.service, 1)
             read.assert_not_called()
-        public = server.status_overview()
+        public = server.status_overview(include_hosts=True)
         self.assertEqual(public['devices'][0]['services'][0]['status'], 'paused')
         with server.connect() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM samples WHERE service=?', (self.service['id'],)).fetchone()[0], 3)

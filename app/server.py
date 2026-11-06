@@ -1387,8 +1387,8 @@ def update_card_incidents(data):
             assignment['incident_status'] = level
 
 
-def status_overview():
-    """Allowlist public output: no addresses, OIDs, secrets or account records."""
+def status_overview(include_hosts=False):
+    """Allowlist status output; live hosts require an authorised session at the caller."""
     data = snapshot()
     run = next((row for row in data['runs'] if row['id'] == int(data['settings']['active_run'])), None)
     if run is None:
@@ -1406,7 +1406,7 @@ def status_overview():
     devices = {row['id']: row for row in data['devices']}
     latest = {row['service']: row for row in data['latest']}
     output = []
-    for assignment in data['assignments']:
+    for assignment in (data['assignments'] if include_hosts else ()):
         if assignment['project'] != run['project'] or not assignment['visible'] or assignment['removed']:
             continue
         device = devices[assignment['device']]
@@ -1559,9 +1559,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/status':
             return self.send(Path(__file__).with_name('status.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/status':
-            overview = status_overview()
             with connect() as db:
                 user = auth.session_user(db, self.headers.get('Cookie'))
+            can_view_hosts = bool(user and not user['must_change_password'])
+            overview = status_overview(include_hosts=can_view_hosts)
+            overview['can_view_hosts'] = can_view_hosts
             presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)
             can_acknowledge = bool(overview['acknowledge_enabled'] and user
                 and not user['must_change_password'] and user['role'] in ('admin','operator'))
