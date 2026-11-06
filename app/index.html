@@ -29,6 +29,7 @@
     .checkbox-field { grid-template-rows: auto 35px; }
     .checkbox-field input { align-self: center; }
     .checkbox-inline { display: flex; align-items: center; gap: 10px; min-height: 35px; }
+    .inventory-import-preview { max-height: 300px; overflow-y: auto; white-space: pre-line; overflow-wrap: anywhere; padding: 12px; border: 1px solid #435b78; border-radius: 6px; }
     #device-duplicate-source { overflow-wrap: anywhere; }
     .user-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #435b78; border-radius: 8px; padding: 14px; margin-top: 12px; }
     .user-details { flex: 1 1 320px; overflow-wrap: anywhere; }
@@ -214,7 +215,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.5 · Build 92</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.5 · Build 93</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -420,6 +421,21 @@
       </form>
       <p id="inventory-feedback" class="form-feedback" role="status"></p>
       <div class="display-controls">
+        <a class="button-link" href="/api/inventory-export" download>Export inventory</a>
+      </div>
+      <form id="inventory-import-form">
+        <label>Inventory JSON file<input name="inventory" type="file" accept="application/json,.json" required></label>
+        <label>Import mode<select name="mode">
+          <option value="merge">Merge — add new devices only</option>
+          <option value="update">Update existing — add new and update matches</option>
+        </select></label>
+        <button>Review inventory import</button>
+      </form>
+      <small>Matches Device IDs exactly (case-sensitive). Update existing replaces device defaults with the file's definitions;
+        existing project services/history and devices absent from the file are kept. IP changes apply to all projects using that device.</small>
+      <p>Exports include stored SNMP communities. Protect these files. Maximum import size: 10 MB.</p>
+
+      <div class="display-controls">
         <label>Search inventory<input id="inventory-search" type="search" maxlength="100" placeholder="Device ID, model, or IP address"></label>
         <button id="inventory-clear">Clear search</button>
       </div>
@@ -552,6 +568,19 @@
     <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="inventory-import-dialog" class="library-import-dialog" aria-labelledby="inventory-import-title">
+    <h2 id="inventory-import-title">Review inventory import</h2>
+    <p id="inventory-import-summary"></p>
+    <p>Project assignments, existing project services and history will be preserved.
+      New devices are not assigned to projects automatically. Blank IPs remain unconfigured.</p>
+    <div id="inventory-import-items" class="inventory-import-preview"></div>
+    <p id="inventory-import-conflicts" role="status"></p>
+    <div class="display-controls">
+      <button id="confirm-inventory-import" class="primary">Import inventory</button>
+      <button id="cancel-inventory-import" autofocus>Cancel</button>
+    </div>
+    <p id="inventory-import-error" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="library-import-dialog" class="library-import-dialog" aria-labelledby="library-import-title">
     <h2 id="library-import-title">Import service library?</h2>
     <p id="library-import-summary"></p>
@@ -2048,6 +2077,75 @@
         el('device-edit-feedback').textContent = error.message;
       } finally {
         buttons.forEach(button => { button.disabled = false; });
+      }
+    };
+
+    let pendingInventoryImport = null;
+    let inventoryImportBusy = false;
+    let inventoryPreviewBusy = false;
+    el('inventory-import-form').onsubmit = async event => {
+      event.preventDefault();
+      if (inventoryPreviewBusy || inventoryImportBusy) return;
+      const form = event.target;
+      const button = form.querySelector('button');
+      inventoryPreviewBusy = true;
+      button.disabled = true;
+      try {
+        const file = form.elements.namedItem('inventory').files[0];
+        const mode = form.elements.namedItem('mode').value;
+        if (!file) throw new Error('Choose an inventory JSON file.');
+        if (file.size > 10 * 1024 * 1024) throw new Error('Inventory files must be no larger than 10 MB.');
+        let inventory;
+        try { inventory = JSON.parse(await file.text()); }
+        catch (error) { throw new Error('Choose a valid inventory JSON file.'); }
+        // The server validates every record and returns a credential-free review.
+        const preview = await request('inventory-preview', {mode,inventory});
+        pendingInventoryImport = {mode,inventory,token:preview.token};
+        const updates = mode === 'update' ? 'Matching inventory details and service defaults will be updated from the file.' : 'Existing Device IDs will be kept unchanged.';
+        el('inventory-import-summary').textContent = `${preview.added} to add · ${preview.updated} to update · ${preview.skipped} to skip · ${preview.defaults} service defaults. ${updates}`;
+        el('inventory-import-items').textContent = preview.entries.map(item => item.action === 'skip'
+          ? `Skip ${item.name} · ${item.reason}`
+          : `${item.action === 'add' ? 'Add' : 'Update'} ${item.name} · Model: ${item.model || '—'} · IP: ${item.previous_address != null ? (item.previous_address || 'unconfigured') + ' → ' : ''}${item.address || 'unconfigured'} · ${item.defaults} service defaults${item.default_names?.length ? ': ' + item.default_names.join(', ') : ''}${item.removed_defaults?.length ? ' · Remove defaults: ' + item.removed_defaults.join(', ') : ''}`).join('\n');
+        el('inventory-import-conflicts').textContent = preview.conflicts.length
+          ? preview.conflicts.map(item => `${item.name}: IP ${item.address} is also assigned to ${item.owners.join(', ')}${item.additional_owners ? ' (+' + item.additional_owners + ' more)' : ''}.`).join(' ')
+          : preview.added + preview.updated ? 'No IP conflicts.' : 'No inventory changes to import.';
+        el('confirm-inventory-import').disabled = preview.conflicts.length > 0 || preview.added + preview.updated === 0;
+        el('inventory-import-error').textContent = '';
+        el('inventory-import-dialog').showModal();
+      } catch (error) { inventoryFeedback(error.message); }
+      finally { inventoryPreviewBusy = false; button.disabled = false; }
+    };
+    el('cancel-inventory-import').onclick = () => {
+      if (inventoryImportBusy) return;
+      pendingInventoryImport = null;
+      el('inventory-import-dialog').close();
+    };
+    el('inventory-import-dialog').onclose = () => {
+      if (!inventoryImportBusy) pendingInventoryImport = null;
+    };
+    el('inventory-import-dialog').oncancel = event => {
+      if (inventoryImportBusy) event.preventDefault();
+      else pendingInventoryImport = null;
+    };
+    el('confirm-inventory-import').onclick = async () => {
+      const button = el('confirm-inventory-import');
+      if (!pendingInventoryImport || button.disabled || inventoryImportBusy) return;
+      inventoryImportBusy = true;
+      button.disabled = true;
+      el('cancel-inventory-import').disabled = true;
+      try {
+        const result = await request('inventory-import', pendingInventoryImport);
+        pendingInventoryImport = null;
+        el('inventory-import-dialog').close();
+        el('inventory-import-form').reset();
+        inventoryFeedback(`Inventory imported: ${result.added} added, ${result.updated} updated, ${result.skipped} skipped.`, true);
+        try { await refresh(); }
+        catch (error) { notify('Inventory imported. Dashboard refresh failed; reload to see changes.'); }
+      } catch (error) { el('inventory-import-error').textContent = error.message; }
+      finally {
+        inventoryImportBusy = false;
+        button.disabled = false;
+        el('cancel-inventory-import').disabled = false;
       }
     };
 

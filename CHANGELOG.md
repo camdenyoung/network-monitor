@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 93 — v0.5.5 (inventory duplication and transfer branch)
+
+- Add portable permanent inventory JSON export with all service defaults and credentials, plus Admin-only Merge and Update existing import modes.
+- Preview additions, updates, skipped Device IDs, default replacements/removals and IP conflicts before confirmation. Preserve project data and inventory absent from the file.
+- Validate final IP ownership and apply atomically, including valid IP swaps; reject stale or modified approvals. Preserve default IDs for matching names and keep imports separate from complete backups.
+
 ### Build 92 — v0.5.5 (duplicate inventory device branch)
 
 - Add an Admin-only Duplicate action for permanent inventory, copying all service defaults independently while requiring a new Device ID and IP. Preserve projects, assignments and history.

@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved
+from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -337,16 +337,12 @@ def require_unique_inventory_address(db, address, excluding_device=None):
     Do not rebuild existing inventory on upgrade: older backups and isolated
     benchmark datasets may contain shared addresses. New API writes must be unique.
     """
-    def key(value):
-        parsed = ipaddress.ip_address(value.strip())
-        return getattr(parsed, 'ipv4_mapped', None) or parsed
-
-    candidate = key(address)
+    candidate = inventory_transfer.address_key(address)
     for device in db.execute('SELECT id,name,address FROM devices ORDER BY id'):
         if device['id'] == excluding_device or not device['address']:
             continue
         try:
-            existing = key(device['address'])
+            existing = inventory_transfer.address_key(device['address'])
         except (ValueError, AttributeError):
             continue  # An unconfigured/legacy address does not claim a valid IP.
         if existing == candidate:
@@ -545,7 +541,7 @@ def ensure_host_checks(db):
         """, (next_record_id(db, 'services'), assignment[0]))
 
 
-def device_details(body):
+def device_details(body, allow_unconfigured=False):
     """Validate editable inventory fields before writing any of them."""
     name = body['name']
     model = body.get('model', '')
@@ -554,7 +550,10 @@ def device_details(body):
     name, model = name.strip(), model.strip()
     if not name or len(name) > 100 or len(model) > 100:
         raise ValueError('Invalid device name or model')
-    return name, model, inventory_address(body['address'])
+    address = body['address']
+    if allow_unconfigured and isinstance(address, str) and not address.strip():
+        return name, model, ''
+    return name, model, inventory_address(address)
 
 
 def delete_device(db, device_id):
@@ -1338,6 +1337,14 @@ def mutate(action, body, actor=None):
             configuration['name'] = body.get('name', source['name'])
             configuration['community'] = body.get('community') or source['community']
             insert_service(db, assignment, service_details(configuration))
+        elif action in ('inventory-preview', 'inventory-import'):
+            if not isinstance(body, dict):
+                raise inventory_transfer.InventoryImportError('Choose an inventory file and import mode.')
+            validator = lambda entry: device_details(entry, allow_unconfigured=True)
+            if action == 'inventory-preview':
+                return inventory_transfer.preview_document(db, body.get('inventory'), body.get('mode'), validator, service_details)
+            return inventory_transfer.import_document(db, body.get('inventory'), body.get('mode'), body.get('token'),
+                validator, service_details, next_record_id, save_inventory_default)
         elif action == 'library-import':
             if not isinstance(body, dict):
                 raise service_library.LibraryImportError('Choose a library file and Merge or Replace mode.')
@@ -1641,7 +1648,7 @@ class Handler(BaseHTTPRequestHandler):
             if user:
                 return self.send(json.dumps({**auth.public_user(user), 'csrf': user['csrf']}))
             return
-        admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats', '/api/library-export')
+        admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats', '/api/library-export', '/api/inventory-export')
         user = self.require_user(admin=admin)
         if not user:
             return
@@ -1674,6 +1681,12 @@ class Handler(BaseHTTPRequestHandler):
                     state['project_deletions'] = [dict(row) for row in db.execute(
                         'SELECT * FROM project_deletions ORDER BY id DESC LIMIT 20')]
             self.send(json.dumps(state))
+        elif self.path == '/api/inventory-export':
+            with LOCK, connect() as db:
+                document = inventory_transfer.export_document(db)
+            stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+            self.send(json.dumps(document, ensure_ascii=False, indent=2), 'application/json',
+                      filename=f'network-monitor-inventory-{stamp}.json')
         elif self.path == '/api/library-export':
             with connect() as db:
                 payload = json.dumps(service_library.export_document(db), indent=2, ensure_ascii=False, allow_nan=False)
@@ -1742,6 +1755,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             size = int(self.headers.get('Content-Length', '0'))
             limit = (64 * 1024 * 1024 if self.path == '/api/restore' else
+                     inventory_transfer.MAX_IMPORT_BYTES + 65536 if self.path in ('/api/inventory-preview','/api/inventory-import') else
                      service_library.MAX_IMPORT_BYTES if self.path == '/api/library-import' else
                      logos.MAX_BYTES if self.path.startswith('/api/project-logo?') else 65536)
             if not 0 < size <= limit:
@@ -1863,13 +1877,15 @@ class Handler(BaseHTTPRequestHandler):
                     if result is not None:
                         return self.send(json.dumps({'ok': True, **result}))
             self.send('{"ok":true}')
+        except inventory_transfer.InventoryImportError as error:
+            self.send(json.dumps({'error': str(error)}), status=400)
         except InventoryAddressConflict as error:
             self.send(json.dumps({'error': str(error)}), status=400)
         except project_deletion.DeletionError as error:
             self.send(json.dumps({'error': str(error)}), status=400)
         except service_library.LibraryImportError as error:
             self.send(json.dumps({'error': str(error)}), status=400)
-        except (ValueError, KeyError, sqlite3.Error, OverflowError, TypeError):
+        except (ValueError, KeyError, sqlite3.Error, OverflowError, TypeError, RecursionError):
             self.send('{"error":"Request rejected: check values and referenced records"}', status=400)
 
 

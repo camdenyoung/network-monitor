@@ -2778,3 +2778,93 @@ assert.match(element('inventory-feedback').textContent,/duplicated with its serv
 vm.runInContext("currentUser.role='operator'",duplicationBrowser);
 assert.throws(() => duplicationBrowser.openDeviceDuplicate(1),/Admin access/);
 console.log('Duplicate inventory dialog preserves drafts, captures the source, prevents duplicate submissions, blocks dismissal while saving and restricts Admin access.');
+
+// Inventory imports review a captured file/mode, block conflicts, and confirm only once.
+const inventoryTransferForm = element('inventory-import-form');
+const inventoryTransferCalls = [];
+let inventoryTransferConflict = false, inventoryTransferReject = false, inventoryTransferHold = false;
+let releaseInventoryTransfer;
+const inventoryTransferDocument = {format:'network-monitor-inventory',version:1,devices:[{
+  name:'Imported <device>',model:'Radio',address:'192.0.2.50',service_defaults:[{
+    name:'RSSI',kind:'snmp',target:'.1.2.3',community:'INVENTORY_TEST_SECRET',direction:'below'}]}]};
+const inventoryTransferFile = {size:1000,text:async () => JSON.stringify(inventoryTransferDocument)};
+const inventoryTransferBrowser = vm.createContext({document:context.document,FormData:context.FormData,setInterval(){},
+  fetch:async (path,options) => {
+    if (options?.method === 'POST') {
+      const body = JSON.parse(options.body);
+      inventoryTransferCalls.push({path,body});
+      if (path === '/api/inventory-preview') return {ok:true,json:async () => ({
+        added:body.mode === 'merge' ? 1 : 0,updated:body.mode === 'update' ? 1 : 0,skipped:1,defaults:1,
+        token:'review-token',entries:[{action:body.mode === 'update' ? 'update' : 'add',name:body.inventory.devices[0].name,
+          model:'Radio',address:'192.0.2.50',previous_address:body.mode === 'update' ? '192.0.2.1' : null,defaults:1}],
+        conflicts:inventoryTransferConflict ? [{name:'Imported',address:'192.0.2.50',owners:['Existing']}] : []})};
+      if (inventoryTransferHold) await new Promise(resolve => {releaseInventoryTransfer=resolve;});
+      return {ok:!inventoryTransferReject,json:async () => inventoryTransferReject
+        ? {error:'Inventory changed. Review the file again.'} : {added:0,updated:1,skipped:1,defaults:1}};
+    }
+    return {ok:true,json:async () => path === '/api/me' ? {id:1,role:'admin',csrf:'inventory-import-token'}
+      : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp'
+        ? {configuration:{},outbox:[]} : duplicationFixture};
+  }});
+new vm.Script(script).runInContext(inventoryTransferBrowser);
+await inventoryTransferBrowser.initializeSession();
+inventoryTransferForm.elements.namedItem('inventory').files=[inventoryTransferFile];
+inventoryTransferForm.elements.namedItem('mode').value='merge';
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.equal(element('inventory-import-dialog').open,true);
+assert.match(element('inventory-import-summary').textContent,/1 to add/);
+assert.match(element('inventory-import-items').textContent,/Imported <device>/);
+assert.doesNotMatch(element('inventory-import-items').textContent,/INVENTORY_TEST_SECRET/);
+assert.equal(inventoryTransferCalls.length,1);
+element('cancel-inventory-import').onclick();
+await element('confirm-inventory-import').onclick();
+assert.equal(inventoryTransferCalls.length,1);
+inventoryTransferConflict=true;
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.equal(element('confirm-inventory-import').disabled,true);
+assert.match(element('inventory-import-conflicts').textContent,/also assigned to Existing/);
+await element('confirm-inventory-import').onclick();
+assert.equal(inventoryTransferCalls.filter(call => call.path === '/api/inventory-import').length,0);
+element('cancel-inventory-import').onclick();
+inventoryTransferConflict=false;
+inventoryTransferForm.elements.namedItem('mode').value='update';
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.match(element('inventory-import-summary').textContent,/1 to update/);
+assert.match(element('inventory-import-items').textContent,/192.0.2.1 → 192.0.2.50/);
+inventoryTransferReject=true;
+await element('confirm-inventory-import').onclick();
+assert.equal(element('inventory-import-dialog').open,true);
+assert.match(element('inventory-import-error').textContent,/Inventory changed/);
+assert.equal(inventoryTransferForm.elements.namedItem('inventory').files[0],inventoryTransferFile);
+element('cancel-inventory-import').onclick();
+inventoryTransferReject=false;
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+// Changing the underlying form cannot retarget the reviewed import.
+inventoryTransferForm.elements.namedItem('mode').value='merge';
+inventoryTransferForm.elements.namedItem('inventory').files=[{size:10,text:async () => '{}'}];
+inventoryTransferHold=true;
+const pendingInventoryTransfer = element('confirm-inventory-import').onclick();
+await element('confirm-inventory-import').onclick();
+element('cancel-inventory-import').onclick();
+assert.equal(element('inventory-import-dialog').open,true);
+let inventoryTransferEscapeBlocked=false;
+element('inventory-import-dialog').oncancel({preventDefault(){inventoryTransferEscapeBlocked=true;}});
+assert.equal(inventoryTransferEscapeBlocked,true);
+const inventoryCommit = inventoryTransferCalls.at(-1);
+assert.equal(inventoryCommit.path,'/api/inventory-import');
+assert.equal(inventoryCommit.body.mode,'update');
+assert.equal(inventoryCommit.body.inventory.devices[0].name,'Imported <device>');
+assert.equal(inventoryCommit.body.token,'review-token');
+releaseInventoryTransfer();
+await pendingInventoryTransfer;
+assert.equal(element('inventory-import-dialog').open,false);
+assert.match(element('inventory-feedback').textContent,/0 added, 1 updated, 1 skipped/);
+const inventoryCallsBeforeInvalid = inventoryTransferCalls.length;
+inventoryTransferForm.elements.namedItem('inventory').files=[{size:11*1024*1024,text:async () => {throw Error('Should not read oversized file');}}];
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.match(element('inventory-feedback').textContent,/10 MB/);
+inventoryTransferForm.elements.namedItem('inventory').files=[{size:10,text:async () => '{bad'}];
+await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransferForm});
+assert.match(element('inventory-feedback').textContent,/valid inventory JSON/);
+assert.equal(inventoryTransferCalls.length,inventoryCallsBeforeInvalid);
+console.log('Inventory import previews, merge/update modes, conflicts, cancellation, stale review errors, immutable file capture and single confirmation passed.');

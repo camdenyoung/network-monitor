@@ -241,6 +241,34 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertEqual(conflict['status'], 400)
             self.assertIn('already assigned to Switch-1', conflict['content'])
 
+    def test_inventory_transfer_requires_admin_review_and_csrf(self):
+        self.create_host()
+        operator_token, operator = self.create_operator()
+        document = {'format':'network-monitor-inventory','version':1,'devices':[
+            {'name':'Imported','model':'Switch','address':'192.168.1.2','service_defaults':[]}]}
+        body = {'inventory':document,'mode':'merge'}
+        for token, csrf, expected in ((None,None,401),(self.viewer_token,self.viewer['csrf'],403),
+                                      (operator_token,operator['csrf'],403),(self.admin_token,None,403)):
+            for path in ('/api/inventory-preview','/api/inventory-import'):
+                self.assertEqual(self.request(path, body, token, csrf)['status'], expected)
+        for token, expected in ((None,401),(self.viewer_token,403),(operator_token,403),(self.admin_token,200)):
+            self.assertEqual(self.request('/api/inventory-export', token=token)['status'], expected)
+        exported = self.request('/api/inventory-export', token=self.admin_token)
+        self.assertEqual(exported['mime'], 'application/json')
+        self.assertRegex(exported['filename'], r'^network-monitor-inventory-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.json$')
+        self.assertEqual(json.loads(exported['content'])['format'], 'network-monitor-inventory')
+        preview = self.request('/api/inventory-preview', body, self.admin_token, self.admin['csrf'])
+        self.assertEqual(preview['status'], 200)
+        review = json.loads(preview['content'])
+        self.assertEqual(review['added'], 1)
+        self.assertEqual(self.request('/api/inventory-import', body, self.admin_token,self.admin['csrf'])['status'], 400)
+        imported = self.request('/api/inventory-import', {**body,'token':review['token']}, self.admin_token,self.admin['csrf'])
+        self.assertEqual(imported['status'], 200)
+        self.assertEqual(json.loads(imported['content'])['added'], 1)
+        replay = self.request('/api/inventory-import', {**body,'token':review['token']}, self.admin_token,self.admin['csrf'])
+        self.assertEqual(replay['status'], 400)
+        self.assertIn('review', replay['content'])
+
     def test_resolved_search_covers_all_current_issues_with_ten_result_pages(self):
         host = self.create_host()
         with server.connect() as db:
