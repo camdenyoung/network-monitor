@@ -213,7 +213,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.3 · Build 87</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.3 · Build 88</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -972,7 +972,14 @@
         observer = new ResizeObserver(checkWidth);
         observer.observe(container);
       }
-      return {choose, checkWidth, observer};
+      function clear() {
+        if (probe?.firstElementChild) observer?.unobserve(probe.firstElementChild);
+        if (probe) probe.innerHTML = '';
+        markup = null;
+        unavailable = false;
+        lastWidth = lastRequired = 0;
+      }
+      return {choose, checkWidth, clear, observer};
     }
     // END responsive host view.
 

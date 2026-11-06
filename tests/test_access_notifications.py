@@ -270,13 +270,64 @@ class AccessAndNotificationTests(unittest.TestCase):
         with patch.object(server, 'read_metric', return_value=1):
             server.poll_one(host, 1)
         self.configure_channels()
-        response = self.request('/api/status')
+        response = self.request('/api/status', token=self.viewer_token)
         content = response['content']
         self.assertIn('Stage switch', content)
         for secret in ('192.168.1.1', 'TEST_SECRET', 'password_hash', 'bot_token', 'community', 'target'):
             self.assertNotIn(secret, content)
         server.mutate('toggle', {'id': 1, 'field': 'visible'})
-        self.assertEqual(json.loads(self.request('/api/status')['content'])['devices'], [])
+        self.assertEqual(json.loads(self.request('/api/status', token=self.viewer_token)['content'])['devices'], [])
+
+    def test_status_live_hosts_require_a_complete_authenticated_session(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+        server.mutate('service', {'assignment':1,'name':'Private RSSI','kind':'snmp',
+                                  'target':'.1.2.3','direction':'below','warning':-65,'critical':-75})
+        with server.connect() as db:
+            child = dict(db.execute("""SELECT s.*,d.address FROM services s JOIN assignments a ON a.id=s.assignment
+                JOIN devices d ON d.id=a.device WHERE s.name='Private RSSI'""").fetchone())
+        with patch.object(server, 'read_metric', return_value=-55):
+            server.poll_one(child, 1)
+        operator_token, operator = self.create_operator()
+        for token in (None, 'invalid-session'):
+            response = self.request('/api/status', token=token)
+            data = json.loads(response['content'])
+            self.assertFalse(data['can_view_hosts'])
+            self.assertEqual(data['devices'], [])
+            self.assertNotIn('Private RSSI', response['content'])
+            self.assertNotIn('Stage switch', response['content'])
+        self.assertEqual(server.status_overview()['devices'], [])
+        for token in (self.admin_token, self.viewer_token, operator_token):
+            data = json.loads(self.request('/api/status', token=token)['content'])
+            self.assertTrue(data['can_view_hosts'])
+            self.assertEqual(data['devices'][0]['alias'], 'Stage switch')
+            self.assertEqual(data['devices'][0]['services'][0]['value'], '-55')
+        self.assertEqual(self.request('/api/logout', {}, operator_token, operator['csrf'])['status'], 200)
+        self.assertFalse(json.loads(self.request('/api/status', token=operator_token)['content'])['can_view_hosts'])
+        with server.connect() as db:
+            db.execute('UPDATE sessions SET expires=0 WHERE user_id=2')
+            db.execute('UPDATE users SET must_change_password=1 WHERE id=1')
+        for token in (self.viewer_token, self.admin_token):
+            data = json.loads(self.request('/api/status', token=token)['content'])
+            self.assertFalse(data['can_view_hosts'])
+            self.assertEqual(data['devices'], [])
+
+    def test_anonymous_status_keeps_public_issue_lists_without_live_hosts(self):
+        host = self.create_host()
+        with patch.object(server, 'read_metric', side_effect=TimeoutError):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        data = json.loads(self.request('/api/status')['content'])
+        self.assertEqual(data['devices'], [])
+        self.assertEqual(data['incidents'][0]['device'], 'Switch-1')
+        issue = data['incidents'][0]['id']
+        server.mutate('ack', {'id':issue}, actor=self.admin)
+        data = json.loads(self.request('/api/status')['content'])
+        self.assertEqual(data['devices'], [])
+        self.assertEqual(data['incidents'], [])
+        self.assertEqual(data['acknowledged_incidents'][0]['id'], issue)
+        self.assertFalse(data['can_acknowledge'])
 
     def test_new_incident_and_recovery_queue_both_channels_once(self):
         host = self.create_host()

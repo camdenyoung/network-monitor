@@ -68,13 +68,14 @@ The user requested readable, consistently indented code and explanatory comments
   and acknowledge issues but cannot modify projects/configuration. Viewers inspect only.
 - First-run admin password is generated in /data/initial-admin-password.txt or supplied
   via MONITOR_ADMIN_PASSWORD; require change on first login. Never commit defaults.
-- Public /status has a show/hide host cards toggle, persisted per browser. The
-  active issue list stays visible when host cards are hidden.
+- Signed-in /status users have a show/hide host cards toggle, persisted per browser.
+  Anonymous visitors see no Live Hosts or host controls; public issue lists stay available.
 - Public /status overview shows active issues above host cards. Reuse dependency-
   aware active issues, excluding resolved/suppressed faults and
   hidden, paused or inactive equipment. Allowlist display fields only.
-- Public /status overview needs no login; allowlist active/visible status and values
-  without IP addresses, OIDs, credentials, account details or other project inventory;
+- Public /status issue overview needs no login; live hosts/readings require an
+  authenticated session without a forced-password-change restriction. Never expose
+  IP addresses, OIDs, credentials, account details or other project inventory;
   acknowledged issues explicitly expose recorded display names and usernames only.
 - Telegram group notifications and optional WhatsApp Business Cloud API templates.
   WhatsApp Business does not connect ordinary app-created groups; Telegram is the
@@ -252,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.3, Build 87. Show it after the title on both the main and
+Current displayed release is v0.5.3, Build 88. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -842,3 +843,15 @@ per-device duplicates. Never change the template, credentials or existing projec
 The UI prefills the device name on template selection, preserves custom drafts on
 polling/failed saves, and clears selection/name after confirmed success. Do not
 clear another device/selection or a newer draft if the save finishes late.
+
+Status Dashboard Live Hosts is sign-in-only for all three roles. /api/status
+resolves the session first, sets can_view_hosts and calls status_overview with the
+corresponding include_hosts flag (default false). Anonymous/expired/invalid and
+forced-password-change sessions receive devices=[]; issue lists and branding remain
+public. No query parameter may opt into live hosts. Client rendering requires both
+viewer and can_view_hosts; hide the panel/toggle from first paint, guard controls,
+clear host DOM/datalists/publicState.devices and hostViewFit.clear() on lost access.
+Keep signed-in browser display preferences; anonymous actions must not change them.
+Logout clears hosts immediately and increments statusSessionEpoch so a pre-logout
+GET cannot restore them. Shared responsive helpers expose clear() on both pages
+and clear their hidden measurement probe/cache without changing layout preferences.

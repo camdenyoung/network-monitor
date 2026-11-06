@@ -133,6 +133,7 @@ assert.ok(statusPage.indexOf('id="incidents"') < statusPage.indexOf('id="devices
 const publicNodes = new Map();
 const publicData = {
     project: 'Deployment', updated: now,
+    viewer:{username:'reader',role:'viewer',must_change_password:false},can_view_hosts:true,
     devices: [{ name: 'SW001', alias: 'Stage', status: 'unreachable', services: [] }],
     incidents: [{ device: 'SW001', alias: '<img src=x>', service: 'Host ping', status: 'unreachable', opened: now }],
 };
@@ -2419,6 +2420,7 @@ for (const publicPage of [false,true]) {
   const store = new Map([[`field-monitor.${publicPage ? 'status' : 'main'}.host-view`,'list']]);
   const node = id => publicPage ? publicNodes.get(id) : element(id);
   const data = publicPage ? {project:'Responsive hosts',updated:now,incidents:[],acknowledged_incidents:[],
+    viewer:{username:'reader',role:'viewer',must_change_password:false},can_view_hosts:true,
     devices:[{name:'SW1',alias:'Stage',status:'healthy',services:[{name:'RSSI',value:-55,status:'healthy',units:'dBm'}]}]}
     : {...fixture,services:fixture.services.map(service => service.id === 2 ? {...service,name:'RSSI'} : service)};
   const browser = vm.createContext({document:publicPage ? publicContext.document : context.document,setInterval(){},
@@ -2620,3 +2622,88 @@ assert.equal((element('resolved-incidents').innerHTML.match(/<div class="metric"
 assert.match(element('resolved-summary').textContent,/Latest 10/);
 assert.equal(element('resolved-search-pages').hidden,true);
 console.log('Resolved issues show ten latest recoveries; full search, paging, refresh persistence, empty/error states and stale replies passed.');
+
+// Live host inventory is sign-in-only; issue lists remain available anonymously.
+assert.match(statusPage,/<div id="live-host-panel"[^>]* hidden>/);
+assert.match(statusPage,/<button id="toggle-hosts"[^>]* hidden disabled>/);
+const accessStore = new Map([['field-monitor.status.hide-hosts','false']]);
+let accessViewer = null, allowLiveHosts = false;
+let holdOldStatus = false, releaseOldStatus, oldStatusStarted;
+let logoutPosted;
+const oldStatusGate = new Promise(resolve => {oldStatusStarted=resolve;});
+const logoutGate = new Promise(resolve => {logoutPosted=resolve;});
+const accessPayload = () => ({project:'Public event',deployment:1,updated:now,monitoring_paused:false,
+  viewer:accessViewer,can_view_hosts:allowLiveHosts,can_acknowledge:false,acknowledge_enabled:true,
+  devices:[{name:'Private live host',alias:'Private alias',status:'healthy',services:[{name:'Private reading',status:'healthy',value:'123.45',units:'V'}]}],
+  incidents:[{id:800,number:8,device:'Affected host',alias:'Event alias',service:'Ping',status:'unreachable',opened:now,trigger_display:'Host unreachable',trigger_value:null}],
+  acknowledged_incidents:[{id:801,number:9,device:'Affected host',alias:'Event alias',service:'Ping',status:'unreachable',opened:now,acknowledged:now,acknowledged_by_full_name:'Alex Example'}]});
+const accessBrowser = vm.createContext({document:publicContext.document,setInterval(){},
+  localStorage:{getItem:key => accessStore.get(key),setItem:(key,value) => accessStore.set(key,value)},
+  fetch:async (path,options) => {
+    if (path === '/api/me') return {ok:true,status:200,json:async () => ({...accessViewer,csrf:'logout-token'})};
+    if (path === '/api/logout') {
+      accessViewer=null;allowLiveHosts=false;logoutPosted();
+      return {ok:true,status:200,json:async () => ({ok:true})};
+    }
+    const payload = JSON.parse(JSON.stringify(accessPayload()));
+    if (holdOldStatus) {
+      holdOldStatus=false;oldStatusStarted();
+      await new Promise(resolve => {releaseOldStatus=resolve;});
+    }
+    return {ok:true,status:200,json:async () => payload};
+  }});
+new vm.Script(statusPage.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(accessBrowser);
+await accessBrowser.refresh();
+const accessNode = id => publicNodes.get(id);
+for (const id of ['live-host-panel','host-controls','devices','toggle-hosts']) assert.equal(accessNode(id).hidden,true);
+assert.equal(accessNode('toggle-hosts').disabled,true);
+assert.equal(accessNode('devices').innerHTML,'');
+assert.equal(vm.runInContext('publicState.devices.length',accessBrowser),0);
+assert.match(accessNode('incidents').innerHTML,/Affected host/);
+assert.match(accessNode('acknowledged-incidents').innerHTML,/Alex Example/);
+accessNode('toggle-hosts').onclick();
+accessNode('view-list').onclick();
+assert.equal(accessStore.get('field-monitor.status.hide-hosts'),'false');
+for (const role of ['admin','operator','viewer']) {
+  accessViewer={username:role,role,must_change_password:false};allowLiveHosts=true;
+  await accessBrowser.refresh();
+  assert.equal(accessNode('live-host-panel').hidden,false);
+  assert.equal(accessNode('toggle-hosts').hidden,false);
+  assert.equal(accessNode('toggle-hosts').disabled,false);
+  assert.match(accessNode('devices').innerHTML,/Private live host/);
+}
+accessViewer.must_change_password=true;
+await accessBrowser.refresh();
+assert.equal(accessNode('devices').innerHTML,'');
+assert.equal(accessNode('live-host-panel').hidden,true);
+accessViewer.must_change_password=false;
+await accessBrowser.refresh();
+accessNode('toggle-hosts').onclick();
+assert.equal(accessStore.get('field-monitor.status.hide-hosts'),'true');
+accessViewer=null;allowLiveHosts=false;
+await accessBrowser.refresh();
+accessNode('toggle-hosts').onclick();
+assert.equal(accessStore.get('field-monitor.status.hide-hosts'),'true');
+assert.equal(accessNode('devices').innerHTML,'');
+accessViewer={username:'reader',role:'viewer',must_change_password:false};allowLiveHosts=true;
+await accessBrowser.refresh();
+assert.equal(accessNode('toggle-hosts').hidden,false);
+assert.equal(accessNode('live-host-panel').hidden,true); // Signed-in preference survives.
+accessNode('toggle-hosts').onclick();
+assert.match(accessNode('devices').innerHTML,/Private live host/);
+holdOldStatus=true;
+const accessOldRefresh = accessBrowser.refresh();
+await oldStatusGate;
+const signingOut = accessNode('status-logout').onclick();
+await logoutGate;
+// Let sign-out finish its async session lookup/POST while the old status GET stays blocked.
+for (let step=0;step<40 && !accessNode('live-host-panel').hidden;step++) await Promise.resolve();
+assert.equal(accessNode('live-host-panel').hidden,true);
+assert.equal(accessNode('devices').innerHTML,'');
+releaseOldStatus();
+await Promise.all([accessOldRefresh,signingOut]);
+assert.equal(accessNode('devices').innerHTML,'');
+assert.equal(accessNode('service-filter-options').innerHTML,'');
+assert.equal(accessNode('toggle-hosts').hidden,true);
+assert.match(accessNode('incidents').innerHTML,/Affected host/);
+console.log('Anonymous/expired/temporary-password status hides host data and controls; signed-in roles retain preferences; logout discards stale authenticated replies.');

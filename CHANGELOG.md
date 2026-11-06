@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 88 — v0.5.3 (status live-host access branch)
+
+- Restrict Status Dashboard Live Hosts and its controls to signed-in users; omit live devices/readings from anonymous API responses while preserving public issue lists and branding.
+- Preserve signed-in display preferences and clear rendered/cached host data after session loss or logout. Reject stale pre-logout responses.
+- Retain live-host access for Admin, Operator and View Only accounts after any required password change.
+
 ### Build 87 — v0.5.3
 
 - Merge the README corrections and Admin project setup improvements into main, including the bordered top configuration area, automatic selection of new projects, collapsible assignments and acknowledgement defaults for new projects.

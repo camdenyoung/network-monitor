@@ -1,4 +1,4 @@
-# Network Monitor v0.5.3 · Build 87
+# Network Monitor v0.5.3 · Build 88
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -74,11 +74,18 @@ password. User edits, password resets and deletion revoke that user's sessions.
 Sessions default to 12 hours (Admin configurable), use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
 
-The public `/status` dashboard shows active issues above the active project's visible hosts and
-current service values. Issues for hidden, paused or inactive equipment are
-excluded, as are acknowledged, resolved and dependency-suppressed issues. It excludes IP addresses, credentials, OIDs, inventory of
-other projects, history, user accounts, and configuration. It is available locally
-without login; this does not create the future public-facing relay.
+The `/status` dashboard is available locally without login for event branding,
+active issues and the optional acknowledged-issue list. Anonymous visitors cannot
+access Live Hosts, its display controls or live host/service readings; the API
+returns no live devices for them. Public issue details still identify affected
+hosts/services and their recorded opening values.
+
+Live Hosts and its Show/Hide control require a signed-in Admin, Operator or View
+Only user who has completed any required password change. Existing host display
+preferences are preserved for signed-in users. Logout/session expiry clears host
+cards, readings and cached layout markup. The Status Dashboard still excludes IP
+addresses, credentials, OIDs, other projects' inventory, history, account lists and
+configuration. This does not create the future public-facing relay.
 
 ## Initial workflow
 
@@ -339,7 +346,8 @@ Host cards use amber/red backgrounds for confirmed Warning/Critical issues;
 the highest open severity wins. Acknowledgement does not remove the colour until
 the fault recovers. Suppressed child faults do not add a second fault indication.
 
-The public status overview has a **Hide host cards / Show host cards** button.
+Signed-in users of the Status Dashboard have a **Hide host cards / Show host cards**
+button. Anonymous visitors see no Live Hosts section or host controls.
 Hide cards for an issue-only view. The choice is stored in that browser and
 is preserved during live updates and page reloads.
 
@@ -394,12 +402,13 @@ Inventory records remain shared. History, issues and deployment runs stay with
 the original project; review the copy before activating it. Removed assignments
 and removed services are excluded.
 
-Public status **Sort hosts** offers hostname A–Z/Z–A, alias, host status in either
+For signed-in users, Status Dashboard **Sort hosts** offers hostname A–Z/Z–A, alias, host status in either
 priority order, and issue severity. The selection is saved in browser storage
 and applies to both Cards and List views.
 
 Admins can enable **Allow status-page acknowledgement** under **Edit selected
-project**. It defaults off per project. When enabled, signed-in Admins and Operators
+project**. New projects default to enabled; existing projects keep their setting.
+When enabled, signed-in Admins and Operators
 see Acknowledge buttons on active public-status issues. Anonymous visitors and
 View Only users stay read-only. Disabling the setting removes that ability from
 the status page; normal authorised acknowledgement on the main dashboard remains.

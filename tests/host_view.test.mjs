@@ -21,8 +21,8 @@ for (const helper of helpers) {
   const browser = vm.createContext({
     document:{getElementById:() => container,body:{appendChild(node){probe=node;}},
       createElement(){return {inert:false,attributes:{},setAttribute(key,value){this.attributes[key]=value;},
-        set innerHTML(value){built++;this.firstElementChild={
-          getBoundingClientRect:() => ({width:required}),get scrollWidth(){return required;}};},
+        set innerHTML(value){built++;this.markup=value;this.firstElementChild=value ? {
+          getBoundingClientRect:() => ({width:required}),get scrollWidth(){return required;}} : null;},
         querySelectorAll(selector){return selector === '.menu-buttons'
           ? [{remove(){removedPopups++;}}] : [{removeAttribute(name){removedAttributes.push(name);}}];}};}},
     ResizeObserver:class {constructor(callback){this.callback=callback;}observe(node){observed.add(node);}unobserve(node){observed.delete(node);}},
@@ -63,5 +63,10 @@ for (const helper of helpers) {
   assert.ok(changed > previousChanges);
   assert.ok(observed.has(container));
   assert.ok(observed.has(probe.firstElementChild));
+  const lastTable = probe.firstElementChild;
+  fit.clear();
+  assert.equal(probe.markup,'');
+  assert.equal(probe.firstElementChild,null);
+  assert.equal(observed.has(lastTable),false);
 }
 console.log('Both host views preserve preferences, force Cards below intrinsic list width, restore with hysteresis, and isolate measurement menus.');
