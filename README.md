@@ -1,4 +1,4 @@
-# Network Monitor v0.5.4 · Build 89
+# Network Monitor v0.5.4 · Build 90
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -553,6 +553,9 @@ preserves them; older runs retain an empty description rather than invented text
 Deployment descriptions are included in SQLite backups but not public status APIs.
 
 ## Device service defaults
+
+Permanent inventory lists devices alphabetically by Device ID, ignoring case and
+using natural numeric order (SW2 before SW10). Search results use the same order.
 
 In **Permanent inventory**, open the device list and choose **Service defaults**
 for a device. Add/edit/remove definitions, add one from the reusable library, or

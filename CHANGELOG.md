@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 90 — v0.5.4 (inventory Device ID ordering branch)
+
+- Sort Permanent inventory and its search results alphabetically by Device ID, ignoring case and using natural numeric ordering before pagination.
+
 ### Build 89 — v0.5.4
 
 - Merge signed-in-only Status Dashboard Live Hosts into main. Anonymous visitors retain public issue lists and branding but receive no live hosts/readings or host controls.
