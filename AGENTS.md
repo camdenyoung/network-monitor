@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.6, Build 95. Show it after the title on both the main and
+Current displayed release is v0.5.6, Build 96. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -914,3 +914,19 @@ Test routing/security in test_access_notifications.py and isolated browser-scrip
 flows in tests/login.test.mjs (also imported by dashboard.test.mjs). Real Chrome
 with authorised iCloud Passwords is required to verify Enter/save interoperability;
 separating forms does not establish the cause of either extension interaction.
+
+
+Password-change layout uses a two-column grid: Username/Current password first,
+New password/Confirm new password second, then Save password and Cancel in an
+independent full-width actions row. Stack fields on very narrow screens. Cancel
+returns to the originating dashboard for voluntary changes; keep it hidden for
+mandatory changes, whose API restrictions remain enforced.
+Chrome/iCloud diagnostics on 7 November 2026 reproduced Enter cancellation with
+the extension's cachedIsCompletionListVisible=true. Its document keydown handler
+calls preventDefault for Enter while suggestions are marked visible/requested.
+Escape cleared both flags and native submission worked; refocusing also worked
+in one test. Separating forms did not fix Enter or saving. Do not claim credential
+saving is fixed or add a blind Enter handler that submits while choosing a saved
+credential. Temporary browser diagnostics were removed by reload; no credentials
+were saved or passwords changed. Coordinate explicit browser handover before UI
+interaction; concurrent user input invalidates tests.

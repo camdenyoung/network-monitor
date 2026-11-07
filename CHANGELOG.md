@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 96 — v0.5.6 (password-change layout branch update)
+
+- Arrange password-change fields in two paired rows with Save password and Cancel underneath; stack fields on very narrow screens.
+- Rename the voluntary return action to Cancel while preserving mandatory-change restrictions and dashboard return context.
+- Investigate iCloud Passwords Enter cancellation: its active suggestion-list handler consumes Enter; Escape restores native submission. Credential saving remains unresolved; no speculative keyboard override is added.
+
 ### Build 95 — v0.5.6 (separate password-change branch)
 
 - Separate sign-in and password-change pages; redirect signed-in visitors away from login and preserve the originating dashboard through mandatory changes.
