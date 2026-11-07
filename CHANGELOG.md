@@ -4,6 +4,25 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 97 — v0.5.7
+
+- Merge separate login and password-change pages, with session-aware redirects and the original dashboard destination preserved through required changes.
+- Include the paired-row password form with Save password and Cancel underneath, plus the self-service link in User Management.
+- User testing confirmed that resetting retained browser state resolved iCloud autofill and Enter submission; no keyboard workaround was required. The separate forms fix the independently confirmed login redirect issue.
+- Verify with all 245 backend tests and dashboard, authentication, connection-recovery and responsive host-view checks.
+
+### Build 96 — v0.5.6 (password-change layout branch update)
+
+- Arrange password-change fields in two paired rows with Save password and Cancel underneath; stack fields on very narrow screens.
+- Rename the voluntary return action to Cancel while preserving mandatory-change restrictions and dashboard return context.
+- Investigate iCloud Passwords Enter cancellation in its active suggestion-list handler. Escape worked in one diagnostic but was not reliable in user testing; see Build 97 for the subsequent browser-state resolution. No keyboard override was added.
+
+### Build 95 — v0.5.6 (separate password-change branch)
+
+- Separate sign-in and password-change pages; redirect signed-in visitors away from login and preserve the originating dashboard through mandatory changes.
+- Add an explicit self-service password-change link in User Management, with a username field and appropriate autocomplete attributes on the dedicated change form.
+- Preserve credential fields until navigation and use explicit submit buttons. Retain current-password verification, CSRF and session rotation; browser password-manager compatibility still requires real-device verification.
+
 ### Build 94 — v0.5.6
 
 - Merge independent inventory device duplication with all service defaults and unique-IP validation into main.

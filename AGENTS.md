@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.6, Build 94. Show it after the title on both the main and
+Current displayed release is v0.5.7, Build 97. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -897,3 +897,44 @@ changed inventory, edited files or restart require re-review. No pending DB jobs
 schema migrations. The in-app dialog captures file/mode/token, prevents double saves
 and closing during writes, blocks IP conflicts, preserves rejected inputs and resets
 only after success. Export/import does not include project logos or deployment data.
+
+
+Authentication pages are separate: /login contains only the sign-in form;
+/change-password contains only the current/new/confirm password form plus a readonly
+username with autocomplete=username. GET /login redirects existing sessions to
+/ (or allowlisted next=/status), except mandatory-change sessions go to
+/change-password with the same return context. Anonymous/expired sessions on
+/change-password go to /login; direct / redirects forced-change sessions to
+/change-password. Voluntary self-service changes are linked in User Management;
+all authenticated roles may use the change page/API. Keep API enforcement for
+mandatory changes, current-password verification, CSRF and full session rotation.
+Do not clear credential forms before navigation; password managers need their values.
+Use explicit submit buttons and native form submission, no duplicate Enter handlers.
+Test routing/security in test_access_notifications.py and isolated browser-script
+flows in tests/login.test.mjs (also imported by dashboard.test.mjs). Real Chrome
+with authorised iCloud Passwords is required to verify Enter/save interoperability;
+separating forms does not establish the cause of either extension interaction.
+
+
+Password-change layout uses a two-column grid: Username/Current password first,
+New password/Confirm new password second, then Save password and Cancel in an
+independent full-width actions row. Stack fields on very narrow screens. Cancel
+returns to the originating dashboard for voluntary changes; keep it hidden for
+mandatory changes, whose API restrictions remain enforced.
+Chrome/iCloud diagnostics on 7 November 2026 reproduced Enter cancellation with
+the extension's cachedIsCompletionListVisible=true. Its document keydown handler
+calls preventDefault for Enter while suggestions are marked visible/requested.
+Escape cleared both flags and native submission worked; refocusing also worked
+in one test. Separating forms did not fix Enter or saving. Do not claim credential
+saving is fixed or add a blind Enter handler that submits while choosing a saved
+credential. Temporary browser diagnostics were removed by reload; no credentials
+were saved or passwords changed. Coordinate explicit browser handover before UI
+interaction; concurrent user input invalidates tests.
+
+
+Follow-up to the Chrome/iCloud diagnostics: the user confirmed that refreshing/
+restarting retained browser state resolved both autofill and Enter with iCloud
+Passwords enabled. The exact reset step was not identified; do not claim a specific
+cache mechanism or a reliable Escape workaround. No keyboard override was needed.
+Keep separate login/change-password pages for their independently confirmed
+routing benefit. v0.5.7 merges these flows and the paired-row password layout.

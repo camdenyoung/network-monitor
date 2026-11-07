@@ -10,6 +10,7 @@ import math
 import os
 import platform
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 import socket
 import sqlite3
 import struct
@@ -1536,6 +1537,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def redirect(self, destination):
+        """Redirect without caching account-dependent routing or response bodies."""
+        self.send_response(303)
+        self.send_header('Location', destination)
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
     def require_user(self, admin=False, allow_password_change=False, roles=None):
         with connect() as db:
             user = auth.session_user(db, self.headers.get('Cookie'))
@@ -1565,7 +1574,6 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"ok":true}')
 
     def send_logo(self, public=False):
-        from urllib.parse import parse_qs, urlsplit
         try:
             project = int(parse_qs(urlsplit(self.path).query)['project'][0])
             with connect() as db:
@@ -1614,8 +1622,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_logo(public=True)
         if self.path == '/api/health':
             return self.send('{"ok":true}')
-        if self.path.split('?', 1)[0] == '/login':
-            return self.send(Path(__file__).with_name('login.html').read_bytes(), 'text/html; charset=utf-8')
+        page = urlsplit(self.path)
+        if page.path in ('/login', '/change-password'):
+            # Preserve the originating dashboard, but never redirect to arbitrary URLs.
+            requested = parse_qs(page.query).get('next', ['/'])[0]
+            destination = '/status' if requested == '/status' else '/'
+            suffix = '?next=%2Fstatus' if destination == '/status' else ''
+            with connect() as db:
+                user = auth.session_user(db, self.headers.get('Cookie'))
+            if page.path == '/login' and user:
+                return self.redirect('/change-password' + suffix
+                                     if user['must_change_password'] else destination)
+            if page.path == '/change-password' and not user:
+                return self.redirect('/login' + suffix)
+            filename = 'login.html' if page.path == '/login' else 'change-password.html'
+            return self.send(Path(__file__).with_name(filename).read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/status':
             return self.send(Path(__file__).with_name('status.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/status':
@@ -1638,10 +1659,7 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as db:
                 user = auth.session_user(db, self.headers.get('Cookie'))
             if not user or user['must_change_password']:
-                self.send_response(303)
-                self.send_header('Location', '/login')
-                self.end_headers()
-                return
+                return self.redirect('/change-password' if user else '/login')
             return self.send(Path(__file__).with_name('index.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/me':
             user = self.require_user(allow_password_change=True)
@@ -1710,7 +1728,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send(payload, 'application/octet-stream',
                       filename=f'network-monitor-backup-{stamp}.sqlite3')
         elif self.path.startswith('/api/resolved?'):
-            from urllib.parse import parse_qs, urlsplit
             try:
                 result = resolved.read(connect, parse_qs(urlsplit(self.path).query), acknowledgement_display_name)
                 self.send(json.dumps(result))
@@ -1718,7 +1735,6 @@ class Handler(BaseHTTPRequestHandler):
                 message = str(error) if isinstance(error, resolved.SearchError) else 'Invalid resolved issue search.'
                 self.send(json.dumps({'error': message}), status=400)
         elif self.path.startswith('/api/history?'):
-            from urllib.parse import parse_qs, urlsplit
             try:
                 query = parse_qs(urlsplit(self.path).query)
                 if 'start' in query or 'end' in query:
@@ -1738,7 +1754,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send('{"error":"Not found"}', status=404)
 
     def do_POST(self):
-        from urllib.parse import parse_qs, urlsplit
         origin = self.headers.get('Origin')
         if origin and (urlsplit(origin).netloc != self.headers.get('Host', '')
                        or urlsplit(origin).scheme not in ('http', 'https')):

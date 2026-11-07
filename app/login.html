@@ -37,57 +37,45 @@
   </style></head>
 <body style="max-width:620px">
   <h1>Network Monitor</h1><p><a class="button-link" href="/status">Public status overview</a></p>
-  <section id="login-section"><h2>Sign in</h2>
-    <form id="login-form">
+  <section><h2>Sign in</h2>
+    <form id="login-form" method="post">
       <label>Username<input name="username" required autocomplete="username"></label>
       <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
-      <button>Sign in</button>
+      <button type="submit">Sign in</button>
     </form>
     <p>First login: username <code>admin</code>. Obtain the temporary password from the server administrator.</p>
   </section>
-  <section id="password-section" hidden><h2>Change your password</h2>
-    <p id="password-reason">Change your temporary password before continuing.</p>
-    <form id="password-form">
-      <label>Current password<input name="current_password" type="password" required autocomplete="current-password"></label>
-      <label>New password<input name="password" type="password" minlength="10" maxlength="256" required autocomplete="new-password"></label>
-      <label>Confirm new password<input name="confirm" type="password" required autocomplete="new-password"></label>
-      <button>Save password</button>
-    </form><p><a id="back-dashboard" class="button-link" href="/">Back to dashboard</a></p>
-  </section>
   <p id="message" role="status"></p>
   <script>
-    // Only known local dashboards may be return destinations; never arbitrary URLs.
+    // Keep the dashboard destination local and preserve it through mandatory changes.
     const requestedDestination = new URLSearchParams(location.search).get('next');
     const returnDestination = requestedDestination === '/status' ? '/status' : '/';
-    document.getElementById('back-dashboard').setAttribute('href', returnDestination);
-    let user;
-    async function session() {
-      const response = await fetch('/api/me');
-      if (!response.ok) return;
-      user = await response.json();
-      document.getElementById('login-section').hidden = true;
-      document.getElementById('password-section').hidden = false;
-      if (!user.must_change_password) document.getElementById('password-reason').textContent = 'Choose a password with at least 10 characters.';
-    }
-    async function submit(event, path) {
+    const passwordDestination = '/change-password' + (returnDestination === '/status' ? '?next=%2Fstatus' : '');
+    const form = document.getElementById('login-form');
+    const button = form.querySelector('button');
+    form.onsubmit = async event => {
       event.preventDefault();
-      const form = event.target;
-      const body = Object.fromEntries(new FormData(form));
-      const button = form.querySelector('button');
+      if (button.disabled) return;
       button.disabled = true;
+      document.getElementById('message').textContent = '';
       try {
-        if (body.confirm !== undefined && body.confirm !== body.password) throw new Error('New passwords do not match.');
-        const response = await fetch('/api/' + path, {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token':user?.csrf || ''}, body:JSON.stringify(body)});
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(Object.fromEntries(new FormData(form))),
+        });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error);
-        form.reset();
-        await session();
-        if (path === 'password' || !user.must_change_password) location.assign(returnDestination);
-      } catch (error) { document.getElementById('message').textContent = error.message; }
-      finally { button.disabled = false; }
-    }
-    document.getElementById('login-form').onsubmit = event => submit(event, 'login');
-    document.getElementById('password-form').onsubmit = event => submit(event, 'password');
-    session().catch(error => { document.getElementById('message').textContent = error.message; });
+        if (!response.ok) throw new Error(result.error || 'Could not sign in.');
+        const sessionResponse = await fetch('/api/me');
+        if (!sessionResponse.ok) throw new Error('Could not verify your session. Please try again.');
+        const user = await sessionResponse.json();
+        // Leave credentials intact until navigation so password managers can capture them.
+        location.assign(user.must_change_password ? passwordDestination : returnDestination);
+      } catch (error) {
+        document.getElementById('message').textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    };
   </script>
 </body></html>
