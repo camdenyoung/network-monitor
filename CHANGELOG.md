@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 95 — v0.5.6 (separate password-change branch)
+
+- Separate sign-in and password-change pages; redirect signed-in visitors away from login and preserve the originating dashboard through mandatory changes.
+- Add an explicit self-service password-change link in User Management, with a username field and appropriate autocomplete attributes on the dedicated change form.
+- Preserve credential fields until navigation and use explicit submit buttons. Retain current-password verification, CSRF and session rotation; browser password-manager compatibility still requires real-device verification.
+
 ### Build 94 — v0.5.6
 
 - Merge independent inventory device duplication with all service defaults and unique-IP validation into main.

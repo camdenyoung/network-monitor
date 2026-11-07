@@ -53,6 +53,9 @@ class AccessAndNotificationTests(unittest.TestCase):
         response = {}
         handler.send = lambda content, mime=None, status=200, filename=None: response.update(status=status, content=content, mime=mime, filename=filename)
         handler.session_response = lambda token=None: response.update(status=200, token=token)
+        handler.send_response = lambda status: response.update(status=status)
+        handler.send_header = lambda key, value: response.setdefault('headers', {}).update({key: value})
+        handler.end_headers = lambda: None
         if body is None:
             handler.do_GET()
         else:
@@ -871,6 +874,60 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertEqual(response['status'], 200)
             self.assertIn('text/html', response['mime'])
             self.assertIn(b'id="login-form"', response['content'])
+
+    def test_account_pages_redirect_by_session_and_preserve_only_local_destinations(self):
+        for token in (self.admin_token, self.viewer_token):
+            for query, destination in (('', '/'), ('?next=%2Fstatus', '/status'),
+                                       ('?next=https%3A%2F%2Fevil.example', '/'),
+                                       ('?next=%2F%2Fevil.example', '/')):
+                response = self.request('/login' + query, token=token)
+                self.assertEqual(response['status'], 303)
+                self.assertEqual(response['headers']['Location'], destination)
+                self.assertEqual(response['headers']['Cache-Control'], 'no-store')
+            response = self.request('/change-password', token=token)
+            self.assertEqual(response['status'], 200)
+            self.assertIn(b'id="password-form"', response['content'])
+            self.assertNotIn(b'id="login-form"', response['content'])
+        for query, destination in (('', '/login'), ('?next=%2Fstatus', '/login?next=%2Fstatus'),
+                                   ('?next=https%3A%2F%2Fevil.example', '/login')):
+            response = self.request('/change-password' + query)
+            self.assertEqual(response['status'], 303)
+            self.assertEqual(response['headers']['Location'], destination)
+        with server.connect() as db:
+            db.execute('UPDATE users SET must_change_password=1 WHERE id=2')
+        self.assertEqual(self.request('/login', token=self.viewer_token)['headers']['Location'], '/change-password')
+        self.assertEqual(self.request('/login?next=%2Fstatus', token=self.viewer_token)['headers']['Location'],
+                         '/change-password?next=%2Fstatus')
+        self.assertEqual(self.request('/', token=self.viewer_token)['headers']['Location'], '/change-password')
+        self.assertEqual(self.request('/api/state', token=self.viewer_token)['status'], 403)
+        self.assertEqual(self.request('/change-password', token=self.viewer_token)['status'], 200)
+        with server.connect() as db:
+            db.execute('UPDATE sessions SET expires=0')
+        self.assertEqual(self.request('/login', token=self.viewer_token)['status'], 200)
+        self.assertEqual(self.request('/change-password', token=self.viewer_token)['headers']['Location'], '/login')
+
+    def test_separate_account_forms_and_password_change_security(self):
+        login = self.request('/login')['content']
+        self.assertEqual(login.count(b'<form '), 1)
+        self.assertNotIn(b'id="password-form"', login)
+        self.assertIn(b'type="submit"', login)
+        self.assertNotIn(b'form.reset()', login)
+        self.assertEqual(self.request('/api/password', {
+            'current_password': 'Reader-test-123', 'password': 'New-reader-123',
+        }, token=self.viewer_token)['status'], 403)
+        self.assertEqual(self.request('/api/password', {
+            'current_password': 'wrong', 'password': 'New-reader-123',
+        }, token=self.viewer_token, csrf=self.viewer['csrf'])['status'], 400)
+        with server.connect() as db:
+            other_token = auth.new_session(db, 2)
+        response = self.request('/api/password', {
+            'current_password': 'Reader-test-123', 'password': 'New-reader-123',
+        }, token=self.viewer_token, csrf=self.viewer['csrf'])
+        self.assertEqual(response['status'], 200)
+        with server.connect() as db:
+            self.assertIsNone(auth.session_user(db, 'monitor_session=' + self.viewer_token))
+            self.assertIsNone(auth.session_user(db, 'monitor_session=' + other_token))
+            self.assertFalse(auth.session_user(db, 'monitor_session=' + response['token'])['must_change_password'])
 
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):

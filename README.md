@@ -1,4 +1,4 @@
-# Network Monitor v0.5.6 · Build 94
+# Network Monitor v0.5.6 · Build 95
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -504,7 +504,12 @@ and Actions controls so varying names, values and labels do not shift buttons.
 Sign-in from the status dashboard uses /login?next=%2Fstatus and returns there
 after login, including any required password change. Admin dashboard sign-in
 defaults to /. Only /status and / are allowed return destinations; external or
-unrecognised URLs fall back to /. Return context is kept in the login URL per tab.
+unrecognised URLs fall back to /. Return context is kept in the page URL per tab. `/login` contains only sign-in:
+already signed-in users return to their dashboard, while accounts requiring a
+password change go to `/change-password`. The dedicated change page requires a
+session; voluntary changes are available via **Change my password** in User
+Management. Changing a password requires the current password and replaces all
+existing sessions for that account with a new session for the current browser.
 
 Admins can set the fixed session duration in User management → Login sessions
 (1–168 whole hours, default 12). Changes apply to new sign-ins, not existing
