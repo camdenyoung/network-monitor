@@ -70,3 +70,14 @@ pseudo-element pixels, animation timing or operating-system native controls.
 It does not establish identical rendering in every browser, iOS version, zoom level,
 font configuration or password-manager extension. Real hardware acceptance testing
 remains appropriate before merging this presentation refactor.
+
+
+## Subsequent restore fix (Build 103)
+
+After the presentation-only Build 102, comparison deployment testing exposed the
+pre-existing 64 MiB restore cap. Build 103 raises/configures that limit and changes
+the Admin dialog's error handling to report the server's actual failure. This is a
+separate functional fix, not part of the byte-identical-script claim above. It adds
+backend large-backup/fresh-install and size-limit tests, plus frontend authentication,
+CSRF, size and non-JSON proxy error cases. The CSS files and Build 102 layout report
+remain unchanged.

@@ -1746,7 +1746,21 @@ element('restore').onsubmit({preventDefault(){},target:restoreForm});
 rejectAdministrativeAction = true;
 await element('confirm-app-action').onclick();
 assert.equal(element('app-confirmation').open,true);
-assert.match(element('app-confirmation-feedback').textContent,/Restore rejected/);
+assert.equal(element('app-confirmation-feedback').textContent,'Operation rejected');
+// Preserve actual server errors, including authentication and size failures.
+const restoreFetch = administrativeContext.fetch;
+for (const [status,message] of [[401,'Login required'],[403,'Invalid request token'],[413,'Backup exceeds the restore upload limit of 256 MiB.']]) {
+  administrativeContext.fetch = async (path, options) => path==='/api/restore'
+    ? {ok:false,status,json:async()=>({error:message})} : restoreFetch(path,options);
+  await element('confirm-app-action').onclick();
+  assert.equal(element('app-confirmation-feedback').textContent,message);
+  assert.equal(element('app-confirmation').open,true);
+}
+administrativeContext.fetch = async (path,options) => path==='/api/restore'
+  ? {ok:false,status:413,json:async()=>{throw new Error('HTML proxy response');}} : restoreFetch(path,options);
+await element('confirm-app-action').onclick();
+assert.match(element('app-confirmation-feedback').textContent,/too large/);
+administrativeContext.fetch = restoreFetch;
 rejectAdministrativeAction = false;
 element('cancel-app-action').onclick();
 element('restore').onsubmit({preventDefault(){},target:restoreForm});

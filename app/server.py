@@ -42,6 +42,17 @@ class DatabaseConnection(sqlite3.Connection):
             self.close()
 
 
+def restore_limit_bytes():
+    """Bound restore memory use while allowing operators to import larger backups."""
+    try:
+        megabytes = int(os.environ.get('MONITOR_MAX_RESTORE_MB', '256'))
+    except ValueError:
+        raise ValueError('MONITOR_MAX_RESTORE_MB must be a whole number from 1 to 1024') from None
+    if not 1 <= megabytes <= 1024:
+        raise ValueError('MONITOR_MAX_RESTORE_MB must be a whole number from 1 to 1024')
+    return megabytes * 1024 * 1024
+
+
 def connect():
     db = sqlite3.connect(DB, timeout=20, factory=DatabaseConnection)
     db.row_factory = sqlite3.Row
@@ -1784,10 +1795,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send('{"error":"Invalid request token"}', status=403)
         try:
             size = int(self.headers.get('Content-Length', '0'))
-            limit = (64 * 1024 * 1024 if self.path == '/api/restore' else
+            limit = (restore_limit_bytes() if self.path == '/api/restore' else
                      inventory_transfer.MAX_IMPORT_BYTES + 65536 if self.path in ('/api/inventory-preview','/api/inventory-import') else
                      service_library.MAX_IMPORT_BYTES if self.path == '/api/library-import' else
                      logos.MAX_BYTES if self.path.startswith('/api/project-logo?') else 65536)
+            if self.path == '/api/restore' and size > limit:
+                return self.send(json.dumps({'error':
+                    f'Backup exceeds the restore upload limit of {limit // (1024 * 1024)} MiB. '
+                    'Increase MONITOR_MAX_RESTORE_MB on this installation if needed.'}), status=413)
             if not 0 < size <= limit:
                 raise ValueError('Invalid request size')
             payload = self.rfile.read(size)

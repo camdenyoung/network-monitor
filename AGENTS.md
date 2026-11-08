@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.8, Build 102. Show it after the title on both the main and
+Current displayed release is v0.5.8, Build 103. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -991,3 +991,17 @@ account pages. Computed-property/bounding-box equality supplements functional te
 it does not test authorization or all real-world combinations. Never point the preview
 at a live database; it binds loopback only. Coordinate handover for native browser
 interaction; prefer the isolated in-app browser for previews.
+
+
+Restore upload limit is MONITOR_MAX_RESTORE_MB (whole MiB, 1–1024; default 256),
+passed through Compose/.env. Reject oversized restore Content-Length with HTTP 413
+and an explicit configured-limit message before reading the body. Other payload
+limits remain unchanged. Restores still use in-memory upload/SQLite validation;
+large limits need spare RAM, so do not remove the bound. Preserve database format,
+integrity checks, role/CSRF checks, migrations and paused/session-invalidating restore.
+Admin restore confirmation displays server error text or an HTTP/proxy fallback,
+not a misleading backup-format message for every failure. Build 103 is a distinct
+restore fix after the presentation-only Build 102; its Admin error-handling JS
+change is intentional and separately tested. Multiple installations on the same
+hostname/IP share cookies across ports; compare using separate browser profiles or
+normal/Incognito contexts, not simultaneous logins in one cookie context.

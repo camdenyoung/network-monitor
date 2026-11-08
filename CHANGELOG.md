@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 103 — v0.5.8 (restore upload fix)
+
+- Fix complete backups over the old 64 MiB upload cap being rejected. Default to 256 MiB, configurable with MONITOR_MAX_RESTORE_MB (1–1024 MiB).
+- Reject oversized uploads before reading their bodies and show the actual authentication, request-token or size error in the restore dialog.
+- Preserve database validation and restore semantics. Test a real backup over 64 MiB into a fresh installation, bounded limits and frontend error handling.
+
 ### Build 102 — v0.5.8 (shared stylesheets branch)
 
 - Extract embedded CSS from all pages into local shared and page-specific stylesheets, with readable formatting and common colour/spacing variables.

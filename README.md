@@ -1,4 +1,4 @@
-# Network Monitor v0.5.8 · Build 102
+# Network Monitor v0.5.8 · Build 103
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -822,3 +822,19 @@ See [UI_TESTING.md](UI_TESTING.md) for the before/after matrix, its coverage,
 limitations, and instructions to repeat it. The Build 102 comparison passed all
 696 cases (87 scenarios × eight viewport widths) with no sampled style/layout
 differences; the backend and functional UI suites also passed.
+
+
+### Restore upload size and comparison installations
+
+Complete backup restores accept up to **256 MiB** by default. Set
+`MONITOR_MAX_RESTORE_MB` in `.env` (whole MiB, 1–1024) and recreate the container to
+change this limit. The upload and candidate SQLite database are held in memory;
+allow spare RAM when raising the limit. A reverse proxy may enforce a smaller
+upload limit. Oversized requests report HTTP 413 instead of a backup-format error.
+
+When comparing two installations on the same hostname/IP with different ports,
+use separate browser profiles or a normal window plus an Incognito window. Session
+cookies are shared across ports, so signing into one installation can overwrite
+the other's cookie and invalidate its open page's CSRF token. This is independent
+of backup validity. Restore still replaces the destination database, pauses
+monitoring and requires signing in again with the backed-up accounts.

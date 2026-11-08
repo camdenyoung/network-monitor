@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 102</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 103</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -3007,7 +3007,17 @@
             run: async () => {
               const response = await dashboardFetch('/api/restore', {method: 'POST',
                 headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser.csrf}, body: file});
-              if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
+              if (!response.ok) {
+                // Authentication, upload limits and validation need distinct feedback.
+                let message = `Restore failed (HTTP ${response.status}).`;
+                try {
+                  const result = await response.json();
+                  if (typeof result.error === 'string') message = result.error;
+                } catch {
+                  if (response.status === 413) message = 'Restore upload is too large for the server or reverse proxy.';
+                }
+                throw new Error(message);
+              }
             },
             completed: async () => {
               selectedProject = '';

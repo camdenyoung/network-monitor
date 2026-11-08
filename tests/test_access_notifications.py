@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from app import auth, notifications, server, logos
 
@@ -1006,6 +1006,72 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertIn(f'/static/css/{stylesheet}.css?v=102', page)
             self.assertNotIn('<style>', page)
             self.assertNotIn('style="max-width', page)
+
+    def test_restore_limit_is_configurable_and_bounded(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(server.restore_limit_bytes(), 256 * 1024 * 1024)
+        for value in ('1', '512', '1024'):
+            with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': value}):
+                self.assertEqual(server.restore_limit_bytes(), int(value) * 1024 * 1024)
+        for value in ('0', '-1', '1025', 'invalid', '1.5'):
+            with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': value}):
+                with self.assertRaises(ValueError):
+                    server.restore_limit_bytes()
+
+    def test_oversized_restore_reports_413_without_reading_or_replacing_data(self):
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/restore'
+        handler.headers = {
+            'Content-Type': 'application/octet-stream', 'Content-Length': str(2 * 1024 * 1024),
+            'X-CSRF-Token': 'test',
+        }
+        handler.require_user = lambda **kwargs: {'id': 1, 'role': 'admin', 'csrf': 'test'}
+        handler.rfile = Mock()
+        result = {}
+        handler.send = lambda content, status=200: result.update(status=status, content=content)
+        with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': '1'}):
+            handler.do_POST()
+        self.assertEqual(result['status'], 413)
+        self.assertIn('limit of 1 MiB', json.loads(result['content'])['error'])
+        handler.rfile.read.assert_not_called()
+        self.assertEqual(self.request('/api/me', token=self.admin_token)['status'], 200)
+
+    def test_complete_backup_over_64_mib_restores_into_fresh_installation(self):
+        self.create_host()
+        with server.connect() as db:
+            # Real SQLite backup above the old cap, without a production database.
+            db.execute('CREATE TABLE test_restore_padding (data BLOB)')
+            db.execute('INSERT INTO test_restore_padding VALUES(zeroblob(?))', (72 * 1024 * 1024,))
+        payload = self.request('/api/backup', token=self.admin_token)['content']
+        self.assertGreater(len(payload), 64 * 1024 * 1024)
+        source_path = server.DB
+        try:
+            server.DB = Path(self.directory.name) / 'fresh.sqlite3'
+            server.initialize()
+            with server.connect() as db:
+                db.execute('UPDATE users SET must_change_password=0')
+                token = auth.new_session(db, 1)
+                actor = auth.session_user(db, 'monitor_session=' + token)
+            handler = object.__new__(server.Handler)
+            handler.path = '/api/restore'
+            handler.headers = {
+                'Content-Type': 'application/octet-stream', 'Content-Length': str(len(payload)),
+                'Cookie': 'monitor_session=' + token, 'X-CSRF-Token': actor['csrf'],
+            }
+            handler.rfile = io.BytesIO(payload)
+            result = {}
+            handler.send = lambda content, status=200: result.update(status=status, content=content)
+            with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': '256'}):
+                handler.do_POST()
+            self.assertEqual(result['status'], 200, result)
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM devices').fetchone()[0], 1)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM users').fetchone()[0], 2)
+                self.assertEqual(db.execute("SELECT value FROM settings WHERE key='active_run'").fetchone()[0], '0')
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0], 0)
+                self.assertEqual(db.execute('SELECT length(data) FROM test_restore_padding').fetchone()[0], 72 * 1024 * 1024)
+        finally:
+            server.DB = source_path
 
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):
