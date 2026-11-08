@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 99 — v0.5.7 (session expiry information branch update)
+
+- Add the requesting session's Unix expiry timestamp and whole seconds remaining to authenticated `/api/me` responses.
+- Keep expiry out of account lists/public responses, preserve expired-session rejection and verify that inspection never renews the session.
+
 ### Build 98 — v0.5.7 (login session recheck branch)
 
 - Recheck existing sessions from the loaded login page and when a mobile tab resumes, so an authenticated API session can return to its dashboard without another sign-in.

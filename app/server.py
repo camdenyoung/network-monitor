@@ -1664,7 +1664,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/me':
             user = self.require_user(allow_password_change=True)
             if user:
-                return self.send(json.dumps({**auth.public_user(user), 'csrf': user['csrf']}))
+                # Expose only this request's session expiry; querying must never renew it.
+                return self.send(json.dumps({
+                    **auth.public_user(user), 'csrf': user['csrf'],
+                    'session_expires_at': user['session_expires_at'],
+                    'session_remaining_seconds': max(0, int(user['session_expires_at'] - time.time())),
+                }))
             return
         admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats', '/api/library-export', '/api/inventory-export')
         user = self.require_user(admin=admin)

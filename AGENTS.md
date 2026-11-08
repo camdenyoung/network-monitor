@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.7, Build 98. Show it after the title on both the main and
+Current displayed release is v0.5.7, Build 99. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -955,3 +955,12 @@ renewal, keyboard handlers or DB migrations. tests/login.test.mjs covers startup
 resume, mandatory changes, unsafe return URLs, duplicate submits, stale reads and
 network/HTTP/timeout recovery. Backend tests simulate a cookie-free page load then
 a valid API request and verify the fixed 96-hour expiry is never extended.
+
+
+/api/me includes session_expires_at (Unix timestamp, seconds since epoch) and
+session_remaining_seconds (nonnegative whole seconds, rounded down at response
+creation). auth.session_user selects the matching session's expires with an alias;
+keep public_user's account allowlist unchanged so other/public responses do not
+leak session timing. Include the fields for all authenticated roles, including
+mandatory-change sessions; expired/anonymous requests still return 401. Reading
+expiry never renews the cookie or updates the database. No schema change.
