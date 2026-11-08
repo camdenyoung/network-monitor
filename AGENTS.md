@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.8, Build 104. Show it after the title on both the main and
+Current displayed release is v0.5.8, Build 105. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -1038,3 +1038,13 @@ writes while holding LOCK; release it before streaming downloads. Private files 
 cleaned on success/error/cancel/expiry; crash leftovers older than 24h are swept on
 startup. Both shared dashboard guards allow up to two hours for restore requests;
 other deadlines remain unchanged and reverse proxies may need separate limits.
+
+
+Both dashboard Sign out buttons open #signout-confirmation, an app-styled dialog
+with explicit Sign out/Cancel and Cancel autofocus. configureSignOut is identical
+on both pages: no requests on open/Cancel/Escape, ignore closed/stale confirmation
+clicks, block duplicates and cancellation while busy, keep failures inline and
+allow retry. Preserve role/temporary-password support and existing CSRF logout.
+Admin returns to /login; Status clears private hosts/ack state immediately and
+stays public. A post-logout public refresh failure does not make logout fail.
+Automatic expiry/authentication redirects never require this manual confirmation.

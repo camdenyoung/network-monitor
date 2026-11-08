@@ -1,4 +1,4 @@
-# Network Monitor v0.5.8 · Build 104
+# Network Monitor v0.5.8 · Build 105
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -542,6 +542,8 @@ Admins can set the fixed session duration in User management → Login sessions
 (1–168 whole hours, default 12). Changes apply to new sign-ins, not existing
 sessions; activity does not extend expiry. The database setting controls both
 server session expiry and cookie Max-Age and is included in backups.
+Manual **Sign out** on either dashboard requires confirmation in an app-styled
+dialog. Cancel or Escape keeps the session; automatic expiry still occurs normally.
 Authenticated `/api/me` responses include `session_expires_at` (Unix timestamp)
 and `session_remaining_seconds` (whole seconds remaining when the response was
 created), for the requesting session only. Reading them does not extend expiry.

@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="status-header">
-    <h1>Network Status <small class="app-version">v0.5.8 · Build 104</small></h1>
+    <h1>Network Status <small class="app-version">v0.5.8 · Build 105</small></h1>
     <div class="status-brand">
       <img id="project-logo" class="project-logo" hidden alt="Project logo">
       <p id="project" class="project-name">Loading…</p>
@@ -62,6 +62,15 @@
     <div id="devices" class="grid"></div>
   </div>
   <p id="updated"></p>
+  <dialog id="signout-confirmation" class="acknowledgement-dialog" aria-labelledby="signout-title" aria-describedby="signout-description">
+    <h2 id="signout-title">Sign out?</h2>
+    <p id="signout-description">Sign out of Network Monitor in this browser?</p>
+    <div class="display-controls">
+      <button id="confirm-signout" type="button">Sign out</button>
+      <button id="cancel-signout" type="button" autofocus>Cancel</button>
+    </div>
+    <p id="signout-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="unacknowledgement-dialog" class="acknowledgement-dialog" aria-labelledby="unacknowledgement-title" aria-describedby="unacknowledgement-description">
     <h2 id="unacknowledgement-title">Unacknowledge issue?</h2>
     <p id="unacknowledgement-context"></p>
@@ -89,6 +98,48 @@
     <p>Controls will unlock when fresh dashboard data is loaded.</p>
   </dialog>
   <script>
+    // Shared sign-out confirmation: opening/cancelling never sends a request.
+    function configureSignOut(triggerId, performLogout) {
+      const node = id => document.getElementById(id);
+      const trigger = node(triggerId);
+      const dialog = node('signout-confirmation');
+      const confirm = node('confirm-signout');
+      const cancel = node('cancel-signout');
+      let requested = false;
+      let busy = false;
+      trigger.onclick = () => {
+        if (busy || dialog.open) return;
+        requested = true;
+        node('signout-feedback').textContent = '';
+        dialog.showModal();
+      };
+      cancel.onclick = () => {
+        if (busy) return;
+        requested = false;
+        dialog.close();
+      };
+      dialog.onclose = () => { if (!busy) requested = false; };
+      dialog.oncancel = event => {
+        if (busy) event.preventDefault();
+        else requested = false;
+      };
+      confirm.onclick = async () => {
+        if (!requested || busy || !dialog.open) return;
+        busy = true;
+        trigger.disabled = confirm.disabled = cancel.disabled = true;
+        node('signout-feedback').textContent = '';
+        try {
+          await performLogout();
+          requested = false;
+          dialog.close();
+        } catch (error) {
+          node('signout-feedback').textContent = error.message;
+        } finally {
+          busy = false;
+          trigger.disabled = confirm.disabled = cancel.disabled = false;
+        }
+      };
+    }
     // BEGIN dashboard connection recovery (keep identical on both dashboards).
     function createConnectionGuard() {
       const staleAfter = 30000;
@@ -578,40 +629,35 @@
         document.getElementById('summary').textContent = error.message + ' — displayed information may be stale.';
       }
     }
-    document.getElementById('status-logout').onclick = async () => {
-      const button = document.getElementById('status-logout');
-      button.disabled = true;
-      try {
-        // The public overview gives acknowledgement CSRF only to eligible roles.
-        // Fetch the current session token here so View Only and temporary-password
-        // accounts can also sign out without widening public acknowledgement access.
-        const sessionResponse = await dashboardFetch('/api/me');
-        if (sessionResponse.status !== 401) {
-          const session = await sessionResponse.json();
-          if (!sessionResponse.ok) throw new Error(session.error || 'Could not read your session.');
-          const response = await dashboardFetch('/api/logout', {method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf}, body: '{}'});
-          if (!response.ok && response.status !== 401) {
-            const result = await response.json();
-            throw new Error(result.error || 'Could not sign out.');
-          }
+    configureSignOut('status-logout', async () => {
+      // The public overview gives acknowledgement CSRF only to eligible roles.
+      // Fetch the current session token here so View Only and temporary-password
+      // accounts can also sign out without widening public acknowledgement access.
+      const sessionResponse = await dashboardFetch('/api/me');
+      if (sessionResponse.status !== 401) {
+        const session = await sessionResponse.json();
+        if (!sessionResponse.ok) throw new Error(session.error || 'Could not read your session.');
+        const response = await dashboardFetch('/api/logout', {method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf}, body: '{}'});
+        if (!response.ok && response.status !== 401) {
+          const result = await response.json();
+          throw new Error(result.error || 'Could not sign out.');
         }
-        statusSessionEpoch++;
-        if (publicState) {
-          publicState.viewer = null;
-          publicState.can_view_hosts = false;
-          publicState.can_acknowledge = false;
-        }
-        renderHosts(true);
-        pendingAcknowledgement = null;
-        pendingUnacknowledgement = null;
-        document.getElementById('acknowledgement-dialog').close();
-        document.getElementById('unacknowledgement-dialog').close();
-        await refresh();
-      } catch (error) {
-        document.getElementById('status-ack-feedback').textContent = error.message;
-      } finally { button.disabled = false; }
-    };
+      }
+      statusSessionEpoch++;
+      if (publicState) {
+        publicState.viewer = null;
+        publicState.can_view_hosts = false;
+        publicState.can_acknowledge = false;
+      }
+      renderHosts(true);
+      pendingAcknowledgement = null;
+      pendingUnacknowledgement = null;
+      document.getElementById('acknowledgement-dialog').close();
+      document.getElementById('unacknowledgement-dialog').close();
+      // Logout already succeeded; a failed public refresh must not invite a retry.
+      await refresh().catch(reportLiveRefreshError);
+    });
     let pendingUnacknowledgement = null;
     function openUnacknowledgement(id) {
       if (!publicState?.can_acknowledge) return;

@@ -1415,6 +1415,7 @@ for (const role of ['admin','operator','viewer']) {
     await signOutContext.refresh();
     assert.equal(publicNodes.get('status-logout').hidden,false);
     await publicNodes.get('status-logout').onclick();
+    await publicNodes.get('confirm-signout').onclick();
     const posted = signOutRequests.at(-1);
     assert.equal(posted.headers['X-CSRF-Token'],'logout-session-token');
     assert.equal(posted.method,'POST');
@@ -1428,12 +1429,14 @@ signOutData.viewer = {username:'viewer',role:'viewer'};
 signOutDenied = true;
 await signOutContext.refresh();
 await publicNodes.get('status-logout').onclick();
+    await publicNodes.get('confirm-signout').onclick();
 assert.equal(publicNodes.get('status-logout').hidden,false);
 assert.equal(publicNodes.get('status-logout').disabled,false);
-assert.equal(publicNodes.get('status-ack-feedback').textContent,'Sign out rejected');
+assert.equal(publicNodes.get('signout-feedback').textContent,'Sign out rejected');
 const callsBeforeExpiry = signOutRequests.length;
 signOutExpired = true;
 await publicNodes.get('status-logout').onclick();
+    await publicNodes.get('confirm-signout').onclick();
 assert.equal(signOutRequests.length,callsBeforeExpiry);
 assert.equal(publicNodes.get('status-logout').hidden,true);
 console.log('Status sign-out works for all roles and temporary passwords, uses session CSRF, and handles rejection/expiry.');
@@ -2691,7 +2694,8 @@ assert.match(accessNode('devices').innerHTML,/Private live host/);
 holdOldStatus=true;
 const accessOldRefresh = accessBrowser.refresh();
 await oldStatusGate;
-const signingOut = accessNode('status-logout').onclick();
+accessNode('status-logout').onclick();
+const signingOut = accessNode('confirm-signout').onclick();
 await logoutGate;
 // Let sign-out finish its async session lookup/POST while the old status GET stays blocked.
 for (let step=0;step<40 && !accessNode('live-host-panel').hidden;step++) await Promise.resolve();
@@ -2865,3 +2869,5 @@ await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransfe
 assert.match(element('inventory-feedback').textContent,/valid inventory JSON/);
 assert.equal(inventoryTransferCalls.length,inventoryCallsBeforeInvalid);
 console.log('Inventory import previews, merge/update modes, conflicts, cancellation, stale review errors, immutable file capture and single confirmation passed.');
+
+await import('./signout.test.mjs');

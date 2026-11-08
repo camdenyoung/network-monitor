@@ -104,3 +104,13 @@ one retained project/device and two accounts, zero deployments/samples/issues/se
 active_run=0, paused_run=0 and notifications_paused=1. No live installation, provider
 or monitoring database was used. The temporary browser tab/server/database were
 closed and cleaned afterwards.
+
+
+## Manual sign-out confirmations (Build 105)
+
+Both dashboards use the same app-styled confirmation logic. tests/signout.test.mjs
+(imported by the dashboard suite) checks no requests on open/Cancel/Escape, rejection
+of stale/duplicate confirmations, blocked closing during requests, inline failures
+and retry. The Admin binding is checked for one logout request and /login navigation.
+Existing public-dashboard tests exercise Admin/Operator/View Only and mandatory-change
+accounts, session expiry and stale authenticated responses after confirmed logout.

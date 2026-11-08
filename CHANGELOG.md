@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 105 — v0.5.8 (sign-out confirmations)
+
+- Add matching app-styled Sign out/Cancel confirmations to both dashboards, with Cancel focused initially.
+- Opening/cancelling sends no logout; guard duplicate submissions and closing during requests, and retain failures inline for retry.
+- Preserve manual logout destinations, public host-data cleanup, role support and automatic session expiry.
+
 ### Build 104 — v0.5.8 (disk-backed backup and selective restore branch)
 
 - Stream backup downloads and restore uploads through private on-disk SQLite files with bounded buffers, disk-space checks and a configurable 20 GiB default cap.

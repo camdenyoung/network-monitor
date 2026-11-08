@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 104</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 105</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -368,6 +368,15 @@
     <p id="restore-feedback" class="form-feedback" role="status"></p>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="signout-confirmation" class="acknowledgement-dialog" aria-labelledby="signout-title" aria-describedby="signout-description">
+    <h2 id="signout-title">Sign out?</h2>
+    <p id="signout-description">Sign out of Network Monitor in this browser?</p>
+    <div class="display-controls">
+      <button id="confirm-signout" type="button">Sign out</button>
+      <button id="cancel-signout" type="button" autofocus>Cancel</button>
+    </div>
+    <p id="signout-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="restore-review" class="acknowledgement-dialog" aria-labelledby="restore-review-title">
     <h2 id="restore-review-title">Review backup restore</h2>
     <p id="restore-file-name"></p>
@@ -677,6 +686,48 @@
     <p>Controls will unlock when fresh dashboard data is loaded.</p>
   </dialog>
   <script>
+    // Shared sign-out confirmation: opening/cancelling never sends a request.
+    function configureSignOut(triggerId, performLogout) {
+      const node = id => document.getElementById(id);
+      const trigger = node(triggerId);
+      const dialog = node('signout-confirmation');
+      const confirm = node('confirm-signout');
+      const cancel = node('cancel-signout');
+      let requested = false;
+      let busy = false;
+      trigger.onclick = () => {
+        if (busy || dialog.open) return;
+        requested = true;
+        node('signout-feedback').textContent = '';
+        dialog.showModal();
+      };
+      cancel.onclick = () => {
+        if (busy) return;
+        requested = false;
+        dialog.close();
+      };
+      dialog.onclose = () => { if (!busy) requested = false; };
+      dialog.oncancel = event => {
+        if (busy) event.preventDefault();
+        else requested = false;
+      };
+      confirm.onclick = async () => {
+        if (!requested || busy || !dialog.open) return;
+        busy = true;
+        trigger.disabled = confirm.disabled = cancel.disabled = true;
+        node('signout-feedback').textContent = '';
+        try {
+          await performLogout();
+          requested = false;
+          dialog.close();
+        } catch (error) {
+          node('signout-feedback').textContent = error.message;
+        } finally {
+          busy = false;
+          trigger.disabled = confirm.disabled = cancel.disabled = false;
+        }
+      };
+    }
     // BEGIN dashboard connection recovery (keep identical on both dashboards).
     function createConnectionGuard() {
       const staleAfter = 30000;
@@ -3347,10 +3398,10 @@
         } catch (error) { el(channel + '-feedback').textContent = error.message; }
       };
     }
-    el('logout').onclick = async () => {
+    configureSignOut('logout', async () => {
       await request('logout', {});
       location.assign('/login');
-    };
+    });
     async function loadSession() {
       const response = await dashboardFetch('/api/me');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return false; }
