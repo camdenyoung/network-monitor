@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.8, Build 105. Show it after the title on both the main and
+Current displayed release is v0.5.8, Build 106. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -1048,3 +1048,10 @@ allow retry. Preserve role/temporary-password support and existing CSRF logout.
 Admin returns to /login; Status clears private hosts/ack state immediately and
 stays public. A post-logout public refresh failure does not make logout fail.
 Automatic expiry/authentication redirects never require this manual confirmation.
+
+
+Sign-out dialogs use the shared .signout-dialog class in base.css, independent of
+.acknowledgement-dialog: 340px width, viewport cap, 20px padding, compact heading/
+body/action spacing and matching backdrop. Empty feedback occupies no space;
+Cancel autofocus and all sign-out behaviour stay unchanged. Keep both dashboards
+on this same class; do not resize longer issue/review dialogs to fix sign-out.

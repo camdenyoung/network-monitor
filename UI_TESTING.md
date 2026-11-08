@@ -114,3 +114,9 @@ of stale/duplicate confirmations, blocked closing during requests, inline failur
 and retry. The Admin binding is checked for one logout request and /login navigation.
 Existing public-dashboard tests exercise Admin/Operator/View Only and mandatory-change
 accounts, session expiry and stale authenticated responses after confirmed logout.
+
+
+Build 106 gives sign-out its own shared style. Local browser fixture checks measured
+340×176px on a 1280px viewport and 288×176px on a 320px viewport, with no horizontal
+overflow and Cancel focused on both dashboards. Sign-out behaviour tests and all
+97 API/access tests passed. Other confirmation widths are unchanged.

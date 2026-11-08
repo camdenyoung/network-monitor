@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 106 — v0.5.8 (compact sign-out styling)
+
+- Give both sign-out confirmations a dedicated shared 340px responsive style with compact spacing and no empty error area.
+- Preserve wider issue/review dialogs, Cancel autofocus and existing sign-out behaviour; version stylesheet references for the update.
+
 ### Build 105 — v0.5.8 (sign-out confirmations)
 
 - Add matching app-styled Sign out/Cancel confirmations to both dashboards, with Cancel focused initially.

@@ -504,3 +504,33 @@ code {
     background: #0009;
 }
 
+/* Short sign-out prompts should not inherit the wider issue-review layout. */
+.signout-dialog {
+    width: 340px;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    border-radius: 10px;
+    padding: 20px;
+}
+
+.signout-dialog::backdrop {
+    background: #0009;
+}
+
+.signout-dialog h2 {
+    margin: 0 0 12px;
+}
+
+.signout-dialog #signout-description {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.signout-dialog .display-controls {
+    justify-content: flex-end;
+    margin: 16px 0 0;
+}
+
+#signout-feedback:empty {
+    display: none;
+}
