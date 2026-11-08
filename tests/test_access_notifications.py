@@ -1894,7 +1894,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             with server.connect() as db:
                 row = db.execute('SELECT acknowledged,ack_revision FROM incidents WHERE id=?', (issue_id,)).fetchone()
                 observed.append(tuple(row))
-        with patch.object(server.live_updates, 'publish_acknowledgement_change', side_effect=observe_commit):
+        with patch.object(server.live_updates, 'publish_dashboard_change', side_effect=observe_commit):
             with patch.object(server, 'record_acknowledgement_event', side_effect=RuntimeError('Rollback')):
                 with self.assertRaises(RuntimeError):
                     server.mutate('ack', {'id': issue_id}, actor=self.admin)
@@ -1922,7 +1922,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         def acknowledge(actor, action):
             barrier.wait(timeout=2)
             server.mutate(action, {'id': issue_id}, actor=actor)
-        with patch.object(server.live_updates, 'publish_acknowledgement_change') as publish:
+        with patch.object(server.live_updates, 'publish_dashboard_change') as publish:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 first = pool.submit(acknowledge, self.admin, 'ack')
                 second = pool.submit(acknowledge, operator, 'status-ack')

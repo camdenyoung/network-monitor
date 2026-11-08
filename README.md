@@ -1,4 +1,4 @@
-# Network Monitor v0.6.0 · Build 109
+# Network Monitor v0.6.0 · Build 110
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -768,8 +768,14 @@ snapshot; missing historical identity remains unknown. Revision checks prevent a
 stale confirmation from removing a later acknowledgement.
 
 
-Dashboard acknowledgement changes are pushed using same-origin `/api/ack-events`
-server-sent events. The stream carries only an opaque change revision; dashboards
+Dashboard acknowledgements, global project/deployment changes, monitoring and
+notification pause/resume controls, host monitoring/visibility/notification toggles,
+and individual service pause/resume trigger same-origin
+`/api/ack-events` server-sent events after the change is committed. Connected dashboards
+refresh promptly rather than waiting for the next ten-second poll. An Admin's local
+project dropdown remains a personal configuration selection; it does not switch the
+global deployment. Live metric readings still follow their normal check intervals.
+The stream carries only an opaque change revision; dashboards
 still fetch normal API data with their existing permissions. Reverse proxies must
 allow streaming without buffering this path. Ordinary ten-second refresh remains
 available if streaming is interrupted, and reconnect/tab-focus refresh catches up.

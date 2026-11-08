@@ -1,4 +1,4 @@
-"""Wake connected dashboards after committed acknowledgement changes.
+"""Wake connected dashboards after committed issue or operational changes.
 
 Only an opaque revision travels over the public event stream. Each dashboard
 fetches its own normal API response, retaining all existing visibility checks.
@@ -15,7 +15,7 @@ def current_revision():
         return _revision
 
 
-def publish_acknowledgement_change():
+def publish_dashboard_change():
     """Call after committing SQLite state, never from an open transaction."""
     global _revision
     with _CHANGED:

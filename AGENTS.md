@@ -257,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.0, Build 109. Show it after the title on both the main and
+Current displayed release is v0.6.0, Build 110. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -583,7 +583,7 @@ cascade with issue/deployment/device deletion. Migrate existing acknowledgement
 snapshots once. Authenticated state includes acknowledgement_history; public
 status allowlists only current attribution and ack_revision, not the audit table.
 
-Acknowledgement changes publish an opaque revision through /api/ack-events SSE
+Issue acknowledgements and committed operational changes publish an opaque revision through /api/ack-events SSE
 only after mutate commits; rejected actions and duplicate no-op acknowledgements
 do not emit. No issue/actor/account data travels over this public stream. Each
 browser fetches its existing role-filtered API data. Connect on load/reconnect,
@@ -1071,3 +1071,12 @@ Operator writes require expected_scope_run and are checked inside LOCK/transacti
 Global switches invalidate open restricted history/resume dialogs. No deployment
 means no scoped data/controls. Managed ping, configuration, host assignment flags,
 new/delete deployments, accounts, exports and backups remain Admin-only.
+
+Build 110 extends app/live_updates.py publish_dashboard_change to deployment
+activation/resume/deletion, monitoring pause/resume, notification pause/resume,
+individual service pause/resume and assignment monitoring/visibility/notification
+flags. Publish only after the mutation transaction commits; no-op controls, rejected
+requests and rollbacks emit nothing. Keep /api/ack-events and browser handler names
+compatible: the stream is now a general dashboard invalidation, still only an opaque
+revision. Reuse the existing coalescing, reconnect/focus and 10-second polling fallback.
+Do not change metric polling, role scope or Admin local configuration selection.

@@ -142,3 +142,17 @@ and notifications. View Only showed no project/deployment or operational control
 and its history remained usable for the global deployment. Checked at phone and
 desktop widths; no live providers, device polling or production database were used.
 These checks do not replace testing on the deployed Raspberry Pi or every browser.
+
+
+## Live operational changes (Build 110)
+
+All 271 backend tests and the dashboard/account/sign-out, connection-recovery and
+responsive host-view JavaScript suites pass. New server tests cover committed
+activation/project switches, deployment resume/deletion, global monitoring and
+notification controls, individual service pause/resume and host flags. Separate
+SQLite connections verify that listeners see committed values. No-op/rejected
+requests and simulated rollback do not publish. An Operator HTTP action wakes
+Admin and Viewer waiters, whose subsequent API reads retain their role scope.
+Existing stream tests verify opaque payloads/heartbeats, and UI tests cover separate
+dashboard contexts, queued refreshes, reconnects and polling/focus fallback. No new
+metric polling or live provider sends are introduced.

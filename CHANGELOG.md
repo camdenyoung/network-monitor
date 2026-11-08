@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 110 — v0.6.0 (live operational updates)
+
+- Refresh other connected dashboards promptly after global project/deployment changes and monitoring/notification or host/service control changes, using the existing opaque event stream.
+- Publish after commit only; skip no-op/rejected/rolled-back controls. Preserve role-scoped reads, reconnect/coalescing and the ten-second polling fallback.
+
 ### Build 109 — v0.6.0 (service history label)
 
 - Rename each service action from “History / graph” to “History”; retain graph/table functionality and role permissions.
