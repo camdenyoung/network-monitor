@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network Monitor</title>
-  <link rel="stylesheet" href="/static/css/base.css?v=102">
-  <link rel="stylesheet" href="/static/css/dashboard.css?v=102">
+  <link rel="stylesheet" href="/static/css/base.css?v=104">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=104">
 </head>
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 103</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 104</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -359,11 +359,28 @@
     <p id="whatsapp-feedback" role="status"></p><div id="whatsapp-queue"></div>
   </section></div>
   <div data-admin id="backup-panel" hidden><section>
-    <p>Backup includes credentials and history. Store it securely; the archive contains credentials and password hashes. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
-    <p><a class="button-link" href="/api/backup" download>Download complete backup</a></p>
-    <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
+    <h2>Backup and restore</h2>
+    <p>Both backup types include accounts, credentials, inventory, services, projects and logos. Store downloads securely.</p>
+    <p><a class="button-link" href="/api/backup" download>Download complete backup</a>
+      <a class="button-link" href="/api/backup?kind=configuration" download>Download configuration only</a></p>
+    <p>Configuration-only backups exclude readings, deployments, issues, acknowledgements and delivery logs. Restore replaces destination data rather than merging it. Monitoring and notifications will be paused.</p>
+    <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Upload and review backup</button></form>
+    <p id="restore-feedback" class="form-feedback" role="status"></p>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="restore-review" class="acknowledgement-dialog" aria-labelledby="restore-review-title">
+    <h2 id="restore-review-title">Review backup restore</h2>
+    <p id="restore-file-name"></p>
+    <p id="restore-summary"></p>
+    <label>Restore content<select id="restore-mode"></select></label>
+    <p id="restore-description"></p>
+    <p>Existing destination accounts and data will be replaced. Monitoring and notifications will be paused, and all users will be signed out. Keep a destination backup before continuing.</p>
+    <div class="display-controls">
+      <button id="confirm-restore" class="danger">Replace data and restore</button>
+      <button id="cancel-restore" autofocus>Cancel</button>
+    </div>
+    <p id="restore-review-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="inventory-import-dialog" class="library-import-dialog" aria-labelledby="inventory-import-title">
     <h2 id="inventory-import-title">Review inventory import</h2>
     <p id="inventory-import-summary"></p>
@@ -724,7 +741,7 @@
         throw new Error('Server unavailable. Wait for the dashboard to reconnect before making changes.');
       }
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timeout = options?.method && options.method !== 'GET' ? 60000 : path.startsWith('/api/history?') ? 30000 : 8000;
+      const timeout = path.startsWith('/api/restore') ? 7200000 : options?.method && options.method !== 'GET' ? 60000 : path.startsWith('/api/history?') ? 30000 : 8000;
       async function bounded(operation) {
         let timer;
         try {
@@ -2998,34 +3015,6 @@
             ...mutation('user-delete', {user: user.id}, 'User removed.', 'user-feedback')};
           break;
         }
-        case 'restore': {
-          const file = target.file;
-          if (!file || !file.name || !file.size) throw new Error('Choose a non-empty backup file first.');
-          configuration = {title: 'Restore complete backup?', context: file.name,
-            description: 'This replaces all current configuration, users and monitoring data with the backup and pauses monitoring. Existing sessions will be signed out. Back up the current installation first if you need to keep its data.',
-            label: 'Replace data and restore',
-            run: async () => {
-              const response = await dashboardFetch('/api/restore', {method: 'POST',
-                headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser.csrf}, body: file});
-              if (!response.ok) {
-                // Authentication, upload limits and validation need distinct feedback.
-                let message = `Restore failed (HTTP ${response.status}).`;
-                try {
-                  const result = await response.json();
-                  if (typeof result.error === 'string') message = result.error;
-                } catch {
-                  if (response.status === 413) message = 'Restore upload is too large for the server or reverse proxy.';
-                }
-                throw new Error(message);
-              }
-            },
-            completed: async () => {
-              selectedProject = '';
-              notify('Restored successfully. Monitoring is paused. Sign in again.', true);
-              location.assign('/login');
-            }};
-          break;
-        }
         default: throw new Error('Unknown confirmation action.');
       }
       openAppConfirmation(configuration);
@@ -3107,13 +3096,91 @@
       finally { button.disabled = false; }
     };
     el('close-history').onclick = () => el('history').close();
-    el('restore').onsubmit = event => {
+    let pendingRestore = null;
+    let restoreUploading = false;
+    let restoreApplying = false;
+
+    async function backupResponse(response) {
+      let result;
+      try { result = await response.json(); }
+      catch { throw new Error(`Backup request failed (HTTP ${response.status}). Check server or proxy upload limits.`); }
+      if (!response.ok) throw new Error(result.error || `Backup request failed (HTTP ${response.status}).`);
+      return result;
+    }
+
+    function updateRestoreMode() {
+      const configurationOnly = el('restore-mode').value === 'configuration';
+      el('restore-description').textContent = configurationOnly
+        ? 'Restore configuration, accounts, services, assignments and logos only. Existing destination history and deployments will be removed; no backup history will be imported.'
+        : 'Restore configuration, accounts, logos and all retained deployment and issue history from this backup.';
+    }
+    el('restore-mode').onchange = updateRestoreMode;
+    function cancelRestoreReview() {
+      if (restoreApplying) return;
+      const review = pendingRestore;
+      pendingRestore = null;
+      el('restore-review').close();
+      if (review) request('restore-discard', {token: review.token}).catch(() => {});
+    }
+    el('cancel-restore').onclick = cancelRestoreReview;
+    el('restore-review').oncancel = event => {
       event.preventDefault();
+      cancelRestoreReview();
+    };
+    el('restore').onsubmit = async event => {
+      event.preventDefault();
+      if (restoreUploading || restoreApplying || pendingRestore) return;
+      const form = event.target;
+      const button = form.querySelector('button');
+      const file = new FormData(form).get('backup');
+      if (!file || !file.name || !file.size) return report(new Error('Choose a non-empty backup file first.'));
+      restoreUploading = true;
+      button.disabled = true;
+      el('restore-feedback').textContent = 'Uploading and checking backup. Large files can take several minutes…';
       try {
-        // Capture the File now; later changes to the picker must not change the backup approved.
-        const file = new FormData(event.target).get('backup');
-        openAdministrativeConfirmation('restore', {file});
-      } catch (error) { report(error); }
+        const review = await backupResponse(await dashboardFetch('/api/restore-preview', {
+          method: 'POST', headers: {'Content-Type':'application/octet-stream','X-CSRF-Token':currentUser.csrf}, body:file,
+        }));
+        pendingRestore = {token:review.token, modes:[...review.modes]};
+        el('restore-file-name').textContent = file.name;
+        el('restore-summary').textContent = `${review.kind === 'configuration' ? 'Configuration-only' : 'Complete'} backup · ${review.projects} projects · ${review.devices} devices · ${review.users} accounts · ${review.has_history ? 'History included' : 'No recorded history'}. Review expires in 15 minutes.`;
+        el('restore-mode').innerHTML = review.modes.map(mode => `<option value="${mode === 'configuration' ? 'configuration' : 'complete'}">${mode === 'configuration' ? 'Configuration only' : 'Everything, including history'}</option>`).join('');
+        el('restore-mode').value = review.modes[0];
+        el('restore-mode').disabled = review.modes.length === 1;
+        el('confirm-restore').disabled = false;
+        el('restore-review-feedback').textContent = '';
+        updateRestoreMode();
+        el('restore-feedback').textContent = 'Backup checked. Review its contents before restoring.';
+        el('restore-review').showModal();
+      } catch (error) { el('restore-feedback').textContent = error.message; }
+      finally { restoreUploading = false; button.disabled = false; }
+    };
+    el('confirm-restore').onclick = async () => {
+      if (!pendingRestore || restoreApplying || el('confirm-restore').disabled) return;
+      const review = pendingRestore;
+      const mode = el('restore-mode').value;
+      if (!review.modes.includes(mode)) return;
+      restoreApplying = true;
+      el('confirm-restore').disabled = true;
+      el('cancel-restore').disabled = true;
+      el('restore-mode').disabled = true;
+      el('restore-review-feedback').textContent = 'Restoring the reviewed backup. Do not retry or close this page…';
+      try {
+        await backupResponse(await dashboardFetch('/api/restore-apply', {
+          method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':currentUser.csrf},
+          body:JSON.stringify({token:review.token,mode}),
+        }));
+        pendingRestore = null;
+        selectedProject = '';
+        el('restore-review').close();
+        location.assign('/login');
+      } catch (error) {
+        // A reviewed file is single-use. Never automatically replay a replacement.
+        el('restore-review-feedback').textContent = error.message + ' Cancel and upload again before retrying.';
+      } finally {
+        restoreApplying = false;
+        el('cancel-restore').disabled = false;
+      }
     };
     async function loadAdmin() {
       const responses = await Promise.all([dashboardFetch('/api/users'), dashboardFetch('/api/telegram'), dashboardFetch('/api/whatsapp')]);

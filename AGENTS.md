@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.8, Build 103. Show it after the title on both the main and
+Current displayed release is v0.5.8, Build 104. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -1005,3 +1005,36 @@ restore fix after the presentation-only Build 102; its Admin error-handling JS
 change is intentional and separately tested. Multiple installations on the same
 hostname/IP share cookies across ports; compare using separate browser profiles or
 normal/Incognito contexts, not simultaneous logins in one cookie context.
+
+
+Build 104 replaces in-memory backup/restore with app/backups.py disk workspaces on
+DB.parent (0700 directories), 1 MiB HTTP chunks and small SQLite caches/temp files.
+GET /api/backup defaults complete; ?kind=configuration copies only allowlisted
+configuration rows into fresh schema via read-only ATTACH, never reading history
+rows. Retain users/credentials, devices/assignments/aliases, service settings,
+defaults/library, provider config and logos. Exclude samples/runs/issues/audits/
+measurements/outbox/flap/deletion jobs/sessions/login attempts. Keep durable ID
+counters; configuration output has no active/paused deployment. Metadata uses
+settings backup_format=network-monitor-1 and backup_kind. Legacy unmarked SQLite
+backups are complete. Live DB never gets these metadata keys.
+POST /api/restore-preview uploads and validates a private file without changing live
+data, returning safe counts/kind/history flags and allowed modes. Session-CSRF-bound
+opaque reviews expire after 15 minutes; max two staged files and one active transfer.
+POST /api/restore-apply consumes a review once with mode complete/configuration;
+configuration files cannot select complete. Cancel uses /api/restore-discard. Retain
+the direct binary /api/restore API for compatibility. Validate/migrate private files,
+check free disk, FK integrity and Admin authorization again before SQLite backup
+replacement under LOCK. Both modes pause monitoring AND notifications, cancel pending
+messages and invalidate sessions. Configuration-only replacement removes destination
+history too: no merge. Typed failures leave live data intact before replacement;
+never automatically retry apply. UI describes content and destructive scope in the
+app-styled review dialog, captures the file/token/mode, blocks duplicate writes and
+closing while applying, and signs out after success. Legacy account-less backups
+retain destination accounts.
+MONITOR_MAX_RESTORE_MB now defaults 20480 MiB (20 GiB), allowed 1–1048576; Compose
+passes it through. Disk checks reserve upload/candidate/live-journal headroom. Existing
+.env values override the new default. Creation/final apply can delay polling/config
+writes while holding LOCK; release it before streaming downloads. Private files are
+cleaned on success/error/cancel/expiry; crash leftovers older than 24h are swept on
+startup. Both shared dashboard guards allow up to two hours for restore requests;
+other deadlines remain unchanged and reverse proxies may need separate limits.

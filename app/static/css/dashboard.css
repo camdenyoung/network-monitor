@@ -752,3 +752,13 @@ button.danger:hover {
     box-sizing: border-box;
 }
 
+
+/* Restore previews stay usable on phones and with long backup filenames. */
+#restore-review {
+    max-height: calc(100dvh - 32px);
+    overflow: auto;
+}
+
+#restore-file-name {
+    overflow-wrap: anywhere;
+}

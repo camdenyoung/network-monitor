@@ -53,6 +53,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         response = {}
         handler.send = lambda content, mime=None, status=200, filename=None: response.update(status=status, content=content, mime=mime, filename=filename)
         handler.session_response = lambda token=None: response.update(status=200, token=token)
+        handler.send_file = lambda path, filename: response.update(status=200, content=path.read_bytes(), filename=filename)
         handler.send_response = lambda status: response.update(status=status)
         handler.send_header = lambda key, value: response.setdefault('headers', {}).update({key: value})
         handler.end_headers = lambda: None
@@ -129,7 +130,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             handler.do_POST()
             return result['status']
 
-        self.assertEqual(restore(), 400)
+        self.assertEqual(restore(), 409)
         with server.connect() as db:
             db.execute("UPDATE project_deletions SET state='failed'")
         self.assertEqual(restore(), 200)
@@ -983,7 +984,7 @@ class AccessAndNotificationTests(unittest.TestCase):
     def test_local_stylesheets_are_public_allowlisted_and_not_cached(self):
         for name in ('base', 'dashboard', 'status', 'auth'):
             handler = object.__new__(server.Handler)
-            handler.path = f'/static/css/{name}.css?v=102'
+            handler.path = f'/static/css/{name}.css?v=104'
             handler.headers = {}
             handler.wfile = io.BytesIO()
             result = {}
@@ -1002,18 +1003,18 @@ class AccessAndNotificationTests(unittest.TestCase):
         for name, stylesheet in (('index.html', 'dashboard'), ('status.html', 'status'),
                                   ('login.html', 'auth'), ('change-password.html', 'auth')):
             page = Path(server.__file__).with_name(name).read_text()
-            self.assertIn('/static/css/base.css?v=102', page)
-            self.assertIn(f'/static/css/{stylesheet}.css?v=102', page)
+            self.assertIn('/static/css/base.css?v=104', page)
+            self.assertIn(f'/static/css/{stylesheet}.css?v=104', page)
             self.assertNotIn('<style>', page)
             self.assertNotIn('style="max-width', page)
 
     def test_restore_limit_is_configurable_and_bounded(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(server.restore_limit_bytes(), 256 * 1024 * 1024)
-        for value in ('1', '512', '1024'):
+            self.assertEqual(server.restore_limit_bytes(), 20480 * 1024 * 1024)
+        for value in ('1', '20480', '1048576'):
             with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': value}):
                 self.assertEqual(server.restore_limit_bytes(), int(value) * 1024 * 1024)
-        for value in ('0', '-1', '1025', 'invalid', '1.5'):
+        for value in ('0', '-1', '1048577', 'invalid', '1.5'):
             with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': value}):
                 with self.assertRaises(ValueError):
                     server.restore_limit_bytes()

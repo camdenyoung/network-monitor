@@ -1,4 +1,4 @@
-# Network Monitor v0.5.8 · Build 103
+# Network Monitor v0.5.8 · Build 104
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -153,14 +153,38 @@ to return to the latest ten; search text and the current page survive live refre
 
 ## Backup and restore
 
-Use the UI's download link to produce a consistent full database snapshot while
-monitoring continues. The file includes credentials in plaintext: protect it as a
-secret. Copy backups off the monitoring server. Restore accepts this application's
-SQLite backup, checks database integrity/table presence, replaces the database,
-and sets monitoring to paused. Users and notification settings are included; active
-sessions are excluded from downloads and invalidated on restore. Queued messages
-are cancelled on restore to prevent replay. Older backups without accounts retain
-the current account list. Download a backup before replacing current state.
+The Admin **Backup and restore** panel offers two downloads:
+
+- **Complete backup:** configuration, accounts, credentials, inventory, service
+  definitions/defaults/library, projects, logos, deployments, readings, issues,
+  acknowledgements and delivery history.
+- **Configuration only:** the same configuration and accounts, without deployments,
+  readings, issues/acknowledgements, delivery logs or monitoring runtime state.
+
+Both are SQLite files containing secrets; protect them and copy them off the server.
+Sessions and login attempts are excluded. Configuration copies do not scan/copy
+history rows, so they stay small even when retained history is large.
+
+To restore, choose a file and click **Upload and review backup**. The file is streamed
+to a private workspace on the data volume, validated and summarised before any live
+changes. Complete backups offer **Everything, including history** or **Configuration
+only**; configuration backups allow only the latter. Reviews expire after 15 minutes.
+Cancel discards the staged file. Review and restore require the same Admin session.
+
+Restore **replaces**, rather than merges, destination configuration/accounts/data.
+Configuration-only restore removes destination history and imports none from the
+file. All restores pause monitoring and notifications, cancel pending messages and
+invalidate sessions; sign in with the backed-up accounts afterwards. Unmarked older
+SQLite backups are accepted; account-less legacy backups retain current accounts.
+Keep a destination backup before replacing it. Durable ID counters remain preserved.
+
+Transfers use disk files and 1 MiB HTTP chunks instead of loading the whole database
+into Python memory. One transfer runs at a time, with up to two files awaiting review.
+Download streaming releases the monitoring lock after snapshot creation. Snapshot
+creation and final database replacement may temporarily delay polling/configuration
+writes. Temporary files are removed on completion, cancellation, failure and review
+expiry; abandoned files older than 24 hours are cleaned on startup.
+
 Older backups with assignment addresses migrate during restore (and existing
 databases migrate on startup). Matching addresses move to inventory automatically.
 Conflicting addresses are preserved in `legacy_assignment_addresses` and shown in
@@ -826,15 +850,21 @@ differences; the backend and functional UI suites also passed.
 
 ### Restore upload size and comparison installations
 
-Complete backup restores accept up to **256 MiB** by default. Set
-`MONITOR_MAX_RESTORE_MB` in `.env` (whole MiB, 1–1024) and recreate the container to
-change this limit. The upload and candidate SQLite database are held in memory;
-allow spare RAM when raising the limit. A reverse proxy may enforce a smaller
-upload limit. Oversized requests report HTTP 413 instead of a backup-format error.
+Disk-backed restore uploads default to **20 GiB**. Set `MONITOR_MAX_RESTORE_MB`
+in `.env` (whole MiB, 1–1048576) and recreate the container to change the cap.
+Existing `.env` overrides, such as 256, remain in effect until changed. Free-space
+checks reserve room for the upload, candidate database and destination journal;
+a limit is not a guarantee that sufficient disk space is available.
+
+A reverse proxy may enforce a smaller body size or timeout. The dashboard allows
+up to two hours for restore upload/validation/application; adjust proxy limits if
+needed. Never blindly retry a replacement after a connection failure—check the
+installation's state first. Oversized uploads return HTTP 413, insufficient free
+space returns 507, and validation failures leave destination data unchanged.
 
 When comparing two installations on the same hostname/IP with different ports,
 use separate browser profiles or a normal window plus an Incognito window. Session
 cookies are shared across ports, so signing into one installation can overwrite
 the other's cookie and invalidate its open page's CSRF token. This is independent
 of backup validity. Restore still replaces the destination database, pauses
-monitoring and requires signing in again with the backed-up accounts.
+monitoring and notifications, and requires signing in again with the backed-up accounts.

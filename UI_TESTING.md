@@ -81,3 +81,26 @@ separate functional fix, not part of the byte-identical-script claim above. It a
 backend large-backup/fresh-install and size-limit tests, plus frontend authentication,
 CSRF, size and non-JSON proxy error cases. The CSS files and Build 102 layout report
 remain unchanged.
+
+
+## Backup workflow addition (Build 104)
+
+The dedicated backup branch adds a new app-styled review dialog and local CSS rules
+for its viewport height/long filenames. It deliberately changes backup workflows;
+the presentation-only comparison report remains evidence for Build 102 only. New
+backend tests cover complete/config-only exports and restores, data ownership,
+credentials/logos/defaults, legacy compatibility, no reads from history during config
+copy, bounded I/O, disk failures, review ownership/expiry/cancellation/replay, and
+Admin/CSRF enforcement. UI tests cover review mode restrictions, captured uploads,
+failed previews/applies, cancellation, busy states and duplicate-submit prevention.
+
+
+Build 104 validation: all 262 backend tests and dashboard/account/connection/host-view
+suites passed. A real local browser run signed into a disposable installation,
+uploaded a complete SQLite backup, reviewed its two available modes, selected
+configuration only at a 390px viewport (358px dialog, no horizontal overflow), and
+applied it. The browser returned to Sign in. Read-only database inspection confirmed
+one retained project/device and two accounts, zero deployments/samples/issues/sessions,
+active_run=0, paused_run=0 and notifications_paused=1. No live installation, provider
+or monitoring database was used. The temporary browser tab/server/database were
+closed and cleaned afterwards.

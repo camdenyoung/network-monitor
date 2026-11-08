@@ -4,6 +4,14 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 104 — v0.5.8 (disk-backed backup and selective restore branch)
+
+- Stream backup downloads and restore uploads through private on-disk SQLite files with bounded buffers, disk-space checks and a configurable 20 GiB default cap.
+- Add compact configuration-only backups, preserving accounts, equipment, assignments, service definitions/defaults/library, credentials and logos while excluding history/runtime data.
+- Review uploaded content before replacement; select complete or configuration-only restore where available. Add session-bound, expiring, single-use reviews and cancellation cleanup.
+- Preserve legacy SQLite restore support and migration checks. Both restore modes pause monitoring/notifications and invalidate sessions; configuration-only replacement removes destination history.
+- Verify with 262 backend tests, functional UI suites and a real browser upload/review/configuration-only restore on a disposable database, including phone-width dialog checks.
+
 ### Build 103 — v0.5.8 (restore upload fix)
 
 - Fix complete backups over the old 64 MiB upload cap being rejected. Default to 256 MiB, configurable with MONITOR_MAX_RESTORE_MB (1–1024 MiB).
