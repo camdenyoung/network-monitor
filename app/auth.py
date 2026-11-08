@@ -75,7 +75,7 @@ def session_user(db, cookie_header):
     except CookieError:
         return None
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    row = db.execute('''SELECT u.*, s.csrf FROM sessions s JOIN users u ON u.id=s.user_id
+    row = db.execute('''SELECT u.*, s.csrf, s.expires AS session_expires_at FROM sessions s JOIN users u ON u.id=s.user_id
         WHERE s.token_hash=? AND s.expires>?''', (token_hash, time.time())).fetchone()
     return dict(row) if row else None
 

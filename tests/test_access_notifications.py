@@ -929,6 +929,57 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertIsNone(auth.session_user(db, 'monitor_session=' + other_token))
             self.assertFalse(auth.session_user(db, 'monitor_session=' + response['token'])['must_change_password'])
 
+    def test_valid_session_survives_96_hours_and_recovers_after_cookie_free_navigation(self):
+        self.assertEqual(self.request('/api/session-settings', {'hours': 96},
+                                      self.admin_token, self.admin['csrf'])['status'], 200)
+        now = auth.time.time()
+        with server.connect() as db:
+            with patch.object(auth.time, 'time', return_value=now):
+                token = auth.new_session(db, 2)
+            original = db.execute('SELECT expires FROM sessions WHERE user_id=2 ORDER BY expires DESC').fetchone()[0]
+        # Model the observed request distinction without asserting its browser-level cause.
+        self.assertIn(b'id="login-form"', self.request('/login')['content'])
+        for hours in (1, 12, 95):
+            with patch.object(auth.time, 'time', return_value=now + hours * 3600):
+                me = self.request('/api/me', token=token)
+                self.assertEqual(me['status'], 200)
+                self.assertEqual(json.loads(me['content'])['username'], 'reader')
+                self.assertEqual(self.request('/', token=token)['status'], 200)
+        with server.connect() as db:
+            # Rechecking is read-only: it must not extend the fixed expiry.
+            self.assertEqual(db.execute('SELECT MAX(expires) FROM sessions WHERE user_id=2').fetchone()[0], original)
+        with patch.object(auth.time, 'time', return_value=now + 96 * 3600):
+            self.assertEqual(self.request('/api/me', token=token)['status'], 401)
+
+    def test_me_reports_only_callers_session_expiry_without_renewal(self):
+        now = auth.time.time()
+        with server.connect() as db:
+            db.execute('UPDATE sessions SET expires=? WHERE user_id=1', (now + 345600,))
+            db.execute('UPDATE sessions SET expires=? WHERE user_id=2', (now + 7200,))
+        for elapsed in (0, 3600):
+            with patch.object(auth.time, 'time', return_value=now + elapsed):
+                for token, username, lifetime in ((self.admin_token, 'admin', 345600),
+                                                  (self.viewer_token, 'reader', 7200)):
+                    response = self.request('/api/me', token=token)
+                    self.assertEqual(response['status'], 200)
+                    body = json.loads(response['content'])
+                    self.assertEqual(body['username'], username)
+                    self.assertEqual(body['session_expires_at'], now + lifetime)
+                    self.assertEqual(body['session_remaining_seconds'], lifetime - elapsed)
+                    self.assertIsInstance(body['session_remaining_seconds'], int)
+                    self.assertNotIn('token_hash', body)
+                    self.assertNotIn('password_hash', body)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT expires FROM sessions WHERE user_id=1').fetchone()[0], now + 345600)
+            self.assertEqual(db.execute('SELECT expires FROM sessions WHERE user_id=2').fetchone()[0], now + 7200)
+        self.assertEqual(self.request('/api/me')['status'], 401)
+        with patch.object(auth.time, 'time', return_value=now + 7200):
+            self.assertEqual(self.request('/api/me', token=self.viewer_token)['status'], 401)
+        # Account/public responses must not disclose per-session expiry information.
+        for response in (self.request('/api/status'), self.request('/api/users', token=self.admin_token)):
+            self.assertNotIn('session_expires_at', response['content'])
+            self.assertNotIn('session_remaining_seconds', response['content'])
+
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):
             response = self.request('/api/backup', token=self.admin_token)

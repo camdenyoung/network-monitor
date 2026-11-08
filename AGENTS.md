@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.7, Build 97. Show it after the title on both the main and
+Current displayed release is v0.5.8, Build 101. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -938,3 +938,37 @@ Passwords enabled. The exact reset step was not identified; do not claim a speci
 cache mechanism or a reliable Escape workaround. No keyboard override was needed.
 Keep separate login/change-password pages for their independently confirmed
 routing benefit. v0.5.7 merges these flows and the paired-row password layout.
+
+
+Login session reconciliation: retain server-side GET redirects, but also read
+/api/me with credentials=same-origin and cache=no-store on login page load,
+pageshow and visible visibilitychange. A navigation without its cookie can display
+Sign in while a background request recognises the existing session (observed on
+iPhone Chrome; exact browser cookie behaviour not confirmed). Route confirmed
+sessions via location.replace to the allowlisted dashboard, or the separate mandatory
+password-change page; never reinstate the hidden password form. A 401 stays on
+Sign in. Bound reconciliation request/JSON to 8s; errors preserve drafts and leave
+manual sign-in usable. Coalesce lifecycle checks, ignore checks overtaken by a
+credential submission (loginRevision), and never start another restoration during
+sign-in/navigation. No cookie-policy or expiry changes, token storage, session
+renewal, keyboard handlers or DB migrations. tests/login.test.mjs covers startup,
+resume, mandatory changes, unsafe return URLs, duplicate submits, stale reads and
+network/HTTP/timeout recovery. Backend tests simulate a cookie-free page load then
+a valid API request and verify the fixed 96-hour expiry is never extended.
+
+
+/api/me includes session_expires_at (Unix timestamp, seconds since epoch) and
+session_remaining_seconds (nonnegative whole seconds, rounded down at response
+creation). auth.session_user selects the matching session's expires with an alias;
+keep public_user's account allowlist unchanged so other/public responses do not
+leak session timing. Include the fields for all authenticated roles, including
+mandatory-change sessions; expired/anonymous requests still return 401. Reading
+expiry never renews the cookie or updates the database. No schema change.
+
+
+Status section controls group the acknowledged and host visibility toggles in
+.status-visibility-controls. At viewport widths <=760px, stack those toggles in
+that order and place .status-navigation below, left-aligned with no auto margin.
+Keep this breakpoint independent of Show/Hide and Cards/List label widths to
+prevent jumping rows. Desktop navigation remains on the right. Preserve IDs,
+authenticated-only host access, toggle colours and localStorage preferences.

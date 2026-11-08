@@ -4,6 +4,29 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 101 — v0.5.8
+
+- Merge login session rechecks on load and mobile-tab restoration while preserving dashboard destinations, separate mandatory password changes and fixed session expiry.
+- Include the requesting session's expiry timestamp and remaining seconds in `/api/me`, without extending its lifetime or exposing other sessions.
+- Stabilise narrow-screen Status Dashboard controls: host visibility stays below acknowledged issues, with navigation left-aligned underneath.
+- Verify with all 247 backend tests and dashboard, authentication, connection-recovery and responsive host-view checks.
+
+### Build 100 — v0.5.7 (mobile Status Dashboard controls)
+
+- Keep host visibility below acknowledged-issue visibility on narrow screens, with dashboard/sign-out navigation left-aligned beneath them.
+- Use a stable responsive layout so Show/Hide and Cards/List label changes do not move controls between rows; preserve desktop alignment and access restrictions.
+
+### Build 99 — v0.5.7 (session expiry information branch update)
+
+- Add the requesting session's Unix expiry timestamp and whole seconds remaining to authenticated `/api/me` responses.
+- Keep expiry out of account lists/public responses, preserve expired-session rejection and verify that inspection never renews the session.
+
+### Build 98 — v0.5.7 (login session recheck branch)
+
+- Recheck existing sessions from the loaded login page and when a mobile tab resumes, so an authenticated API session can return to its dashboard without another sign-in.
+- Preserve separate mandatory password changes, safe per-tab return destinations and fixed session expiry. Use replacement navigation, bounded/coalesced checks and stale-response protection during sign-in.
+- Preserve rejected drafts and usable sign-in on connectivity failures. Keep existing cookie security and add regression coverage for session restoration and 96-hour expiry.
+
 ### Build 97 — v0.5.7
 
 - Merge separate login and password-change pages, with session-aware redirects and the original dashboard destination preserved through required changes.
