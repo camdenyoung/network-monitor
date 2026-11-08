@@ -64,8 +64,12 @@ The user requested readable, consistently indented code and explanatory comments
   default true on creation, preserve on edits unless explicitly changed. Bootstrap
   admin always requires an initial change. Migrate old accounts without lockouts.
 - Local accounts: Admin, Operator and View Only roles enforced by the server. Admins manage
-  users, all configuration, acknowledgements and backups. Operators can inspect
-  and acknowledge issues but cannot modify projects/configuration. Viewers inspect only.
+  users, all configuration, acknowledgements and backups. Operators follow the globally
+  active/paused project, can resume its existing deployments, toggle global monitoring/
+  notifications and individual additional services, and acknowledge/unacknowledge issues.
+  Viewers follow the global project AND deployment, including history, and inspect only.
+  Neither restricted role can switch projects or create/delete deployments; configuration
+  stays Admin-only. Scope APIs server-side, not just controls in the UI.
 - First-run admin password is generated in /data/initial-admin-password.txt or supplied
   via MONITOR_ADMIN_PASSWORD; require change on first login. Never commit defaults.
 - Signed-in /status users have a show/hide host cards toggle, persisted per browser.
@@ -168,7 +172,7 @@ Store only admin configuration locally; redact all provider tokens from GET APIs
 Health checks use /api/health, not authenticated /api/state.
 Testing includes tests/test_access_notifications.py and dashboard.test.mjs.
 
-Admin-only Pause/Resume is per-host service monitoring, separate from soft service
+Admin/Operator Pause/Resume is per-host service monitoring, separate from soft service
 removal. monitoring_since invalidates queued reads and resets persistence without
 changing the configuration revision. Log explicit paused/unknown gaps. Paused
 services do not poll, colour hosts, report active faults, or send notifications.
@@ -253,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.0, Build 107. Show it after the title on both the main and
+Current displayed release is v0.6.1, Build 111. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -579,7 +583,7 @@ cascade with issue/deployment/device deletion. Migrate existing acknowledgement
 snapshots once. Authenticated state includes acknowledgement_history; public
 status allowlists only current attribution and ack_revision, not the audit table.
 
-Acknowledgement changes publish an opaque revision through /api/ack-events SSE
+Issue acknowledgements and committed operational changes publish an opaque revision through /api/ack-events SSE
 only after mutate commits; rejected actions and duplicate no-op acknowledgements
 do not emit. No issue/actor/account data travels over this public stream. Each
 browser fetches its existing role-filtered API data. Connect on load/reconnect,
@@ -1055,3 +1059,24 @@ Sign-out dialogs use the shared .signout-dialog class in base.css, independent o
 body/action spacing and matching backdrop. Empty feedback occupies no space;
 Cancel autofocus and all sign-out behaviour stay unchanged. Keep both dashboards
 on this same class; do not resize longer issue/review dialogs to fix sign-out.
+
+Scoped monitoring roles (Build 108): app/access.py resolves active_run, falling back
+only when paused to paused_run. Never use an Admin's local configuration selection as
+scope. /api/state filters projects/runs/devices/assignments/services/readings/issues,
+withholds library/defaults/settings outside the allowlist, and returns access_scope.
+Viewer history is fixed to the current run; Operator history/deployment selection
+is confined to its project. Bounded history batches each revalidate scope in their
+own read transaction; non-Admin project-logo access follows the global project.
+Operator writes require expected_scope_run and are checked inside LOCK/transaction.
+Global switches invalidate open restricted history/resume dialogs. No deployment
+means no scoped data/controls. Managed ping, configuration, host assignment flags,
+new/delete deployments, accounts, exports and backups remain Admin-only.
+
+Build 110 extends app/live_updates.py publish_dashboard_change to deployment
+activation/resume/deletion, monitoring pause/resume, notification pause/resume,
+individual service pause/resume and assignment monitoring/visibility/notification
+flags. Publish only after the mutation transaction commits; no-op controls, rejected
+requests and rollbacks emit nothing. Keep /api/ack-events and browser handler names
+compatible: the stream is now a general dashboard invalidation, still only an opaque
+revision. Reuse the existing coalescing, reconnect/focus and 10-second polling fallback.
+Do not change metric polling, role scope or Admin local configuration selection.

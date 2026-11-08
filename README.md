@@ -1,4 +1,4 @@
-# Network Monitor v0.6.0 · Build 107
+# Network Monitor v0.6.1 · Build 111
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -66,10 +66,15 @@ the existing password. Existing accounts migrate with a blank email while keepin
 their current password and password-change setting. The last Admin cannot be demoted, and self-deletion is blocked.
 
 **Admins** configure equipment, acknowledge issues, manage users, notifications,
-backups and restore. **Operators** can inspect status/history and acknowledge
-issues but cannot edit projects, equipment, services or any other configuration.
-**View Only** users can inspect monitoring data and history but
-cannot mutate configuration or acknowledge issues. All three roles can change their own
+backups and restore. **Operators** follow the globally active or paused project.
+They can inspect its history, acknowledge/unacknowledge issues, select/resume its
+existing deployments, pause/resume all monitoring and notifications, and pause/resume
+individual additional services. They cannot switch projects, create/delete deployments
+or edit configuration. **View Only** users follow the globally selected project AND
+deployment, including history; they cannot select another deployment, change
+monitoring/notifications or acknowledge issues. If no deployment is selected,
+restricted accounts see no project data. An Admin's local project dropdown does
+not change this global scope. All three roles can change their own
 password. User edits, password resets and deletion revoke that user's sessions.
 Sessions default to 12 hours (Admin configurable), use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
@@ -291,7 +296,7 @@ configuration**, and use **Edit alias** in **Project assignments**, or click
 **Edit alias** directly on its monitor card. This changes
 only that assignment; inventory IDs and aliases in other projects are preserved.
 
-Service cards keep actions in a compact **Actions** menu. Use **History / graph**
+Service cards keep actions in a compact **Actions** menu. Use **History**
 to switch between an SVG graph and exact readings. Numeric metrics use lines;
 state codes use labeled steps. Missing/suppressed readings and gaps over 60 seconds
 break the line. Graphs group compatible readings by measurement version; the table preserves
@@ -364,7 +369,8 @@ Send test to verify provider delivery in your environment. Tokens are hidden in
 the UI and logs, but remain in admin backups; protect those backups.
 
 Admins can select **Operator** when adding or editing a user. Operators can view
-monitoring/history and acknowledge issues, but all configuration remains
+monitoring/history and acknowledge issues within the current project, plus
+use its operational controls as described under Login and roles. Configuration remains
 Admin-only. **Healthy**, **Warning**, and **Critical** use capitalised labels.
 Host cards use amber/red backgrounds for confirmed Warning/Critical issues;
 the highest open severity wins. Acknowledgement does not remove the colour until
@@ -762,8 +768,14 @@ snapshot; missing historical identity remains unknown. Revision checks prevent a
 stale confirmation from removing a later acknowledgement.
 
 
-Dashboard acknowledgement changes are pushed using same-origin `/api/ack-events`
-server-sent events. The stream carries only an opaque change revision; dashboards
+Dashboard acknowledgements, global project/deployment changes, monitoring and
+notification pause/resume controls, host monitoring/visibility/notification toggles,
+and individual service pause/resume trigger same-origin
+`/api/ack-events` server-sent events after the change is committed. Connected dashboards
+refresh promptly rather than waiting for the next ten-second poll. An Admin's local
+project dropdown remains a personal configuration selection; it does not switch the
+global deployment. Live metric readings still follow their normal check intervals.
+The stream carries only an opaque change revision; dashboards
 still fetch normal API data with their existing permissions. Reverse proxies must
 allow streaming without buffering this path. Ordinary ten-second refresh remains
 available if streaming is interrupted, and reconnect/tab-focus refresh catches up.
@@ -791,7 +803,7 @@ once confirmed; recover deleted project data by restoring an earlier complete ba
 
 ## Service history periods
 
-Open **History / graph** for a service. Choose its deployment and a preset:
+Open **History** for a service. Choose its deployment and a preset:
 15 minutes, one hour, six hours, 24 hours or seven days. Alternatively choose custom
 From/To dates and Apply range. Times use the browser's local timezone. A single
 request can cover up to 31 days; retention still applies globally by reading age.

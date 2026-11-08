@@ -4,6 +4,28 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 111 — v0.6.1
+
+- Merge scoped roles: View Only follows the global project/deployment; Operators stay within its project with existing-deployment resume and monitoring/notification controls. Keep configuration and deployment creation/deletion Admin-only.
+- Refresh other connected dashboards promptly after committed operational changes, with opaque events, role-scoped reads and the ten-second polling fallback.
+- Shorten each service action to **History**, preserving graph/table functionality.
+- Verify with 271 backend tests and dashboard/account, connection-recovery and responsive host-view suites. See UI_TESTING.md for coverage and limits.
+
+### Build 110 — v0.6.0 (live operational updates)
+
+- Refresh other connected dashboards promptly after global project/deployment changes and monitoring/notification or host/service control changes, using the existing opaque event stream.
+- Publish after commit only; skip no-op/rejected/rolled-back controls. Preserve role-scoped reads, reconnect/coalescing and the ten-second polling fallback.
+
+### Build 109 — v0.6.0 (service history label)
+
+- Rename each service action from “History / graph” to “History”; retain graph/table functionality and role permissions.
+
+### Build 108 — v0.6.0 (scoped monitoring roles)
+
+- Fix View Only accounts to the globally selected project/deployment, including history; follow active and paused deployments without project selectors.
+- Fix Operators to that project, with existing-deployment selection/resume, global monitoring/notification toggles and individual service pause/resume.
+- Enforce scope in state, logo and history reads and transactional mutations; reject stale Operator controls across deployment changes. Keep configuration, inventory, deployment creation/deletion, users and backups Admin-only.
+
 ### Build 107 — v0.6.0
 
 - Merge shared local stylesheets and theme variables across all pages, with before/after layout validation and retained offline operation.

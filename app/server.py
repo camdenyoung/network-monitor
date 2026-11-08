@@ -18,8 +18,8 @@ import subprocess
 import threading
 import time
 import hmac
-from contextlib import closing
-from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer, backups
+from contextlib import closing, contextmanager
+from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer, backups, access
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -835,7 +835,7 @@ def acknowledgement_display_name(incident, accounts):
     return recorded or username
 
 
-def snapshot():
+def snapshot(actor=None):
     with LOCK, connect() as db:
         result = {table: [dict(row) for row in db.execute('SELECT * FROM ' + table)]
                   for table in ('projects', 'devices', 'assignments', 'runs')}
@@ -933,7 +933,7 @@ def snapshot():
                 if service and service['kind'] == 'ping' and incident['status'] == 'unreachable' and incident['trigger_value'] is None:
                     incident['trigger_display'] = 'Host unreachable'
         update_card_incidents(result)
-        return result
+        return access.restrict_snapshot(result, actor, access.global_scope(db))
 
 
 def service_details(body, existing=None):
@@ -1083,9 +1083,11 @@ def acknowledge_status_incident(db, incident_id, actor):
 
 def mutate(action, body, actor=None):
     acknowledgement_changed = False
+    dashboard_changed = False
     created_project = None
     created_device = None
     with LOCK, connect() as db:
+        access.authorize_mutation(db, actor, action, body)
         deletion = project_deletion.unfinished(db)
         operational = ('ack', 'status-ack', 'unack', 'status-unack', 'pause', 'resume', 'notification-pause', 'project-delete')
         if deletion and (action not in operational or
@@ -1208,7 +1210,8 @@ def mutate(action, body, actor=None):
             field = body['field']
             if field not in ('monitoring', 'visible', 'notifications'):
                 raise ValueError('Invalid control')
-            db.execute(f'UPDATE assignments SET {field}=1-{field} WHERE id=? AND removed=0', (int(body['id']),))
+            cursor = db.execute(f'UPDATE assignments SET {field}=1-{field} WHERE id=? AND removed=0', (int(body['id']),))
+            dashboard_changed = cursor.rowcount > 0
         elif action == 'activate':
             description = body.get('description')
             if not isinstance(description, str) or not 1 <= len(description.strip()) <= 500:
@@ -1224,12 +1227,14 @@ def mutate(action, body, actor=None):
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (str(cursor.lastrowid),))
             # Each deployment requires an explicit decision to enable delivery.
             notifications.set_paused(db, True)
+            dashboard_changed = True
         elif action == 'pause':
             run = setting(db, 'active_run')
             # Repeated Pause clicks must not discard the resumable deployment.
             if run != '0':
                 db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (run,))
                 db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+                dashboard_changed = True
         elif action == 'resume':
             if setting(db, 'active_run') != '0':
                 raise ValueError('Monitoring is already active')
@@ -1243,6 +1248,7 @@ def mutate(action, body, actor=None):
                 (SELECT id FROM assignments WHERE project=?)""", (time.time(), run['project']))
             db.execute("UPDATE settings SET value=? WHERE key='active_run'", (str(run['id']),))
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run','0')")
+            dashboard_changed = True
         elif action == 'resume-deployment':
             active = int(setting(db, 'active_run'))
             if active != int(body['expected_active_run']):
@@ -1258,6 +1264,7 @@ def mutate(action, body, actor=None):
             db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (str(run['id']),))
             notifications.set_paused(db, True)
+            dashboard_changed = True
         elif action == 'delete-deployment':
             active = int(setting(db, 'active_run'))
             target = int(body['run'])
@@ -1275,12 +1282,15 @@ def mutate(action, body, actor=None):
             db.execute('DELETE FROM runs WHERE id=?', (target,))
             if setting(db, 'paused_run') == str(target):
                 db.execute("UPDATE settings SET value='0' WHERE key='paused_run'")
+            dashboard_changed = True
         elif action == 'ack':
             acknowledgement_changed = record_acknowledgement(db, int(body['id']), actor)
         elif action == 'unack':
             acknowledgement_changed = record_unacknowledgement(db, int(body['id']), actor, body.get('expected_revision'))
         elif action == 'notification-pause':
+            was_paused = setting(db, 'notifications_paused')
             notifications.set_paused(db, body['paused'])
+            dashboard_changed = was_paused != setting(db, 'notifications_paused')
         elif action == 'reminder-settings':
             minutes = body['minutes']
             if type(minutes) is not int or not 0 <= minutes <= 10080:
@@ -1398,6 +1408,7 @@ def mutate(action, body, actor=None):
             if type(enabled) is not bool:
                 raise ValueError('Monitoring must be true or false')
             if bool(service['monitoring']) != enabled:
+                dashboard_changed = True
                 changed = time.time()
                 db.execute('UPDATE services SET monitoring=?,monitoring_since=? WHERE id=?',
                            (int(enabled), changed, service['id']))
@@ -1421,9 +1432,10 @@ def mutate(action, body, actor=None):
         else:
             raise ValueError('Unknown action')
     # All listeners must see committed state, including changes from other users.
-    # Duplicate acknowledgements and rejected/rolled-back actions emit nothing.
-    if acknowledgement_changed:
-        live_updates.publish_acknowledgement_change()
+    # No-op controls and rejected/rolled-back actions emit nothing. Keep the
+    # public signal opaque: each browser refetches its own role-scoped state.
+    if acknowledgement_changed or dashboard_changed:
+        live_updates.publish_dashboard_change()
     if created_project is not None:
         return {'project': created_project}
     if created_device is not None:
@@ -1668,7 +1680,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise backups.BackupError('Your session changed. Sign in and upload the backup again.', 401)
                 with connect() as destination:
                     candidate.backup(destination, pages=1024)
-        live_updates.publish_acknowledgement_change()
+        live_updates.publish_dashboard_change()
         return True
 
     def redirect(self, destination):
@@ -1727,7 +1739,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send('{"error":"Not found"}', status=404)
 
     def stream_acknowledgement_changes(self):
-        """Public invalidation stream: no issue IDs, actors, credentials or metrics."""
+        """Dashboard invalidations; retain the existing /api/ack-events URL.
+
+        No issue IDs, projects, actors, credentials or metrics travel here.
+        """
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-store')
@@ -1815,7 +1830,7 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             return
         if self.path.startswith('/api/project-logo?'):
-            return self.send_logo()
+            return self.send_logo(public=user['role'] != 'admin')
         if self.path == '/api/telegram-chats':
             try:
                 with connect() as db:
@@ -1833,7 +1848,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(json.dumps(users))
         elif self.path == '/api/state':
             presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)
-            state = snapshot()
+            state = snapshot(user)
             if user['role'] == 'admin':
                 with connect() as db:
                     sessions = dict(db.execute('SELECT csrf,user_id FROM sessions WHERE expires>?',
@@ -1888,15 +1903,28 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith('/api/history?'):
             try:
                 query = parse_qs(urlsplit(self.path).query)
+                service, run = int(query['service'][0]), int(query['run'][0])
+
+                @contextmanager
+                def scoped_connection():
+                    # Each bounded history batch revalidates scope in the same
+                    # read snapshot as its rows, including after a global switch.
+                    with connect() as db:
+                        db.execute('BEGIN')
+                        access.authorize_history(db, user, service, run)
+                        yield db
+
                 if 'start' in query or 'end' in query:
-                    result = history.read(connect, query)
+                    result = history.read(scoped_connection, query)
                 else:
                     # Keep the legacy latest-200 response for older clients.
-                    with connect() as db:
+                    with scoped_connection() as db:
                         result = [dict(row) for row in db.execute(
                             'SELECT timestamp,value,status,display_value,revision,measurement_revision FROM samples WHERE service=? AND run=? ORDER BY id DESC LIMIT 200',
-                            (int(query['service'][0]), int(query['run'][0])))]
+                            (service, run))]
                 self.send(json.dumps(result))
+            except access.AccessError as error:
+                self.send(json.dumps({'error': str(error)}), status=403)
             except history.HistoryError as error:
                 self.send(json.dumps({'error': str(error)}), status=400)
             except (KeyError, ValueError, OverflowError):
@@ -1911,9 +1939,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"Origin rejected"}', status=403)
         user = None
         if self.path != '/api/login':
-            user = self.require_user(admin=self.path not in ('/api/logout', '/api/password', '/api/ack', '/api/status-ack', '/api/unack', '/api/status-unack'),
+            action = self.path.removeprefix('/api/')
+            operational = action in access.OPERATOR_ACTIONS | access.ACK_ACTIONS
+            user = self.require_user(admin=not operational and self.path not in ('/api/logout', '/api/password'),
                                      allow_password_change=self.path in ('/api/logout', '/api/password'),
-                                     roles=('admin', 'operator') if self.path in ('/api/ack','/api/status-ack','/api/unack','/api/status-unack') else None)
+                                     roles=('admin', 'operator') if operational else None)
             if not user:
                 return
             if not hmac.compare_digest(self.headers.get('X-CSRF-Token', ''), user['csrf']):
@@ -1987,6 +2017,8 @@ class Handler(BaseHTTPRequestHandler):
                     if result is not None:
                         return self.send(json.dumps({'ok': True, **result}))
             self.send('{"ok":true}')
+        except access.AccessError as error:
+            self.send(json.dumps({'error': str(error)}), status=403)
         except backups.BackupError as error:
             self.send(json.dumps({'error': str(error)}), status=error.status)
         except OSError:

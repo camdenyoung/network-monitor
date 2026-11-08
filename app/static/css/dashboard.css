@@ -8,6 +8,19 @@ body:not([data-role="admin"]) [data-admin] {
     display: none !important;
 }
 
+/* Fail closed until the signed-in account's role has been loaded. */
+body:not([data-role="admin"]):not([data-role="operator"]) [data-operate],
+body[data-role="admin"] [data-scoped],
+body[data-role="viewer"] [data-deployment-picker] {
+    display: none !important;
+}
+
+[data-scoped] {
+    display: grid;
+    gap: 8px;
+    overflow-wrap: anywhere;
+}
+
 /* Give every checkbox a visible control and keep stacked field labels aligned. */
 input[type="checkbox"] {
     width: 24px;

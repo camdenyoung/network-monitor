@@ -749,7 +749,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         server.mutate('resume', {'project': 1})
         self.assertEqual(server.snapshot()['settings']['notifications_paused'], '0')
 
-    def test_notification_pause_requires_admin_csrf_and_boolean(self):
+    def test_notification_pause_requires_role_scope_csrf_and_boolean(self):
         token, operator = self.create_operator()
         for actor_token, actor in ((self.viewer_token, self.viewer), (token, operator)):
             self.assertEqual(self.request('/api/notification-pause', {'paused': True}, actor_token, actor['csrf'])['status'], 403)
@@ -770,7 +770,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual([row['id'] for row in server.snapshot()['runs']], [2])
         self.assertEqual(self.request('/api/delete-deployment', body, self.admin_token, self.admin['csrf'])['status'], 400)
 
-    def test_resuming_selected_deployment_requires_admin_and_csrf(self):
+    def test_resuming_selected_deployment_requires_role_scope_and_csrf(self):
         self.create_host()
         server.mutate('activate', {'project': 1, 'description': 'Second deployment'})
         server.mutate('resume', {'project': 1})
@@ -984,7 +984,7 @@ class AccessAndNotificationTests(unittest.TestCase):
     def test_local_stylesheets_are_public_allowlisted_and_not_cached(self):
         for name in ('base', 'dashboard', 'status', 'auth'):
             handler = object.__new__(server.Handler)
-            handler.path = f'/static/css/{name}.css?v=106'
+            handler.path = f'/static/css/{name}.css?v=108'
             handler.headers = {}
             handler.wfile = io.BytesIO()
             result = {}
@@ -1003,8 +1003,8 @@ class AccessAndNotificationTests(unittest.TestCase):
         for name, stylesheet in (('index.html', 'dashboard'), ('status.html', 'status'),
                                   ('login.html', 'auth'), ('change-password.html', 'auth')):
             page = Path(server.__file__).with_name(name).read_text()
-            self.assertIn('/static/css/base.css?v=106', page)
-            self.assertIn(f'/static/css/{stylesheet}.css?v=106', page)
+            self.assertIn('/static/css/base.css?v=108', page)
+            self.assertIn(f'/static/css/{stylesheet}.css?v=108', page)
             self.assertNotIn('<style>', page)
             self.assertNotIn('style="max-width', page)
 
@@ -1312,7 +1312,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         self.assertEqual(response['status'], 200)
         self.assertEqual(server.snapshot()['incident_lists']['active'], [])
         self.assertEqual(len(server.snapshot()['incident_lists']['acknowledged']), 1)
-        for action in ('project', 'activate', 'pause', 'assignment-edit', 'device-edit',
+        for action in ('project', 'activate', 'assignment-edit', 'device-edit',
                        'service-edit', 'service-copy', 'template-create', 'retention',
                        'user-edit', 'telegram-save', 'whatsapp-save', 'restore'):
             self.assertEqual(self.request('/api/' + action, {}, token, operator['csrf'])['status'], 403)
@@ -1460,7 +1460,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertEqual(response['status'], 400)
         self.assertEqual(server.snapshot()['projects'][0]['name'], 'Deployment')
 
-    def test_service_pause_and_project_removal_are_admin_only(self):
+    def test_service_pause_requires_scope_and_project_removal_is_admin_only(self):
         host = self.create_host()
         server.mutate('service', {'assignment': 1, 'name': 'Port', 'kind': 'snmp',
             'target': '.1.2.3', 'direction': 'above', 'warning': '', 'critical': ''})
@@ -1894,7 +1894,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             with server.connect() as db:
                 row = db.execute('SELECT acknowledged,ack_revision FROM incidents WHERE id=?', (issue_id,)).fetchone()
                 observed.append(tuple(row))
-        with patch.object(server.live_updates, 'publish_acknowledgement_change', side_effect=observe_commit):
+        with patch.object(server.live_updates, 'publish_dashboard_change', side_effect=observe_commit):
             with patch.object(server, 'record_acknowledgement_event', side_effect=RuntimeError('Rollback')):
                 with self.assertRaises(RuntimeError):
                     server.mutate('ack', {'id': issue_id}, actor=self.admin)
@@ -1922,7 +1922,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         def acknowledge(actor, action):
             barrier.wait(timeout=2)
             server.mutate(action, {'id': issue_id}, actor=actor)
-        with patch.object(server.live_updates, 'publish_acknowledgement_change') as publish:
+        with patch.object(server.live_updates, 'publish_dashboard_change') as publish:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 first = pool.submit(acknowledge, self.admin, 'ack')
                 second = pool.submit(acknowledge, operator, 'status-ack')
