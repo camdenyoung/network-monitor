@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.7, Build 99. Show it after the title on both the main and
+Current displayed release is v0.5.7, Build 100. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -964,3 +964,11 @@ keep public_user's account allowlist unchanged so other/public responses do not
 leak session timing. Include the fields for all authenticated roles, including
 mandatory-change sessions; expired/anonymous requests still return 401. Reading
 expiry never renews the cookie or updates the database. No schema change.
+
+
+Status section controls group the acknowledged and host visibility toggles in
+.status-visibility-controls. At viewport widths <=760px, stack those toggles in
+that order and place .status-navigation below, left-aligned with no auto margin.
+Keep this breakpoint independent of Show/Hide and Cards/List label widths to
+prevent jumping rows. Desktop navigation remains on the right. Preserve IDs,
+authenticated-only host access, toggle colours and localStorage preferences.

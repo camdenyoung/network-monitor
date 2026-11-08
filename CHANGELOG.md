@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 100 — v0.5.7 (mobile Status Dashboard controls)
+
+- Keep host visibility below acknowledged-issue visibility on narrow screens, with dashboard/sign-out navigation left-aligned beneath them.
+- Use a stable responsive layout so Show/Hide and Cards/List label changes do not move controls between rows; preserve desktop alignment and access restrictions.
+
 ### Build 99 — v0.5.7 (session expiry information branch update)
 
 - Add the requesting session's Unix expiry timestamp and whole seconds remaining to authenticated `/api/me` responses.
