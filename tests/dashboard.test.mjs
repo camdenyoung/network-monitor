@@ -46,6 +46,7 @@ const stateService = {
     state_map: { '1': { label: 'Up', status: 'healthy' }, '2': { label: 'Down', status: 'critical' } },
 };
 const fixture = {
+    access_scope: {project:1,run:1},
     projects: [{ id: 1, name: 'Test' }],
     devices: [{ id: 1, name: 'SW001', address: '127.0.0.1', model: 'Switch' }],
     assignments: [{ id: 1, project: 1, device: 1, alias: 'Stage', visible: 1, monitoring: 1 }],
@@ -1495,6 +1496,8 @@ for (const [kind, mode] of [['snmp','service-edit'],['modbus','template-create']
 }
 console.log('Service protocol fields initialise correctly and retain drafts while switching SNMP, Modbus and TCP.');
 
+// Assignment choices are Admin configuration, including manual project selection.
+vm.runInContext("currentUser.role = 'admin'", context);
 // Assignment choices are project-scoped; paused/hidden still means assigned.
 fixture.projects.push({id:876,name:'Other assignment project'});
 fixture.devices.push({id:877,name:'Elsewhere',address:'10.9.1.1'},
@@ -2205,7 +2208,7 @@ async function projectSelectionContext(settings, projects) {
   const browser = vm.createContext({document:context.document,setInterval(){},
     localStorage:{getItem(){return null;},setItem(){}},
     fetch:async path => ({ok:true,json:async () => path === '/api/me'
-      ? {id:1,role:'operator',username:'selector'} : data})});
+      ? {id:1,role:'admin',username:'selector'} : path === '/api/users' ? [] : path === '/api/telegram' || path === '/api/whatsapp' ? {configuration:{},outbox:[]} : data})});
   new vm.Script(script).runInContext(browser);
   await browser.initializeSession();
   return {browser,data};
@@ -2358,7 +2361,7 @@ for (const [id,widths] of [['project-actions',projectActionWidths],['deployment-
 }
 toolbarNodes.set('deployment-toolbar',{getBoundingClientRect:() => ({right:toolbarRight})});
 toolbarNodes.set('project',{getBoundingClientRect:() => ({right:568})});
-const toolbarContext = vm.createContext({el:id => toolbarNodes.get(id),
+const toolbarContext = vm.createContext({currentUser:{role:"admin"},el:id => toolbarNodes.get(id),
   getComputedStyle:() => ({paddingRight:'16px',borderRightWidth:'1px',columnGap:'12px'})});
 const toolbarFunction = script.match(/    function updateToolbarLayout\(\) \{[\s\S]+?\n    \}/)[0];
 new vm.Script(toolbarFunction).runInContext(toolbarContext);
@@ -2871,3 +2874,89 @@ assert.equal(inventoryTransferCalls.length,inventoryCallsBeforeInvalid);
 console.log('Inventory import previews, merge/update modes, conflicts, cancellation, stale review errors, immutable file capture and single confirmation passed.');
 
 await import('./signout.test.mjs');
+
+// Restricted roles follow durable global scope, independent of local selections.
+async function scopedRoleContext(role) {
+  const service = {...stateService,enabled:1,monitoring:1};
+  const data = {...fixture,
+    access_scope:{project:1,run:2}, projects:[{id:1,name:'Scoped project'}],
+    devices:[{id:1,name:'SW001',address:'127.0.0.1'}],
+    assignments:[{id:1,project:1,device:1,alias:'Stage',monitoring:1,visible:1}],
+    services:[service], latest:[], service_templates:[],device_service_defaults:[],
+    runs:role === 'viewer' ? [{id:2,project:1}] : [{id:1,project:1},{id:2,project:1}],
+    incident_lists:{active:[],acknowledged:[],suppressed:[],resolved:[]},
+    settings:{active_run:'2',paused_run:'0',notifications_paused:'1',retention_days:'30'}};
+  const writes=[];
+  let delayHistory;
+  const browser = vm.createContext({document:context.document,setInterval(){},
+    localStorage:{getItem(){return null;},setItem(){}},
+    fetch:async (path,options) => {
+      if (options?.method === 'POST') {
+        writes.push({path,body:JSON.parse(options.body)});
+        return {ok:true,json:async () => ({ok:true})};
+      }
+      if (path.startsWith('/api/history?')) {
+        if (delayHistory) await delayHistory;
+        return {ok:true,json:async () => ({rows:[],total:0,retention_days:30})};
+      }
+      return {ok:true,json:async () => path === '/api/me'
+        ? {id:2,role,username:role,csrf:'scoped-token'} : JSON.parse(JSON.stringify(data))};
+    }});
+  new vm.Script(script).runInContext(browser);
+  await browser.initializeSession();
+  return {browser,data,writes,setHistoryDelay:promise => {delayHistory=promise;}};
+}
+const scopedViewer = await scopedRoleContext('viewer');
+assert.equal(element('project').disabled,true);
+assert.equal(element('scoped-project').textContent,'Scoped project');
+element('project').value='999'; element('project').onchange();
+assert.equal(vm.runInContext('selectedProject',scopedViewer.browser),'1');
+assert.doesNotMatch(scopedViewer.browser.serviceActions(stateService),/data-service-monitoring|data-edit/);
+await scopedViewer.browser.openHistory(2);
+assert.equal(element('history-deployment').disabled,true);
+// A forged dropdown change still requests the global deployment.
+element('history-deployment').value='99';
+await scopedViewer.browser.loadHistoryRange();
+assert.equal(vm.runInContext('historyContext.run',scopedViewer.browser),2);
+let finishScopedHistory;
+scopedViewer.setHistoryDelay(new Promise(resolve => {finishScopedHistory=resolve;}));
+const oldScopedHistory = scopedViewer.browser.loadHistoryRange();
+scopedViewer.data.access_scope={project:2,run:3};
+scopedViewer.data.projects=[{id:2,name:'Next project'}];
+scopedViewer.data.runs=[{id:3,project:2}];
+scopedViewer.data.settings={...scopedViewer.data.settings,active_run:'0',paused_run:'3'};
+scopedViewer.data.assignments=[]; scopedViewer.data.services=[]; scopedViewer.data.devices=[];
+await scopedViewer.browser.refresh();
+assert.equal(vm.runInContext('selectedProject',scopedViewer.browser),'2');
+assert.equal(element('scoped-project').textContent,'Next project');
+assert.equal(element('history').open,false);
+assert.equal(element('readings').innerHTML,'');
+finishScopedHistory(); await oldScopedHistory;
+assert.equal(element('history-graph').innerHTML,'');
+
+const scopedOperator = await scopedRoleContext('operator');
+assert.equal(element('project').disabled,true);
+assert.match(scopedOperator.browser.serviceActions(stateService),/data-service-monitoring/);
+assert.match(scopedOperator.browser.serviceActions(stateService),/data-history/);
+assert.doesNotMatch(scopedOperator.browser.serviceActions(stateService),/action-menu|data-edit-service|data-remove/);
+await scopedOperator.browser.openHistory(2);
+assert.equal(element('history-deployment').disabled,false);
+element('history-deployment').value='1'; await scopedOperator.browser.loadHistoryRange();
+assert.equal(vm.runInContext('historyContext.run',scopedOperator.browser),1);
+await element('notifications-toggle').onclick();
+assert.equal(scopedOperator.writes.at(-1).path,'/api/notification-pause');
+assert.equal(scopedOperator.writes.at(-1).body.expected_scope_run,2);
+element('previous-deployment').value='1'; element('resume-selected-deployment').onclick();
+assert.equal(element('resume-deployment-dialog').open,true);
+// Changing deployment from another tab invalidates the pending confirmation.
+scopedOperator.data.access_scope={project:1,run:1};
+scopedOperator.data.settings={...scopedOperator.data.settings,active_run:'0',paused_run:'1'};
+await scopedOperator.browser.refresh();
+assert.equal(element('resume-deployment-dialog').open,false);
+await element('confirm-resume-deployment').onclick();
+assert.equal(scopedOperator.writes.filter(row => row.path === '/api/resume-deployment').length,0);
+assert.match(mainCss,/body:not\(\[data-role="admin"\]\):not\(\[data-role="operator"\]\) \[data-operate\]/);
+assert.match(mainCss,/body\[data-role="viewer"\] \[data-deployment-picker\]/);
+assert.match(html,/<button data-admin id="activate"/);
+assert.match(html,/<button data-admin id="delete-selected-deployment"/);
+console.log('Scoped roles follow global project/deployment changes, invalidate stale history/dialogs, restrict controls and bind Operator writes to their displayed deployment.');

@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 108 — v0.6.0 (scoped monitoring roles)
+
+- Fix View Only accounts to the globally selected project/deployment, including history; follow active and paused deployments without project selectors.
+- Fix Operators to that project, with existing-deployment selection/resume, global monitoring/notification toggles and individual service pause/resume.
+- Enforce scope in state, logo and history reads and transactional mutations; reject stale Operator controls across deployment changes. Keep configuration, inventory, deployment creation/deletion, users and backups Admin-only.
+
 ### Build 107 — v0.6.0
 
 - Merge shared local stylesheets and theme variables across all pages, with before/after layout validation and retained offline operation.

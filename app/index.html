@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network Monitor</title>
-  <link rel="stylesheet" href="/static/css/base.css?v=106">
-  <link rel="stylesheet" href="/static/css/dashboard.css?v=106">
+  <link rel="stylesheet" href="/static/css/base.css?v=108">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=108">
 </head>
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.0 · Build 107</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.0 · Build 108</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -43,19 +43,20 @@
         <span id="project-logo-placeholder-label">No project logo</span>
       </div>
     </div>
-    <label class="project-selector">Selected project<select id="project"></select></label>
-    <div id="project-actions" data-admin class="project-actions">
-      <button id="activate" class="primary">Activate / start new deployment</button>
+    <label data-admin class="project-selector">Selected project<select id="project"></select></label>
+    <div id="scoped-project-field" data-scoped class="project-selector"><small>Current project</small><strong id="scoped-project">No deployment selected</strong></div>
+    <div id="project-actions" data-operate class="project-actions">
+      <button data-admin id="activate" class="primary">Activate / start new deployment</button>
       <button id="monitoring-toggle" aria-pressed="false">Resume all monitoring</button>
       <button id="notifications-toggle" aria-pressed="true">Pause notifications</button>
     </div>
     <small>15-second polling · issue persistence is configurable per service</small>
     <small id="deployment-details"></small>
-    <div data-admin class="deployment-controls">
+    <div data-operate class="deployment-controls">
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
       <div id="deployment-actions" class="deployment-actions">
         <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
-        <button id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
+        <button data-admin id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
       </div>
       <small id="previous-deployment-details">Choose a previous deployment for the selected project.</small>
     </div>
@@ -495,7 +496,7 @@
     <h2 id="history-title">Service history</h2>
     <p id="history-description"></p>
     <form id="history-range-form" class="display-controls">
-      <label>Deployment<select id="history-deployment"></select></label>
+      <label data-deployment-picker>Deployment<select id="history-deployment"></select></label>
       <label id="history-measurement-field" hidden>Graph measurement<select id="history-measurement"></select></label>
       <label>Period<select id="history-period">
         <option value="900">Last 15 minutes</option><option value="3600" selected>Last hour</option>
@@ -934,6 +935,9 @@
     let transferSource = null;
 
     async function request(path, body) {
+      // Bind Operator controls to the deployment displayed when clicked. The
+      // server checks this inside the mutation transaction, across all tabs.
+      if (currentUser?.role === 'operator') body = {expected_scope_run: state?.access_scope?.run, ...body};
       const response = await dashboardFetch('/api/' + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': currentUser?.csrf || ''}, body: JSON.stringify(body)});
       const result = await response.json();
       if (response.status === 401) { location.assign('/login'); throw new Error('Please sign in again.'); }
@@ -960,6 +964,7 @@
     }
 
     function serviceActions(service, location = 'hosts') {
+      if (currentUser?.role === 'operator') return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><button data-history="${service.id}">History / graph</button></div>`;
       if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History / graph</button>`;
       return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}" data-menu-key="${location}:${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
@@ -1273,13 +1278,14 @@
       const style = getComputedStyle(toolbar);
       const right = toolbar.getBoundingClientRect().right - (parseFloat(style.paddingRight) || 0)
         - (parseFloat(style.borderRightWidth) || 0);
-      const available = Math.max(0, right - el('project').getBoundingClientRect().right
+      const selector = currentUser?.role === 'admin' ? el('project') : el('scoped-project-field');
+      const available = Math.max(0, right - selector.getBoundingClientRect().right
         - (parseFloat(style.columnGap) || 0));
       // Measure all groups before changing classes to avoid repeated layout work.
       const changes = ['project-actions','deployment-actions'].map(id => {
         const group = el(id);
-        const widths = [...group.querySelectorAll('button')].map(button => button.getBoundingClientRect().width);
-        if (!widths.some(width => width > 0)) return null; // Hidden for non-Admins.
+        const widths = [...group.querySelectorAll('button')].map(button => button.getBoundingClientRect().width).filter(width => width > 0);
+        if (!widths.some(width => width > 0)) return null; // Hidden for View Only accounts.
         const gap = parseFloat(getComputedStyle(group).columnGap) || 0;
         const required = widths.reduce((sum, width) => sum + width, 0) + gap * (widths.length - 1);
         return {group, below: required > available + 0.5};
@@ -1404,7 +1410,19 @@
       const response = await dashboardFetch('/api/state', {headers: {'X-Dashboard-Connection': dashboardConnection}});
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return; }
       if (!response.ok) throw new Error('Cannot read monitor state');
+      const previousScope = state?.access_scope;
       state = await response.json();
+      if (currentUser?.role !== 'admin' && previousScope &&
+          (previousScope.project !== state.access_scope?.project || previousScope.run !== state.access_scope?.run)) {
+        // Discard old history and in-flight results when another user changes
+        // the shared deployment. A new history view uses the updated scope.
+        historyRequest++;
+        historyContext = null;
+        if (el('history').open) el('history').close();
+        el('history-graph').innerHTML = ''; el('readings').innerHTML = '';
+        pendingDeploymentResume = null;
+        if (el('resume-deployment-dialog').open) el('resume-deployment-dialog').close();
+      }
       const presence = state.dashboard_presence;
       el('dashboard-presence').textContent = presence
         ? `Logged-in users: ${presence.logged_in_users} · Connections: ${presence.connections}`
@@ -1419,13 +1437,17 @@
       }
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
       const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
+      if (currentUser?.role !== 'admin') {
+        selectedProject = state.access_scope?.project == null ? '' : String(state.access_scope.project);
+        pendingCreatedProject = null;
+      }
       // Choose the current deployment once; polling must preserve manual choices.
       // A selected paused deployment is still the current project during setup.
       if (pendingCreatedProject !== null && state.projects.some(project => String(project.id) === pendingCreatedProject)) {
         selectedProject = pendingCreatedProject;
         pendingCreatedProject = null;
       }
-      if (pendingCreatedProject === null && !state.projects.some(project => String(project.id) === selectedProject)) {
+      if (currentUser?.role === 'admin' && pendingCreatedProject === null && !state.projects.some(project => String(project.id) === selectedProject)) {
         const preferred = [run?.project, pausedRun?.project, state.projects[0]?.id]
           .find(id => state.projects.some(project => project.id === id));
         selectedProject = preferred == null ? '' : String(preferred);
@@ -1440,6 +1462,9 @@
       updateOptions('new-project-logo', state.projects.filter(row => row.logo_url), row => row.name, 'No logo');
       previewNewProjectLogo();
       const project = state.projects.find(row => String(row.id) === selectedProject);
+      el('scoped-project').textContent = project?.name || 'No deployment selected';
+      el('project').disabled = currentUser?.role !== 'admin';
+      el('notifications-toggle').disabled = currentUser?.role !== 'admin' && !state.access_scope?.run;
       updateProjectDeletion(project, run);
       const image = el('project-logo');
       image.hidden = !project?.logo_url;
@@ -2535,6 +2560,7 @@
       }
       const context = {...historyContext, run:Number(el('history-deployment').value),
         measurement:Number(el('history-measurement').value || historyContext.service.measurement_revision || 1), start, end};
+      if (currentUser?.role === 'viewer') context.run = state.access_scope?.run;
       el('history-apply').disabled = true;
       el('history-newer').disabled = true;
       el('history-older').disabled = true;
@@ -2559,7 +2585,8 @@
           ? context.service.value_type === 'state' && !graph.state_overflow
             ? 'Graph shows retained state transitions and collection gaps. Table pages contain exact readings.'
             : 'Graph summarised for performance; bucket extremes and collection gaps are retained. Table pages contain exact readings.' : ''
-          : 'No retained readings in this range. Try another period or deployment.') +
+          : currentUser?.role === 'viewer' ? 'No retained readings in this range. Try another period.'
+            : 'No retained readings in this range. Try another period or deployment.') +
           (graph.state_overflow ? ' Too many state changes for an exact graph: shorten the range or inspect the table.' : '') +
           ` Retention is ${graph.retention_days} days; older readings may already have been removed.`;
       } catch (error) {
@@ -2611,7 +2638,9 @@
       el('history-measurement-field').hidden = true;
       el('history-deployment').innerHTML = options(runs, row => `#${row.id} · ${row.description || date(row.started)}`);
       el('history-deployment').value = String(preferred);
-      el('history-title').textContent = service.name + ' — history';
+      el('history-deployment').disabled = currentUser?.role === 'viewer';
+      el('history-title').textContent = service.name + ' — history' +
+        (currentUser?.role === 'viewer' ? ` · Deployment #${preferred}` : '');
       el('history-description').textContent = '';
       el('history-graph').innerHTML = ''; el('readings').innerHTML = '';
       el('history-period').value = '3600'; setHistoryPreset();
@@ -2695,7 +2724,11 @@
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
 
-    el('project').onchange = () => { pendingCreatedProject = null; selectedProject = el('project').value; catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report); };
+    el('project').onchange = () => {
+      if (currentUser?.role !== 'admin') return;
+      pendingCreatedProject = null; selectedProject = el('project').value;
+      catalogueLimit = 20; el('catalogue-host').value = ''; refresh().catch(report);
+    };
     let pendingDeploymentDelete = null;
     el('delete-selected-deployment').onclick = () => {
       const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
@@ -2737,10 +2770,11 @@
     };
     let pendingDeploymentResume = null;
     el('resume-selected-deployment').onclick = () => {
+      if (!['admin', 'operator'].includes(currentUser?.role)) return;
       const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
       if (!run || run.id === Number(state.settings.active_run)) return;
       const project = state.projects.find(row => row.id === run.project);
-      pendingDeploymentResume = {run: run.id, project: run.project, expected_active_run: Number(state.settings.active_run)};
+      pendingDeploymentResume = {run: run.id, project: run.project, expected_active_run: Number(state.settings.active_run), expected_scope_run: state.access_scope?.run};
       el('resume-deployment-title').textContent = `Resume deployment #${run.id}?`;
       el('resume-deployment-context').textContent = `${project.name} · Started ${date(run.started)} · ${run.description || 'No description recorded'}`;
       el('resume-deployment-current').textContent = pendingDeploymentResume.expected_active_run

@@ -1,4 +1,4 @@
-# Network Monitor v0.6.0 · Build 107
+# Network Monitor v0.6.0 · Build 108
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -66,10 +66,15 @@ the existing password. Existing accounts migrate with a blank email while keepin
 their current password and password-change setting. The last Admin cannot be demoted, and self-deletion is blocked.
 
 **Admins** configure equipment, acknowledge issues, manage users, notifications,
-backups and restore. **Operators** can inspect status/history and acknowledge
-issues but cannot edit projects, equipment, services or any other configuration.
-**View Only** users can inspect monitoring data and history but
-cannot mutate configuration or acknowledge issues. All three roles can change their own
+backups and restore. **Operators** follow the globally active or paused project.
+They can inspect its history, acknowledge/unacknowledge issues, select/resume its
+existing deployments, pause/resume all monitoring and notifications, and pause/resume
+individual additional services. They cannot switch projects, create/delete deployments
+or edit configuration. **View Only** users follow the globally selected project AND
+deployment, including history; they cannot select another deployment, change
+monitoring/notifications or acknowledge issues. If no deployment is selected,
+restricted accounts see no project data. An Admin's local project dropdown does
+not change this global scope. All three roles can change their own
 password. User edits, password resets and deletion revoke that user's sessions.
 Sessions default to 12 hours (Admin configurable), use HttpOnly/SameSite cookies, and mutations require CSRF
 protection. Sign-in attempts are rate-limited by client address and username.
@@ -364,7 +369,8 @@ Send test to verify provider delivery in your environment. Tokens are hidden in
 the UI and logs, but remain in admin backups; protect those backups.
 
 Admins can select **Operator** when adding or editing a user. Operators can view
-monitoring/history and acknowledge issues, but all configuration remains
+monitoring/history and acknowledge issues within the current project, plus
+use its operational controls as described under Login and roles. Configuration remains
 Admin-only. **Healthy**, **Warning**, and **Critical** use capitalised labels.
 Host cards use amber/red backgrounds for confirmed Warning/Critical issues;
 the highest open severity wins. Acknowledgement does not remove the colour until

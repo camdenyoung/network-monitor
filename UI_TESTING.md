@@ -120,3 +120,25 @@ Build 106 gives sign-out its own shared style. Local browser fixture checks meas
 340×176px on a 1280px viewport and 288×176px on a 320px viewport, with no horizontal
 overflow and Cancel focused on both dashboards. Sign-out behaviour tests and all
 97 API/access tests passed. Other confirmation widths are unchanged.
+
+
+## Scoped monitoring roles (Build 108)
+
+All 268 backend tests pass, including six new role-boundary tests with multiple
+projects/deployments. They verify state collection filtering, empty/paused scope,
+Viewer history confinement, Operator history within its project, bounded history
+batch revalidation, CSRF, stale deployment controls, managed-ping/archived-source
+protection, scoped logos and Admin-only configuration. Existing acknowledgement,
+monitoring, notification, backup and retention suites remain passing.
+
+Dashboard/account/sign-out, reconnect and responsive host-view JavaScript suites
+pass. New UI scenarios verify fixed project labels, forced Viewer history scope,
+Operator controls and stale history/resume-dialog invalidation after a global
+switch. Earlier Admin manual-selection tests explicitly use an Admin account.
+
+A real browser check on a disposable loopback installation verified Operator service
+pause and confirmed resume of an existing deployment, retaining paused monitoring
+and notifications. View Only showed no project/deployment or operational controls
+and its history remained usable for the global deployment. Checked at phone and
+desktop widths; no live providers, device polling or production database were used.
+These checks do not replace testing on the deployed Raspberry Pi or every browser.
