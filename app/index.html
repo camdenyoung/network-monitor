@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.0 · Build 108</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.0 · Build 109</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -964,12 +964,12 @@
     }
 
     function serviceActions(service, location = 'hosts') {
-      if (currentUser?.role === 'operator') return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><button data-history="${service.id}">History / graph</button></div>`;
-      if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History / graph</button>`;
+      if (currentUser?.role === 'operator') return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><button data-history="${service.id}">History</button></div>`;
+      if (currentUser?.role !== 'admin') return `<button data-history="${service.id}">History</button>`;
       return `<div class="service-controls"><button data-service-monitoring="${service.id}" data-enabled="${service.monitoring === 0 ? 'true' : 'false'}">${service.monitoring === 0 ? 'Resume' : 'Pause'}</button><details class="action-menu" data-service-actions="${service.id}" data-menu-key="${location}:${service.id}">
         <summary aria-label="Actions for ${escapeHtml(service.name)}">Actions</summary>
         <div class="menu-buttons">
-          <button data-history="${service.id}">History / graph</button>
+          <button data-history="${service.id}">History</button>
           <button data-edit-service="${service.id}">Edit</button>
           <button data-copy-service="${service.id}">Copy to host</button>
           <button data-save-template="${service.id}">Save to library</button>

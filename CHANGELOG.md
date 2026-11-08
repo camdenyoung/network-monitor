@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 109 — v0.6.0 (service history label)
+
+- Rename each service action from “History / graph” to “History”; retain graph/table functionality and role permissions.
+
 ### Build 108 — v0.6.0 (scoped monitoring roles)
 
 - Fix View Only accounts to the globally selected project/deployment, including history; follow active and paused deployments without project selectors.

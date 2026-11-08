@@ -1,4 +1,4 @@
-# Network Monitor v0.6.0 · Build 108
+# Network Monitor v0.6.0 · Build 109
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -296,7 +296,7 @@ configuration**, and use **Edit alias** in **Project assignments**, or click
 **Edit alias** directly on its monitor card. This changes
 only that assignment; inventory IDs and aliases in other projects are preserved.
 
-Service cards keep actions in a compact **Actions** menu. Use **History / graph**
+Service cards keep actions in a compact **Actions** menu. Use **History**
 to switch between an SVG graph and exact readings. Numeric metrics use lines;
 state codes use labeled steps. Missing/suppressed readings and gaps over 60 seconds
 break the line. Graphs group compatible readings by measurement version; the table preserves
@@ -797,7 +797,7 @@ once confirmed; recover deleted project data by restoring an earlier complete ba
 
 ## Service history periods
 
-Open **History / graph** for a service. Choose its deployment and a preset:
+Open **History** for a service. Choose its deployment and a preset:
 15 minutes, one hour, six hours, 24 hours or seven days. Alternatively choose custom
 From/To dates and Apply range. Times use the browser's local timezone. A single
 request can cover up to 31 days; retention still applies globally by reading age.
