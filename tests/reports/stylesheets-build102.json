@@ -1,0 +1,25 @@
+{
+  "cases": 87,
+  "widths": [
+    320,
+    390,
+    480,
+    760,
+    761,
+    900,
+    1280,
+    1600
+  ],
+  "comparisons": 696,
+  "differences": [],
+  "baseline_release": "v0.5.8 Build 101",
+  "baseline_tree": "844c9e9ef23a41991e0c92c151f90ee852b33882",
+  "candidate_build": 102,
+  "scope": "CSS-only deterministic fixtures in the local in-app browser; authored computed properties and document-space element bounds",
+  "normalization": [
+    "Build label kept identical",
+    "Animations paused",
+    "Each frame focused before sampling",
+    "Reduced-motion cases activate authored reduced-motion rules without changing OS preferences"
+  ]
+}

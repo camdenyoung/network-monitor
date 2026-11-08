@@ -4,218 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network Monitor</title>
-  <style>
-    :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #101823; color: #e8eff8; }
-    body { max-width: 1250px; margin: auto; padding: 28px; }
-    header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    /* Keep wrapped project/status badges clear of the account navigation below. */
-    body > header { padding-bottom: 18px; }
-    .app-version { font-size: 13px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
-    h1 { margin-bottom: 4px; } h2 { font-size: 20px; } p, small { color: #a9bad0; }
-    section, article { border: 1px solid #314257; background: #182433; border-radius: 10px; padding: 18px; margin: 16px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: 16px; }
-    .host-card.incident-warning { background: #3d321f; border-color: #dba946; }
-    .host-row.incident-warning { --host-surface: #3d321f; --host-border: #dba946; }
-    .host-card.incident-critical { background: #3b202b; border-color: #df6578; }
-    .host-row.incident-critical { --host-surface: #3b202b; --host-border: #df6578; }
-    .incident-badge { display: inline-block; margin-top: 8px; font-weight: 600; }
-    .grid article { margin: 0; } form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
-    body:not([data-role="admin"]) [data-admin] { display: none !important; }
-    [hidden] { display: none !important; }
-    label { display: grid; gap: 5px; font-size: 13px; }
-    input, select, textarea, button, .button-link { font: inherit; color: inherit; border: 1px solid #435b78; border-radius: 5px; padding: 9px; background: #101b29; max-width: 100%; }
-    /* Give every checkbox a visible control and keep stacked field labels aligned. */
-    input[type="checkbox"] { width: 24px; height: 24px; min-width: 24px; max-width: 24px; padding: 0; margin: 0; box-sizing: border-box; accent-color: #176959; cursor: pointer; flex: 0 0 24px; }
-    .checkbox-field { grid-template-rows: auto 35px; }
-    .checkbox-field input { align-self: center; }
-    .checkbox-inline { display: flex; align-items: center; gap: 10px; min-height: 35px; }
-    .inventory-import-preview { max-height: 300px; overflow-y: auto; white-space: pre-line; overflow-wrap: anywhere; padding: 12px; border: 1px solid #435b78; border-radius: 6px; }
-    #device-duplicate-source { overflow-wrap: anywhere; }
-    .user-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; border: 1px solid #435b78; border-radius: 8px; padding: 14px; margin-top: 12px; }
-    .user-details { flex: 1 1 320px; overflow-wrap: anywhere; }
-    .user-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-    button { cursor: pointer; } button:hover, .button-link:hover { background: #29445c; } button.primary { background: #176959; }
-    .healthy { color: #64dfad; } .warning { color: #ffcb69; } .critical, .unreachable { color: #ff8b96; }
-    .paused { color: #a9bad0; }
-    .save-toast-list { position: fixed; right: 20px; top: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: min(320px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; pointer-events: none; }
-    .save-toast { position: relative; flex-shrink: 0; overflow: hidden; box-sizing: border-box; padding: 14px 18px 18px; background: #163e32; color: #e8eff8; border: 1px solid #64dfad; border-radius: 8px; box-shadow: 0 6px 24px #0006; pointer-events: auto; }
-    .save-toast-content { display: flex; align-items: center; gap: 16px; }
-    .save-toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-    .save-toast button { flex-shrink: 0; }
-    .save-toast-progress { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: #64dfad; transform-origin: left; animation: toast-countdown var(--toast-duration) linear forwards; }
-    @keyframes toast-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
-    @media (prefers-reduced-motion: reduce) { .save-toast-progress { animation-timing-function: steps(6, end); } }
-    .project-run-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-    .monitoring-badge { border: 1px solid; border-radius: 6px; padding: 5px 10px; font-weight: 600; }
-    .monitoring-active { color: #64dfad; border-color: #429d7a; background: #163e32; }
-    .monitoring-paused { color: #ffcb69; border-color: #dba946; background: #3d321f; }
-    .service-controls { display: flex; align-items: start; gap: 6px; }
-    #service-catalogue .metric { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 24px; }
-    .catalogue-details { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
-    .catalogue-details small { display: block; margin-top: 4px; }
-    #service-catalogue .service-controls { flex-shrink: 0; gap: 12px; }
-    #service-catalogue .service-controls > button { margin: 0; }
-    .blocked { color: #a9bad0; } .unknown { color: #b6c3d6; } .metric { padding: 12px 0; border-top: 1px solid #314257; }
-    .metric .issue-action { font-size: 15px; line-height: 20px; padding: 4px 8px; color: #e8eff8; }
-    .metric button { padding: 4px 8px; margin-left: 8px; } #message { color: #ffcb69; min-height: 22px; }
-    #message.success, .form-feedback.success { color: #64dfad; }
-    .form-feedback { display: block; margin-top: 10px; color: #ffcb69; }
-    input:disabled, select:disabled, textarea:disabled { opacity: 0.5; cursor: not-allowed; }
-    button:disabled { opacity: 0.5; cursor: wait; }
-    button.danger { background: #6b2834; border-color: #df6578; }
-    button.danger:hover { background: #873344; }
-    details { margin: 18px 0; } summary { cursor: pointer; padding: 8px 0; }
-    table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px; border-bottom: 1px solid #314257; }
-    /* Keep recorded issue readings at body size on both dashboards. */
-    .issue-value { font-size: 16px; font-weight: 400; color: #e8eff8; }
-    .metric-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
-    /* Keep card control labels intact; wrap Pause below Actions when squeezed. */
-    .host-card .metric-header > div:first-child:not(.service-controls) { flex: 1 1 100px; min-width: 0; }
-    .host-card .service-controls { display: flex; flex: 0 1 auto; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 6px; min-width: min-content; max-width: 100%; }
-    .host-card button, .host-card .action-menu > summary { flex-shrink: 0; white-space: nowrap; overflow-wrap: normal; }
-    .host-card .service-controls > button { margin: 0; }
-    .metric-status { display: block; margin-top: 4px; font-size: 13px; }
-    .metric-value { font-size: 21px; margin: 8px 0 3px; }
-    details.action-menu { position: relative; margin: 0; flex-shrink: 0; }
-    .action-menu summary { padding: 5px 9px; border: 1px solid #435b78; border-radius: 5px; font-size: 13px; }
-    .action-menu .menu-buttons { position: fixed; left: 0; top: 0; z-index: 1000; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; display: grid; gap: 4px; min-width: min(170px, calc(100vw - 16px)); padding: 8px; background: #101b29; border: 1px solid #435b78; border-radius: 6px; box-shadow: 0 8px 24px #0008; }
-    .action-menu .menu-buttons button { text-align: left; margin: 0; padding: 8px; }
-    .delivery-log { border: 1px solid #435b78; border-radius: 10px; padding: 16px; margin-top: 16px; }
-    /* Single-line 40px entries show the newest ten before scrolling. */
-    #telegram-queue { max-height: 400px; overflow: auto; }
-    #telegram-queue > p { margin: 0; padding: 10px 8px; line-height: 20px; white-space: nowrap; min-width: max-content; box-sizing: border-box; }
-    #toggle-telegram-log[aria-pressed="true"] { background: #176959; }
-    /* Keep flap settings in their own horizontal row rather than one tall form item. */
-    .flap-settings { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; flex: 1 1 100%; width: 100%; min-width: 0; margin: 0; padding: 14px; box-sizing: border-box; border: 1px solid #435b78; border-radius: 8px; }
-    .flap-settings legend { padding: 0 6px; }
-    .flap-settings > label { flex: 1 1 150px; min-width: 0; }
-    .flap-settings > .checkbox-inline { flex: 1 1 100%; }
-    .flap-settings input:not([type="checkbox"]) { width: 100%; min-width: 0; box-sizing: border-box; }
-    #service-editor, #host-stability { width: 1040px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; box-sizing: border-box; border-radius: 10px; }
-    #host-stability { width: 800px; }
-    #service-edit-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 14px; }
-    #service-edit-form > label { min-width: 0; }
-    #service-edit-form > label > input, #service-edit-form > label > select, #service-edit-form > label > textarea { width: 100%; min-width: 0; box-sizing: border-box; }
-    #service-edit-form > [data-state], #service-edit-form > .flap-settings, .editor-actions { grid-column: 1 / -1; }
-    .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    @media (max-width: 760px) { #service-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 480px) { #service-edit-form { grid-template-columns: minmax(0, 1fr); } }
-    #history { width: 1040px; max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; }
-    #history #readings { max-height: 420px; overflow: auto; }
-    #history-graph svg { display: block; width: 100%; height: auto; }
-    .view-tabs { display: flex; gap: 8px; margin: 14px 0; }
-    .view-tabs button[aria-pressed="true"] { background: #176959; }
-    /* Separate cell borders create one rounded outline around each host row. */
-    .host-fit-probe { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; contain: layout style paint; }
-    .host-card { min-width: 0; overflow-wrap: anywhere; }
-    #view-list:disabled { cursor: not-allowed; }
-    .host-list { min-width: 650px; border-collapse: separate; border-spacing: 0 12px; }
-    .host-row { --host-surface: #182433; --host-border: #314257; }
-    .host-list .host-row > td { vertical-align: top; background: var(--host-surface); border: 1px solid var(--host-border); border-left-width: 0; border-right-width: 0; padding: 16px; }
-    .host-list .host-row > td:first-child { border-left-width: 1px; border-radius: 10px 0 0 10px; }
-    .host-list .host-row > td:last-child { border-right-width: 1px; border-radius: 0 10px 10px 0; }
-    /* Shared columns keep controls aligned despite different names and values. */
-    .host-list .metric { display: grid; grid-template-columns: minmax(130px, 1fr) 164px 90px 150px; align-items: center; gap: 12px; min-width: 570px; padding: 7px 0; }
-    .host-list .metric-header { display: contents; }
-    .host-list .service-controls { display: grid; grid-template-columns: 70px 88px; align-items: start; gap: 6px; }
-    .host-list .service-controls > button, .host-list .action-menu > summary { box-sizing: border-box; margin: 0; padding: 5px 8px; font-size: 13px; line-height: 20px; }
-    .host-list .metric-header > button { margin: 0; }
-    #project-configuration { border: 1px solid #435b78; border-radius: 10px; margin: 16px 0; padding: 16px; }
-    #project-configuration > section:first-child { margin-top: 0; }
-    #project-configuration > section:last-child { margin-bottom: 0; }
-    #live-status-panel { border: 1px solid #435b78; border-radius: 10px; margin-top: 24px; padding: 16px; }
-    /* Reserve at least one third of the row so Admin hosts never exceed 3 columns. */
-    #dashboard.grid { margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(290px, calc((100% - 32px) / 3))), 1fr)); }
-    .host-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-    .host-heading h2 { margin: 0; }
-    .host-heading > button { flex-shrink: 0; font-size: 13px; padding: 4px 8px; }
-    .host-list .metric-value { margin: 0; font-size: 16px; white-space: nowrap; }
-    .display-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
-    .display-controls button[aria-pressed="true"], .display-controls button[aria-selected="true"] { background: #176959; }
-    .acknowledgement-dialog, .library-import-dialog { width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box; border-radius: 10px; padding: 24px; }
-    .acknowledgement-dialog::backdrop, .library-import-dialog::backdrop { background: #0009; }
-    .scroll { overflow: auto; } dialog { background: #182433; color: #e8eff8; border: 1px solid #435b78; max-width: 90vw; }
-    /* Reserve the logo column even when hidden; both selector/action rows align. */
-    .project-toolbar { display: grid; grid-template-columns: 180px minmax(0, 360px) minmax(0, 1fr); align-items: start; }
-    .project-toolbar > small { grid-column: 1 / -1; }
-    /* Keep each action group intact until its full natural width no longer fits. */
-    .project-actions, .deployment-actions { display: flex; grid-column: 3; flex-wrap: nowrap; align-items: start; gap: 12px; min-width: 0; padding-top: 21px; }
-    .project-actions > button, .deployment-actions > button { min-height: 38px; flex-shrink: 0; max-width: none; white-space: nowrap; }
-    .project-actions.controls-below { grid-column: 1 / -1; }
-    .deployment-actions.controls-below { grid-column: 1 / -1; }
-    .project-actions.controls-below, .deployment-actions.controls-below { padding-top: 0; flex-wrap: wrap; }
-    .controls-below > button { max-width: 100%; white-space: normal; }
-    .project-selector, .deployment-controls label { grid-template-rows: 16px auto; gap: 5px; line-height: 16px; }
-    .project-selector select, .deployment-controls select { height: 38px; font-size: 15px; }
-    .deployment-controls { display: contents; }
-    .deployment-controls label { grid-column: 1 / 3; min-width: 0; }
-    .deployment-controls select, .project-selector select { width: 100%; box-sizing: border-box; min-width: 0; }
-    .deployment-controls small { grid-column: 1 / -1; overflow-wrap: anywhere; }
-    .project-logo-slot { grid-column: 1; width: 180px; height: 80px; display: flex; align-items: center; justify-content: center; }
-    .project-selector { grid-column: 2; min-width: 0; }
-    .project-settings > h2 { margin-bottom: 6px; }
-    .project-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-    .project-settings-panel { display: flex; flex-direction: column; padding: 18px; border: 1px solid #314257; border-radius: 8px; background: #101b29; min-width: 0; }
-    .project-settings-panel h3 { margin: 0; font-size: 16px; }
-    .project-settings-panel > p { margin: 8px 0 16px; line-height: 1.5; }
-    .project-settings-panel form { display: flex; flex-direction: column; align-items: stretch; gap: 14px; flex: 1; }
-    .project-settings-panel input { box-sizing: border-box; width: 100%; min-width: 0; }
-    .project-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
-    .project-settings-panel .project-check { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
-    .project-settings-panel .project-check input { width: 24px; height: 24px; flex: 0 0 24px; margin: 0; }
-    .project-logo-preview { height: 88px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; border: 1px dashed #435b78; border-radius: 6px; color: #a9bad0; }
-    .project-settings-feedback { min-height: 22px; margin: 14px 0 0; }
-    #monitoring-toggle[aria-pressed="true"], #notifications-toggle[aria-pressed="true"] { background: #176959; }
-    #notifications-toggle.notifications-paused { background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
-    #monitoring-toggle.monitoring-paused { color: #e8eff8; background: #765019; border-color: #ffcb69; animation: paused-monitoring 1.8s ease-in-out infinite; }
-    @keyframes paused-monitoring {
-      0%, 100% { background: #765019; }
-      50% { background: #352819; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      #monitoring-toggle.monitoring-paused, #notifications-toggle.notifications-paused { animation: none; }
-    }
-    @media (max-width: 760px) {
-      .project-settings-grid, .project-toolbar { grid-template-columns: minmax(0, 1fr); }
-      .project-selector, .project-actions, .deployment-controls label, .deployment-actions, .deployment-controls small { grid-column: 1; }
-      .project-actions, .deployment-actions { padding-top: 0; }
-      .project-actions.controls-below, .deployment-actions.controls-below { grid-column: 1; }
-    }
-    .project-logo-placeholder { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #435b78; border-radius: 6px; background: #101b29; color: #a9bad0; font-size: 12px; }
-    .project-logo-placeholder svg { width: 24px; height: 24px; color: #7cddd0; }
-    .project-logo { max-width: 180px; max-height: 80px; object-fit: contain; border-radius: 6px; }
-    .account-nav { justify-content: flex-start; }
-    .account-nav > .user-badge { flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; }
-    .account-actions { display: flex; justify-content: flex-end; flex-wrap: nowrap; flex-shrink: 0; max-width: 100%; gap: 12px; margin-left: auto; }
-    .account-actions > * { flex-shrink: 0; }
-    .account-actions.controls-below { flex-basis: 100%; margin-left: 0; justify-content: flex-start; flex-wrap: wrap; }
-    .user-badge { display: inline-flex; align-items: center; font: inherit; color: inherit; padding: 9px; border: 1px solid #435b78; border-radius: 5px; background: #101b29; box-sizing: border-box; }
-    .button-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; line-height: normal; box-sizing: border-box; }
-    button:focus-visible, .button-link:focus-visible { outline: 2px solid #7cddd0; outline-offset: 3px; }
-    a { color: #7cddd0; } code { color: #b7d6ff; }
-    .connection-dialog { width: 520px; max-width: calc(100vw - 32px); padding: 24px; box-sizing: border-box; border: 1px solid #df6578; border-radius: 10px; }
-    .connection-dialog::backdrop { background: #000a; }
-    .reconnecting-status { display: flex; align-items: center; gap: 12px; }
-    /* A quiet activity pulse uses the same teal accent as the app's controls. */
-    .connection-activity { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
-    .connection-activity span { width: 7px; height: 7px; border-radius: 50%; background: #7cddd0; opacity: 0.35; }
-    .connection-dialog[open] .connection-activity span { animation: reconnect-pulse 1.4s ease-in-out infinite; }
-    .connection-dialog[open] .connection-activity span:nth-child(2) { animation-delay: 0.16s; }
-    .connection-dialog[open] .connection-activity span:nth-child(3) { animation-delay: 0.32s; }
-    @keyframes reconnect-pulse {
-      0%, 60%, 100% { opacity: 0.35; transform: scale(0.85); }
-      30% { opacity: 1; transform: scale(1.1); }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .connection-dialog[open] .connection-activity span { animation: none; opacity: 0.7; transform: none; }
-    }
-    #connection-notice { color: #ffcb69; }
-  </style>
+  <link rel="stylesheet" href="/static/css/base.css?v=106">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=106">
 </head>
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.5.8 · Build 101</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.0 · Build 107</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -564,11 +359,37 @@
     <p id="whatsapp-feedback" role="status"></p><div id="whatsapp-queue"></div>
   </section></div>
   <div data-admin id="backup-panel" hidden><section>
-    <p>Backup includes credentials and history. Store it securely; the archive contains credentials and password hashes. Restore replaces current data and pauses monitoring. Download a backup before restoring.</p>
-    <p><a class="button-link" href="/api/backup" download>Download complete backup</a></p>
-    <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Restore and pause monitoring</button></form>
+    <h2>Backup and restore</h2>
+    <p>Both backup types include accounts, credentials, inventory, services, projects and logos. Store downloads securely.</p>
+    <p><a class="button-link" href="/api/backup" download>Download complete backup</a>
+      <a class="button-link" href="/api/backup?kind=configuration" download>Download configuration only</a></p>
+    <p>Configuration-only backups exclude readings, deployments, issues, acknowledgements and delivery logs. Restore replaces destination data rather than merging it. Monitoring and notifications will be paused.</p>
+    <form id="restore"><label>Backup file<input name="backup" type="file" required></label><button>Upload and review backup</button></form>
+    <p id="restore-feedback" class="form-feedback" role="status"></p>
     <hr><form data-action="retention"><label>Metric retention in days<input name="days" id="retention" type="number" min="1" max="3650" required></label><button>Save retention</button></form>
   </section></div>
+  <dialog id="signout-confirmation" class="signout-dialog" aria-labelledby="signout-title" aria-describedby="signout-description">
+    <h2 id="signout-title">Sign out?</h2>
+    <p id="signout-description">Sign out of Network Monitor in this browser?</p>
+    <div class="display-controls">
+      <button id="confirm-signout" type="button">Sign out</button>
+      <button id="cancel-signout" type="button" autofocus>Cancel</button>
+    </div>
+    <p id="signout-feedback" class="form-feedback" role="status"></p>
+  </dialog>
+  <dialog id="restore-review" class="acknowledgement-dialog" aria-labelledby="restore-review-title">
+    <h2 id="restore-review-title">Review backup restore</h2>
+    <p id="restore-file-name"></p>
+    <p id="restore-summary"></p>
+    <label>Restore content<select id="restore-mode"></select></label>
+    <p id="restore-description"></p>
+    <p>Existing destination accounts and data will be replaced. Monitoring and notifications will be paused, and all users will be signed out. Keep a destination backup before continuing.</p>
+    <div class="display-controls">
+      <button id="confirm-restore" class="danger">Replace data and restore</button>
+      <button id="cancel-restore" autofocus>Cancel</button>
+    </div>
+    <p id="restore-review-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="inventory-import-dialog" class="library-import-dialog" aria-labelledby="inventory-import-title">
     <h2 id="inventory-import-title">Review inventory import</h2>
     <p id="inventory-import-summary"></p>
@@ -865,6 +686,48 @@
     <p>Controls will unlock when fresh dashboard data is loaded.</p>
   </dialog>
   <script>
+    // Shared sign-out confirmation: opening/cancelling never sends a request.
+    function configureSignOut(triggerId, performLogout) {
+      const node = id => document.getElementById(id);
+      const trigger = node(triggerId);
+      const dialog = node('signout-confirmation');
+      const confirm = node('confirm-signout');
+      const cancel = node('cancel-signout');
+      let requested = false;
+      let busy = false;
+      trigger.onclick = () => {
+        if (busy || dialog.open) return;
+        requested = true;
+        node('signout-feedback').textContent = '';
+        dialog.showModal();
+      };
+      cancel.onclick = () => {
+        if (busy) return;
+        requested = false;
+        dialog.close();
+      };
+      dialog.onclose = () => { if (!busy) requested = false; };
+      dialog.oncancel = event => {
+        if (busy) event.preventDefault();
+        else requested = false;
+      };
+      confirm.onclick = async () => {
+        if (!requested || busy || !dialog.open) return;
+        busy = true;
+        trigger.disabled = confirm.disabled = cancel.disabled = true;
+        node('signout-feedback').textContent = '';
+        try {
+          await performLogout();
+          requested = false;
+          dialog.close();
+        } catch (error) {
+          node('signout-feedback').textContent = error.message;
+        } finally {
+          busy = false;
+          trigger.disabled = confirm.disabled = cancel.disabled = false;
+        }
+      };
+    }
     // BEGIN dashboard connection recovery (keep identical on both dashboards).
     function createConnectionGuard() {
       const staleAfter = 30000;
@@ -929,7 +792,7 @@
         throw new Error('Server unavailable. Wait for the dashboard to reconnect before making changes.');
       }
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timeout = options?.method && options.method !== 'GET' ? 60000 : path.startsWith('/api/history?') ? 30000 : 8000;
+      const timeout = path.startsWith('/api/restore') ? 7200000 : options?.method && options.method !== 'GET' ? 60000 : path.startsWith('/api/history?') ? 30000 : 8000;
       async function bounded(operation) {
         let timer;
         try {
@@ -3203,24 +3066,6 @@
             ...mutation('user-delete', {user: user.id}, 'User removed.', 'user-feedback')};
           break;
         }
-        case 'restore': {
-          const file = target.file;
-          if (!file || !file.name || !file.size) throw new Error('Choose a non-empty backup file first.');
-          configuration = {title: 'Restore complete backup?', context: file.name,
-            description: 'This replaces all current configuration, users and monitoring data with the backup and pauses monitoring. Existing sessions will be signed out. Back up the current installation first if you need to keep its data.',
-            label: 'Replace data and restore',
-            run: async () => {
-              const response = await dashboardFetch('/api/restore', {method: 'POST',
-                headers: {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': currentUser.csrf}, body: file});
-              if (!response.ok) throw new Error('Restore rejected. Check the backup format.');
-            },
-            completed: async () => {
-              selectedProject = '';
-              notify('Restored successfully. Monitoring is paused. Sign in again.', true);
-              location.assign('/login');
-            }};
-          break;
-        }
         default: throw new Error('Unknown confirmation action.');
       }
       openAppConfirmation(configuration);
@@ -3302,13 +3147,91 @@
       finally { button.disabled = false; }
     };
     el('close-history').onclick = () => el('history').close();
-    el('restore').onsubmit = event => {
+    let pendingRestore = null;
+    let restoreUploading = false;
+    let restoreApplying = false;
+
+    async function backupResponse(response) {
+      let result;
+      try { result = await response.json(); }
+      catch { throw new Error(`Backup request failed (HTTP ${response.status}). Check server or proxy upload limits.`); }
+      if (!response.ok) throw new Error(result.error || `Backup request failed (HTTP ${response.status}).`);
+      return result;
+    }
+
+    function updateRestoreMode() {
+      const configurationOnly = el('restore-mode').value === 'configuration';
+      el('restore-description').textContent = configurationOnly
+        ? 'Restore configuration, accounts, services, assignments and logos only. Existing destination history and deployments will be removed; no backup history will be imported.'
+        : 'Restore configuration, accounts, logos and all retained deployment and issue history from this backup.';
+    }
+    el('restore-mode').onchange = updateRestoreMode;
+    function cancelRestoreReview() {
+      if (restoreApplying) return;
+      const review = pendingRestore;
+      pendingRestore = null;
+      el('restore-review').close();
+      if (review) request('restore-discard', {token: review.token}).catch(() => {});
+    }
+    el('cancel-restore').onclick = cancelRestoreReview;
+    el('restore-review').oncancel = event => {
       event.preventDefault();
+      cancelRestoreReview();
+    };
+    el('restore').onsubmit = async event => {
+      event.preventDefault();
+      if (restoreUploading || restoreApplying || pendingRestore) return;
+      const form = event.target;
+      const button = form.querySelector('button');
+      const file = new FormData(form).get('backup');
+      if (!file || !file.name || !file.size) return report(new Error('Choose a non-empty backup file first.'));
+      restoreUploading = true;
+      button.disabled = true;
+      el('restore-feedback').textContent = 'Uploading and checking backup. Large files can take several minutes…';
       try {
-        // Capture the File now; later changes to the picker must not change the backup approved.
-        const file = new FormData(event.target).get('backup');
-        openAdministrativeConfirmation('restore', {file});
-      } catch (error) { report(error); }
+        const review = await backupResponse(await dashboardFetch('/api/restore-preview', {
+          method: 'POST', headers: {'Content-Type':'application/octet-stream','X-CSRF-Token':currentUser.csrf}, body:file,
+        }));
+        pendingRestore = {token:review.token, modes:[...review.modes]};
+        el('restore-file-name').textContent = file.name;
+        el('restore-summary').textContent = `${review.kind === 'configuration' ? 'Configuration-only' : 'Complete'} backup · ${review.projects} projects · ${review.devices} devices · ${review.users} accounts · ${review.has_history ? 'History included' : 'No recorded history'}. Review expires in 15 minutes.`;
+        el('restore-mode').innerHTML = review.modes.map(mode => `<option value="${mode === 'configuration' ? 'configuration' : 'complete'}">${mode === 'configuration' ? 'Configuration only' : 'Everything, including history'}</option>`).join('');
+        el('restore-mode').value = review.modes[0];
+        el('restore-mode').disabled = review.modes.length === 1;
+        el('confirm-restore').disabled = false;
+        el('restore-review-feedback').textContent = '';
+        updateRestoreMode();
+        el('restore-feedback').textContent = 'Backup checked. Review its contents before restoring.';
+        el('restore-review').showModal();
+      } catch (error) { el('restore-feedback').textContent = error.message; }
+      finally { restoreUploading = false; button.disabled = false; }
+    };
+    el('confirm-restore').onclick = async () => {
+      if (!pendingRestore || restoreApplying || el('confirm-restore').disabled) return;
+      const review = pendingRestore;
+      const mode = el('restore-mode').value;
+      if (!review.modes.includes(mode)) return;
+      restoreApplying = true;
+      el('confirm-restore').disabled = true;
+      el('cancel-restore').disabled = true;
+      el('restore-mode').disabled = true;
+      el('restore-review-feedback').textContent = 'Restoring the reviewed backup. Do not retry or close this page…';
+      try {
+        await backupResponse(await dashboardFetch('/api/restore-apply', {
+          method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':currentUser.csrf},
+          body:JSON.stringify({token:review.token,mode}),
+        }));
+        pendingRestore = null;
+        selectedProject = '';
+        el('restore-review').close();
+        location.assign('/login');
+      } catch (error) {
+        // A reviewed file is single-use. Never automatically replay a replacement.
+        el('restore-review-feedback').textContent = error.message + ' Cancel and upload again before retrying.';
+      } finally {
+        restoreApplying = false;
+        el('cancel-restore').disabled = false;
+      }
     };
     async function loadAdmin() {
       const responses = await Promise.all([dashboardFetch('/api/users'), dashboardFetch('/api/telegram'), dashboardFetch('/api/whatsapp')]);
@@ -3475,10 +3398,10 @@
         } catch (error) { el(channel + '-feedback').textContent = error.message; }
       };
     }
-    el('logout').onclick = async () => {
+    configureSignOut('logout', async () => {
       await request('logout', {});
       location.assign('/login');
-    };
+    });
     async function loadSession() {
       const response = await dashboardFetch('/api/me');
       if (response.status === 401 || response.status === 403) { location.assign('/login'); return false; }

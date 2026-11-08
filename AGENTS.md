@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.8, Build 101. Show it after the title on both the main and
+Current displayed release is v0.6.0, Build 107. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -972,3 +972,86 @@ that order and place .status-navigation below, left-aligned with no auto margin.
 Keep this breakpoint independent of Show/Hide and Cards/List label widths to
 prevent jumping rows. Desktop navigation remains on the right. Preserve IDs,
 authenticated-only host access, toggle colours and localStorage preferences.
+
+
+Stylesheets: app/static/css/base.css centralises shared theme variables and controls,
+issue/host components, tables, navigation links and connection indicators. Load it
+before dashboard.css/status.css/auth.css, which own only differing page layouts.
+Keep readable four-space declarations/comments. Static body widths use .auth-page;
+keep truly dynamic toast CSS variables, graph values and popup positioning in JS.
+No Bootstrap/CDN/build pipeline is required. STYLESHEETS is a fixed server allowlist;
+serve CSS publicly before auth, with text/css, no-store and nosniff. Never turn it
+into arbitrary filesystem serving. Update versioned link queries when CSS changes.
+Application scripts must remain unchanged by this refactor. Existing UI tests load
+CSS explicitly for style assertions. Asset tests cover allowlisting, traversal,
+MIME/cache headers and all page links. tools/style_preview.py and tests/style_matrix.html
+compare the pre-refactor commit with the working tree using identical deterministic
+CSS-only fixtures: eight viewport widths, roles, hosts/issues, panels/dialogs and
+account pages. Computed-property/bounding-box equality supplements functional tests;
+it does not test authorization or all real-world combinations. Never point the preview
+at a live database; it binds loopback only. Coordinate handover for native browser
+interaction; prefer the isolated in-app browser for previews.
+
+
+Restore upload limit is MONITOR_MAX_RESTORE_MB (whole MiB, 1–1024; default 256),
+passed through Compose/.env. Reject oversized restore Content-Length with HTTP 413
+and an explicit configured-limit message before reading the body. Other payload
+limits remain unchanged. Restores still use in-memory upload/SQLite validation;
+large limits need spare RAM, so do not remove the bound. Preserve database format,
+integrity checks, role/CSRF checks, migrations and paused/session-invalidating restore.
+Admin restore confirmation displays server error text or an HTTP/proxy fallback,
+not a misleading backup-format message for every failure. Build 103 is a distinct
+restore fix after the presentation-only Build 102; its Admin error-handling JS
+change is intentional and separately tested. Multiple installations on the same
+hostname/IP share cookies across ports; compare using separate browser profiles or
+normal/Incognito contexts, not simultaneous logins in one cookie context.
+
+
+Build 104 replaces in-memory backup/restore with app/backups.py disk workspaces on
+DB.parent (0700 directories), 1 MiB HTTP chunks and small SQLite caches/temp files.
+GET /api/backup defaults complete; ?kind=configuration copies only allowlisted
+configuration rows into fresh schema via read-only ATTACH, never reading history
+rows. Retain users/credentials, devices/assignments/aliases, service settings,
+defaults/library, provider config and logos. Exclude samples/runs/issues/audits/
+measurements/outbox/flap/deletion jobs/sessions/login attempts. Keep durable ID
+counters; configuration output has no active/paused deployment. Metadata uses
+settings backup_format=network-monitor-1 and backup_kind. Legacy unmarked SQLite
+backups are complete. Live DB never gets these metadata keys.
+POST /api/restore-preview uploads and validates a private file without changing live
+data, returning safe counts/kind/history flags and allowed modes. Session-CSRF-bound
+opaque reviews expire after 15 minutes; max two staged files and one active transfer.
+POST /api/restore-apply consumes a review once with mode complete/configuration;
+configuration files cannot select complete. Cancel uses /api/restore-discard. Retain
+the direct binary /api/restore API for compatibility. Validate/migrate private files,
+check free disk, FK integrity and Admin authorization again before SQLite backup
+replacement under LOCK. Both modes pause monitoring AND notifications, cancel pending
+messages and invalidate sessions. Configuration-only replacement removes destination
+history too: no merge. Typed failures leave live data intact before replacement;
+never automatically retry apply. UI describes content and destructive scope in the
+app-styled review dialog, captures the file/token/mode, blocks duplicate writes and
+closing while applying, and signs out after success. Legacy account-less backups
+retain destination accounts.
+MONITOR_MAX_RESTORE_MB now defaults 20480 MiB (20 GiB), allowed 1–1048576; Compose
+passes it through. Disk checks reserve upload/candidate/live-journal headroom. Existing
+.env values override the new default. Creation/final apply can delay polling/config
+writes while holding LOCK; release it before streaming downloads. Private files are
+cleaned on success/error/cancel/expiry; crash leftovers older than 24h are swept on
+startup. Both shared dashboard guards allow up to two hours for restore requests;
+other deadlines remain unchanged and reverse proxies may need separate limits.
+
+
+Both dashboard Sign out buttons open #signout-confirmation, an app-styled dialog
+with explicit Sign out/Cancel and Cancel autofocus. configureSignOut is identical
+on both pages: no requests on open/Cancel/Escape, ignore closed/stale confirmation
+clicks, block duplicates and cancellation while busy, keep failures inline and
+allow retry. Preserve role/temporary-password support and existing CSRF logout.
+Admin returns to /login; Status clears private hosts/ack state immediately and
+stays public. A post-logout public refresh failure does not make logout fail.
+Automatic expiry/authentication redirects never require this manual confirmation.
+
+
+Sign-out dialogs use the shared .signout-dialog class in base.css, independent of
+.acknowledgement-dialog: 340px width, viewport cap, 20px padding, compact heading/
+body/action spacing and matching backdrop. Empty feedback occupies no space;
+Cancel autofocus and all sign-out behaviour stay unchanged. Keep both dashboards
+on this same class; do not resize longer issue/review dialogs to fix sign-out.

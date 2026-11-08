@@ -18,13 +18,19 @@ import subprocess
 import threading
 import time
 import hmac
-from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer
+from contextlib import closing
+from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer, backups
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'monitor.sqlite3'
 LOCK = threading.RLock()
+# Serve only known local stylesheet files, never arbitrary paths from a request.
+STYLESHEETS = {
+    f'/static/css/{name}.css': Path(__file__).with_name('static') / 'css' / f'{name}.css'
+    for name in ('base', 'dashboard', 'status', 'auth')
+}
 
 
 class DatabaseConnection(sqlite3.Connection):
@@ -37,6 +43,11 @@ class DatabaseConnection(sqlite3.Connection):
             self.close()
 
 
+def restore_limit_bytes():
+    """Compatibility entry point for the configurable disk-backed upload bound."""
+    return backups.limit_bytes()
+
+
 def connect():
     db = sqlite3.connect(DB, timeout=20, factory=DatabaseConnection)
     db.row_factory = sqlite3.Row
@@ -45,6 +56,7 @@ def connect():
 
 
 def initialize():
+    backups.cleanup_stale(DB.parent)
     with connect() as db:
         db.executescript('''
             CREATE TABLE IF NOT EXISTS projects (
@@ -1523,6 +1535,52 @@ def status_overview(include_hosts=False):
             'incidents': incidents, 'acknowledged_incidents': acknowledged, 'acknowledge_enabled': bool(project['status_ack_enabled']), 'updated': time.time()}
 
 
+def prepare_restored_database(candidate):
+    """Migrate the private candidate before the live database can be replaced."""
+    # Preserve the backed-up deployment for an explicit Resume.
+    if setting(candidate, 'active_run') != '0':
+        candidate.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)",
+                          (setting(candidate, 'active_run'),))
+    candidate.execute("INSERT OR IGNORE INTO settings VALUES ('paused_run','0')")
+    candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+    migrate_inventory_addresses(candidate)
+    migrate_service_lifecycle(candidate)
+    project_deletion.ensure_table(candidate)
+    ensure_service_library(candidate)
+    ensure_inventory_services(candidate)
+    migrate_value_types(candidate)
+    stability.ensure_tables(candidate)
+    migrate_issue_evidence(candidate)
+    ensure_host_checks(candidate)
+    migrate_project_settings(candidate)
+    migrate_incident_acknowledgements(candidate)
+    migrate_issue_numbers(candidate)
+    migrate_deployment_descriptions(candidate)
+    logos.ensure_table(candidate)
+    notifications.ensure_tables(candidate)
+    candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
+    migrate_modbus_functions(candidate)
+    history.ensure_tables(candidate)
+    resolved.ensure_index(candidate)
+    auth.ensure_accounts(candidate)
+    # Older backups have no accounts: retain current accounts so
+    # restoring equipment cannot silently reset access to a default.
+    if not candidate.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+        with connect() as current:
+            for account in current.execute('SELECT * FROM users'):
+                candidate.execute('''INSERT INTO users
+                    (id,username,password_hash,role,must_change_password,email,full_name)
+                    VALUES(?,?,?,?,?,?,?)''', tuple(account[key] for key in
+                    ('id','username','password_hash','role','must_change_password','email','full_name')))
+    if not candidate.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone():
+        raise ValueError('Backup has no administrator')
+    candidate.execute('DELETE FROM sessions')
+    candidate.execute('DELETE FROM login_attempts')
+    candidate.execute("INSERT OR REPLACE INTO settings VALUES ('notifications_paused','1')")
+    candidate.execute("DELETE FROM settings WHERE key IN ('backup_format','backup_kind')")
+    candidate.commit()
+
+
 class Handler(BaseHTTPRequestHandler):
     def send(self, content, mime='application/json', status=200, filename=None):
         if not isinstance(content, bytes):
@@ -1536,6 +1594,82 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers()
         self.wfile.write(content)
+
+    def send_file(self, path, filename):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', str(path.stat().st_size))
+        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.end_headers()
+        with path.open('rb') as incoming:
+            while block := incoming.read(backups.CHUNK_BYTES):
+                self.wfile.write(block)
+
+    def check_restore_allowed(self):
+        with LOCK, connect() as current:
+            job = project_deletion.unfinished(current)
+            if job and job['state'] != 'failed':
+                raise backups.BackupError('Wait for running project deletion before restoring a backup.', 409)
+
+    def receive_backup(self, size, user):
+        if self.headers.get('Content-Type') != 'application/octet-stream':
+            raise backups.BackupError('Expected a SQLite backup upload.')
+        self.check_restore_allowed()
+        with backups.transfer():
+            work, path = backups.upload(self.rfile, size, DB.parent, DB.stat().st_size)
+            staged = False
+            try:
+                with closing(backups.open_database(path)) as candidate:
+                    summary = backups.inspect(candidate)
+                if self.path == '/api/restore-preview':
+                    summary['size_bytes'] = size
+                    result = backups.stage(work, path, user['csrf'], summary)
+                    staged = True
+                    return self.send(json.dumps(result))
+                mode = 'configuration' if summary['kind'] == 'configuration' else 'complete'
+                if not self.replace_from_backup(path, mode, user):
+                    return
+                return self.send('{"ok":true}')
+            finally:
+                if not staged:
+                    work.cleanup()
+
+    def apply_reviewed_backup(self, body, user):
+        self.check_restore_allowed()
+        with backups.transfer():
+            review = backups.consume(body.get('token', ''), user['csrf'], body.get('mode'))
+            try:
+                if not self.replace_from_backup(review['path'], body['mode'], user):
+                    return
+                return self.send('{"ok":true}')
+            finally:
+                review['work'].cleanup()
+
+    def replace_from_backup(self, path, mode, user):
+        if mode == 'configuration':
+            compact = path.with_name('configuration.sqlite3')
+            with closing(backups.open_database(path)) as source, closing(backups.open_database(compact)) as candidate:
+                backups.copy_configuration(source, candidate)
+            path = compact
+        with closing(backups.open_database(path)) as candidate:
+            prepare_restored_database(candidate)
+            if candidate.execute('PRAGMA foreign_key_check').fetchone():
+                raise backups.BackupError('Backup contains invalid references. The destination was not changed.')
+            backups.check_space(DB.parent, path.stat().st_size + DB.stat().st_size * 2)
+            with LOCK:
+                self.check_restore_allowed()
+                # Recheck authorization after a potentially long upload/validation.
+                current = self.require_user(admin=True)
+                if not current:
+                    return False
+                if current['csrf'] != user['csrf']:
+                    raise backups.BackupError('Your session changed. Sign in and upload the backup again.', 401)
+                with connect() as destination:
+                    candidate.backup(destination, pages=1024)
+        live_updates.publish_acknowledgement_change()
+        return True
 
     def redirect(self, destination):
         """Redirect without caching account-dependent routing or response bodies."""
@@ -1623,6 +1757,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/health':
             return self.send('{"ok":true}')
         page = urlsplit(self.path)
+        if page.path.startswith('/static/'):
+            stylesheet = STYLESHEETS.get(page.path)
+            if stylesheet is None:
+                return self.send('{"error":"Not found"}', status=404)
+            return self.send(stylesheet.read_bytes(), 'text/css; charset=utf-8')
         if page.path in ('/login', '/change-password'):
             # Preserve the originating dashboard, but never redirect to arbitrary URLs.
             requested = parse_qs(page.query).get('next', ['/'])[0]
@@ -1671,7 +1810,7 @@ class Handler(BaseHTTPRequestHandler):
                     'session_remaining_seconds': max(0, int(user['session_expires_at'] - time.time())),
                 }))
             return
-        admin = self.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats', '/api/library-export', '/api/inventory-export')
+        admin = page.path in ('/api/users', '/api/backup', '/api/telegram', '/api/whatsapp', '/api/telegram-chats', '/api/library-export', '/api/inventory-export')
         user = self.require_user(admin=admin)
         if not user:
             return
@@ -1716,22 +1855,29 @@ class Handler(BaseHTTPRequestHandler):
             stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
             self.send(payload, 'application/json; charset=utf-8',
                       filename=f'network-monitor-service-library-{stamp}.json')
-        elif self.path == '/api/backup':
-            # Exclude live sessions from portable backups.
-            with LOCK, connect() as source:
-                if project_deletion.unfinished(source):
-                    return self.send(json.dumps({'error': 'Finish or retry project deletion before downloading a backup.'}), status=409)
-                destination = sqlite3.connect(':memory:')
-                source.backup(destination)
-                destination.execute('DELETE FROM sessions')
-                destination.execute('DELETE FROM login_attempts')
-                destination.commit()
-                payload = destination.serialize()
-                destination.close()
-            # Use the monitoring host timezone, shared with the container by Compose.
-            stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
-            self.send(payload, 'application/octet-stream',
-                      filename=f'network-monitor-backup-{stamp}.sqlite3')
+        elif page.path == '/api/backup':
+            kind = parse_qs(page.query).get('kind', ['complete'])[0]
+            sending = False
+            try:
+                with backups.transfer(), backups.workspace(DB.parent) as directory:
+                    path = Path(directory) / 'backup.sqlite3'
+                    with LOCK, connect() as source:
+                        if project_deletion.unfinished(source):
+                            raise backups.BackupError('Finish or retry project deletion before downloading a backup.', 409)
+                        estimate = source.execute('PRAGMA page_count').fetchone()[0] * source.execute('PRAGMA page_size').fetchone()[0]
+                        # Configuration copies need only configured rows, not history pages.
+                        backups.check_space(DB.parent, estimate if kind == 'complete' else 16 * backups.CHUNK_BYTES)
+                        backups.export(source, path, kind)
+                    stamp = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+                    prefix = 'configuration' if kind == 'configuration' else 'backup'
+                    sending = True
+                    self.send_file(path, f'network-monitor-{prefix}-{stamp}.sqlite3')
+            except backups.BackupError as error:
+                self.send(json.dumps({'error': str(error)}), status=error.status)
+            except (OSError, sqlite3.Error):
+                if not sending:
+                    self.send('{"error":"Could not create backup. Check free disk space."}', status=507)
+                # After headers are sent, a disconnected download only needs cleanup.
         elif self.path.startswith('/api/resolved?'):
             try:
                 result = resolved.read(connect, parse_qs(urlsplit(self.path).query), acknowledgement_display_name)
@@ -1774,10 +1920,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send('{"error":"Invalid request token"}', status=403)
         try:
             size = int(self.headers.get('Content-Length', '0'))
-            limit = (64 * 1024 * 1024 if self.path == '/api/restore' else
+            limit = (restore_limit_bytes() if self.path in ('/api/restore', '/api/restore-preview') else
                      inventory_transfer.MAX_IMPORT_BYTES + 65536 if self.path in ('/api/inventory-preview','/api/inventory-import') else
                      service_library.MAX_IMPORT_BYTES if self.path == '/api/library-import' else
                      logos.MAX_BYTES if self.path.startswith('/api/project-logo?') else 65536)
+            if self.path in ('/api/restore', '/api/restore-preview'):
+                return self.receive_backup(size, user)
             if not 0 < size <= limit:
                 raise ValueError('Invalid request size')
             payload = self.rfile.read(size)
@@ -1787,73 +1935,15 @@ class Handler(BaseHTTPRequestHandler):
                     if project_deletion.unfinished(db):
                         raise project_deletion.DeletionError('Finish project deletion before changing logos.')
                     logos.save(db, project, payload)
-            elif self.path == '/api/restore':
-                if self.headers.get('Content-Type') != 'application/octet-stream':
-                    raise ValueError('Expected backup file')
-                candidate = sqlite3.connect(':memory:')
-                try:
-                    candidate.deserialize(payload)
-                    with LOCK, connect() as current:
-                        job = project_deletion.unfinished(current)
-                        if job and job['state'] != 'failed':
-                            raise project_deletion.DeletionError('Wait for running project deletion before restoring a backup.')
-                    if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                        raise ValueError('Invalid backup')
-                    required = {'projects', 'devices', 'assignments', 'services', 'runs', 'settings', 'samples', 'incidents'}
-                    tables = {row[0] for row in candidate.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                    if not required.issubset(tables):
-                        raise ValueError('Incompatible backup')
-                    # Preserve the backed-up deployment for an explicit Resume.
-                    if setting(candidate, 'active_run') != '0':
-                        candidate.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)",
-                                          (setting(candidate, 'active_run'),))
-                    candidate.execute("INSERT OR IGNORE INTO settings VALUES ('paused_run','0')")
-                    candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
-                    migrate_inventory_addresses(candidate)
-                    migrate_service_lifecycle(candidate)
-                    project_deletion.ensure_table(candidate)
-                    ensure_service_library(candidate)
-                    ensure_inventory_services(candidate)
-                    migrate_value_types(candidate)
-                    stability.ensure_tables(candidate)
-                    migrate_issue_evidence(candidate)
-                    ensure_host_checks(candidate)
-                    migrate_project_settings(candidate)
-                    migrate_incident_acknowledgements(candidate)
-                    migrate_issue_numbers(candidate)
-                    migrate_deployment_descriptions(candidate)
-                    logos.ensure_table(candidate)
-                    notifications.ensure_tables(candidate)
-                    candidate.execute("UPDATE notification_outbox SET state='cancelled',error='Restored backup' WHERE state IN ('pending','sending')")
-                    migrate_modbus_functions(candidate)
-                    history.ensure_tables(candidate)
-                    resolved.ensure_index(candidate)
-                    auth.ensure_accounts(candidate)
-                    # Older backups have no accounts: retain current accounts so
-                    # restoring equipment cannot silently reset access to a default.
-                    if not candidate.execute('SELECT 1 FROM users LIMIT 1').fetchone():
-                        with connect() as current:
-                            for account in current.execute('SELECT * FROM users'):
-                                candidate.execute('''INSERT INTO users
-                                    (id,username,password_hash,role,must_change_password,email,full_name)
-                                    VALUES(?,?,?,?,?,?,?)''', tuple(account[key] for key in
-                                    ('id','username','password_hash','role','must_change_password','email','full_name')))
-                    if not candidate.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone():
-                        raise ValueError('Backup has no administrator')
-                    candidate.execute('DELETE FROM sessions')
-                    candidate.execute('DELETE FROM login_attempts')
-                    candidate.commit()
-                    with LOCK, connect() as destination:
-                        job = project_deletion.unfinished(destination)
-                        if job and job['state'] != 'failed':
-                            raise project_deletion.DeletionError('Wait for running project deletion before restoring a backup.')
-                        candidate.backup(destination)
-                finally:
-                    candidate.close()
             else:
                 if self.headers.get('Content-Type') != 'application/json':
                     raise ValueError('Expected JSON')
                 body = json.loads(payload)
+                if self.path == '/api/restore-apply':
+                    return self.apply_reviewed_backup(body, user)
+                if self.path == '/api/restore-discard':
+                    backups.discard(body.get('token', ''), user['csrf'])
+                    return self.send('{"ok":true}')
                 if self.path == '/api/login':
                     with LOCK, connect() as db:
                         token, status = auth.login(db, body.get('username', ''), body.get('password', ''), self.client_address[0])
@@ -1897,6 +1987,10 @@ class Handler(BaseHTTPRequestHandler):
                     if result is not None:
                         return self.send(json.dumps({'ok': True, **result}))
             self.send('{"ok":true}')
+        except backups.BackupError as error:
+            self.send(json.dumps({'error': str(error)}), status=error.status)
+        except OSError:
+            self.send('{"error":"Backup transfer failed. Check available disk space and retry."}', status=507)
         except inventory_transfer.InventoryImportError as error:
             self.send(json.dumps({'error': str(error)}), status=400)
         except InventoryAddressConflict as error:

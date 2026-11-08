@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Stylesheet regression matrix</title></head>
+<body>
+  <h1>Before/after CSS comparison</h1>
+  <p>Deterministic layout fixtures only. Application behaviour is tested separately.</p>
+  <p id="progress">Starting…</p>
+  <pre id="result"></pre>
+  <script>
+    // Keep this harness dependency-free and usable in an ordinary local browser.
+    const widths = [320, 390, 480, 760, 761, 900, 1280, 1600];
+    function frame(url, width) {
+      return new Promise((resolve, reject) => {
+        const node = document.createElement('iframe');
+        node.width = width;
+        node.height = 900;
+        node.style.display = 'block';
+        node.onload = () => resolve(node);
+        node.onerror = reject;
+        node.src = url;
+        document.body.append(node);
+      });
+    }
+    function authoredProperties(frames) {
+      const properties = new Set();
+      function collect(rules) {
+        for (const rule of rules) {
+          if (rule.style) for (const property of rule.style) if (!property.startsWith('--')) properties.add(property);
+          if (rule.cssRules) collect(rule.cssRules);
+        }
+      }
+      for (const frame of frames) for (const sheet of frame.contentDocument.styleSheets) collect(sheet.cssRules);
+      return [...properties];
+    }
+    function snapshot(frame, properties) {
+      // Only one iframe can own browser focus. Activate each immediately before
+      // sampling it, so modal autofocus outlines are compared in the same state.
+      frame.focus({preventScroll: true});
+      const document = frame.contentDocument;
+      const window = frame.contentWindow;
+      return [...document.querySelectorAll('body, body *')].filter(node => !['SCRIPT','STYLE','LINK'].includes(node.tagName)).map(node => {
+        const computed = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        const styles = {};
+        for (const property of properties) {
+          // Token declarations are intentionally new; compare their resolved values instead.
+          if (!property.startsWith('--')) styles[property] = computed.getPropertyValue(property);
+        }
+        return { tag: node.tagName, id: node.id, styles, rect: [rect.x + window.scrollX, rect.y + window.scrollY, rect.width, rect.height].map(v=>Math.round(v*100)/100) };
+      });
+    }
+    async function run() {
+      const cases = await (await fetch('/cases')).json();
+      const report = { cases: cases.length, widths, comparisons: 0, differences: [] };
+      for (const configuration of cases) {
+        for (const width of widths) {
+          const query = new URLSearchParams(configuration);
+          const [oldFrame, newFrame] = await Promise.all([frame('/before?' + query, width), frame('/after?' + query, width)]);
+          await Promise.all([oldFrame.contentDocument.fonts.ready, newFrame.contentDocument.fonts.ready]);
+          const properties = authoredProperties([oldFrame,newFrame]);
+          const oldNodes = snapshot(oldFrame, properties);
+          const newNodes = snapshot(newFrame, properties);
+          const changed = [];
+          if (oldNodes.length !== newNodes.length) changed.push({nodeCount:[oldNodes.length,newNodes.length]});
+          for (let index=0; index<Math.min(oldNodes.length,newNodes.length); index++) {
+            const before = oldNodes[index], after = newNodes[index];
+            const properties = Object.keys(before.styles).filter(key=>before.styles[key]!==after.styles[key]);
+            const layout = JSON.stringify(before.rect)!==JSON.stringify(after.rect);
+            if (properties.length || layout) changed.push({index,tag:before.tag,id:before.id,layout:layout?[before.rect,after.rect]:undefined,properties:properties.map(key=>[key,before.styles[key],after.styles[key]])});
+          }
+          if (changed.length) report.differences.push({...configuration,width,changed});
+          report.comparisons++;
+          if(report.comparisons % 8 === 0) document.getElementById('result').textContent = JSON.stringify({...report, differences:report.differences.slice(0,2)},null,2);
+          oldFrame.remove(); newFrame.remove();
+          document.getElementById('progress').textContent = `${report.comparisons}/${cases.length*widths.length} comparisons; ${report.differences.length} differing configurations`;
+        }
+      }
+      document.getElementById('result').textContent = JSON.stringify(report,null,2);
+      document.getElementById('progress').textContent += ' — complete';
+      const download = document.createElement('a');
+      download.textContent = 'Download JSON report';
+      download.download = 'stylesheet-comparison.json';
+      download.href = URL.createObjectURL(new Blob([JSON.stringify(report,null,2)], {type:'application/json'}));
+      document.body.append(download);
+    }
+    run().catch(error=>{document.getElementById('result').textContent=String(error.stack);});
+  </script>
+</body>
+</html>

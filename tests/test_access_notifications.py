@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from app import auth, notifications, server, logos
 
@@ -53,6 +53,7 @@ class AccessAndNotificationTests(unittest.TestCase):
         response = {}
         handler.send = lambda content, mime=None, status=200, filename=None: response.update(status=status, content=content, mime=mime, filename=filename)
         handler.session_response = lambda token=None: response.update(status=200, token=token)
+        handler.send_file = lambda path, filename: response.update(status=200, content=path.read_bytes(), filename=filename)
         handler.send_response = lambda status: response.update(status=status)
         handler.send_header = lambda key, value: response.setdefault('headers', {}).update({key: value})
         handler.end_headers = lambda: None
@@ -129,7 +130,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             handler.do_POST()
             return result['status']
 
-        self.assertEqual(restore(), 400)
+        self.assertEqual(restore(), 409)
         with server.connect() as db:
             db.execute("UPDATE project_deletions SET state='failed'")
         self.assertEqual(restore(), 200)
@@ -979,6 +980,99 @@ class AccessAndNotificationTests(unittest.TestCase):
         for response in (self.request('/api/status'), self.request('/api/users', token=self.admin_token)):
             self.assertNotIn('session_expires_at', response['content'])
             self.assertNotIn('session_remaining_seconds', response['content'])
+
+    def test_local_stylesheets_are_public_allowlisted_and_not_cached(self):
+        for name in ('base', 'dashboard', 'status', 'auth'):
+            handler = object.__new__(server.Handler)
+            handler.path = f'/static/css/{name}.css?v=106'
+            handler.headers = {}
+            handler.wfile = io.BytesIO()
+            result = {}
+            handler.send_response = lambda status: result.update(status=status)
+            handler.send_header = lambda key, value: result.setdefault('headers', {}).update({key: value})
+            handler.end_headers = lambda: None
+            handler.do_GET()
+            self.assertEqual(result['status'], 200)
+            self.assertEqual(result['headers']['Content-Type'], 'text/css; charset=utf-8')
+            self.assertEqual(result['headers']['Cache-Control'], 'no-store')
+            self.assertEqual(result['headers']['X-Content-Type-Options'], 'nosniff')
+            self.assertEqual(handler.wfile.getvalue(), server.STYLESHEETS[f'/static/css/{name}.css'].read_bytes())
+        for path in ('/static/css/../auth.py', '/static/css/%2e%2e/auth.py',
+                     '/static/css/missing.css', '/static/css/base.css/extra', '/static/server.py'):
+            self.assertEqual(self.request(path)['status'], 404)
+        for name, stylesheet in (('index.html', 'dashboard'), ('status.html', 'status'),
+                                  ('login.html', 'auth'), ('change-password.html', 'auth')):
+            page = Path(server.__file__).with_name(name).read_text()
+            self.assertIn('/static/css/base.css?v=106', page)
+            self.assertIn(f'/static/css/{stylesheet}.css?v=106', page)
+            self.assertNotIn('<style>', page)
+            self.assertNotIn('style="max-width', page)
+
+    def test_restore_limit_is_configurable_and_bounded(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(server.restore_limit_bytes(), 20480 * 1024 * 1024)
+        for value in ('1', '20480', '1048576'):
+            with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': value}):
+                self.assertEqual(server.restore_limit_bytes(), int(value) * 1024 * 1024)
+        for value in ('0', '-1', '1048577', 'invalid', '1.5'):
+            with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': value}):
+                with self.assertRaises(ValueError):
+                    server.restore_limit_bytes()
+
+    def test_oversized_restore_reports_413_without_reading_or_replacing_data(self):
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/restore'
+        handler.headers = {
+            'Content-Type': 'application/octet-stream', 'Content-Length': str(2 * 1024 * 1024),
+            'X-CSRF-Token': 'test',
+        }
+        handler.require_user = lambda **kwargs: {'id': 1, 'role': 'admin', 'csrf': 'test'}
+        handler.rfile = Mock()
+        result = {}
+        handler.send = lambda content, status=200: result.update(status=status, content=content)
+        with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': '1'}):
+            handler.do_POST()
+        self.assertEqual(result['status'], 413)
+        self.assertIn('limit of 1 MiB', json.loads(result['content'])['error'])
+        handler.rfile.read.assert_not_called()
+        self.assertEqual(self.request('/api/me', token=self.admin_token)['status'], 200)
+
+    def test_complete_backup_over_64_mib_restores_into_fresh_installation(self):
+        self.create_host()
+        with server.connect() as db:
+            # Real SQLite backup above the old cap, without a production database.
+            db.execute('CREATE TABLE test_restore_padding (data BLOB)')
+            db.execute('INSERT INTO test_restore_padding VALUES(zeroblob(?))', (72 * 1024 * 1024,))
+        payload = self.request('/api/backup', token=self.admin_token)['content']
+        self.assertGreater(len(payload), 64 * 1024 * 1024)
+        source_path = server.DB
+        try:
+            server.DB = Path(self.directory.name) / 'fresh.sqlite3'
+            server.initialize()
+            with server.connect() as db:
+                db.execute('UPDATE users SET must_change_password=0')
+                token = auth.new_session(db, 1)
+                actor = auth.session_user(db, 'monitor_session=' + token)
+            handler = object.__new__(server.Handler)
+            handler.path = '/api/restore'
+            handler.headers = {
+                'Content-Type': 'application/octet-stream', 'Content-Length': str(len(payload)),
+                'Cookie': 'monitor_session=' + token, 'X-CSRF-Token': actor['csrf'],
+            }
+            handler.rfile = io.BytesIO(payload)
+            result = {}
+            handler.send = lambda content, status=200: result.update(status=status, content=content)
+            with patch.dict(os.environ, {'MONITOR_MAX_RESTORE_MB': '256'}):
+                handler.do_POST()
+            self.assertEqual(result['status'], 200, result)
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM devices').fetchone()[0], 1)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM users').fetchone()[0], 2)
+                self.assertEqual(db.execute("SELECT value FROM settings WHERE key='active_run'").fetchone()[0], '0')
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0], 0)
+                self.assertEqual(db.execute('SELECT length(data) FROM test_restore_padding').fetchone()[0], 72 * 1024 * 1024)
+        finally:
+            server.DB = source_path
 
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):

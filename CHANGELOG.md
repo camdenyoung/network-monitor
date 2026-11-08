@@ -4,6 +4,45 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 107 — v0.6.0
+
+- Merge shared local stylesheets and theme variables across all pages, with before/after layout validation and retained offline operation.
+- Include disk-backed complete/configuration-only backups and reviewed selective restores, with bounded streaming, disk-space checks, legacy compatibility and a configurable 20 GiB default upload cap.
+- Include compact app-styled sign-out confirmations on both dashboards, preserving logout destinations, cancellation and automatic session expiry.
+- Verify with all 262 backend tests and dashboard, account, sign-out, connection-recovery and responsive host-view suites. See UI_TESTING.md for browser checks and coverage limits.
+
+### Build 106 — v0.5.8 (compact sign-out styling)
+
+- Give both sign-out confirmations a dedicated shared 340px responsive style with compact spacing and no empty error area.
+- Preserve wider issue/review dialogs, Cancel autofocus and existing sign-out behaviour; version stylesheet references for the update.
+
+### Build 105 — v0.5.8 (sign-out confirmations)
+
+- Add matching app-styled Sign out/Cancel confirmations to both dashboards, with Cancel focused initially.
+- Opening/cancelling sends no logout; guard duplicate submissions and closing during requests, and retain failures inline for retry.
+- Preserve manual logout destinations, public host-data cleanup, role support and automatic session expiry.
+
+### Build 104 — v0.5.8 (disk-backed backup and selective restore branch)
+
+- Stream backup downloads and restore uploads through private on-disk SQLite files with bounded buffers, disk-space checks and a configurable 20 GiB default cap.
+- Add compact configuration-only backups, preserving accounts, equipment, assignments, service definitions/defaults/library, credentials and logos while excluding history/runtime data.
+- Review uploaded content before replacement; select complete or configuration-only restore where available. Add session-bound, expiring, single-use reviews and cancellation cleanup.
+- Preserve legacy SQLite restore support and migration checks. Both restore modes pause monitoring/notifications and invalidate sessions; configuration-only replacement removes destination history.
+- Verify with 262 backend tests, functional UI suites and a real browser upload/review/configuration-only restore on a disposable database, including phone-width dialog checks.
+
+### Build 103 — v0.5.8 (restore upload fix)
+
+- Fix complete backups over the old 64 MiB upload cap being rejected. Default to 256 MiB, configurable with MONITOR_MAX_RESTORE_MB (1–1024 MiB).
+- Reject oversized uploads before reading their bodies and show the actual authentication, request-token or size error in the restore dialog.
+- Preserve database validation and restore semantics. Test a real backup over 64 MiB into a fresh installation, bounded limits and frontend error handling.
+
+### Build 102 — v0.5.8 (shared stylesheets branch)
+
+- Extract embedded CSS from all pages into local shared and page-specific stylesheets, with readable formatting and common colour/spacing variables.
+- Centralise shared controls, issues, host cards and connection indicators; keep existing page layouts, dynamic rendering and account workflows.
+- Serve only four allowlisted CSS assets with versioned links, no-store caching and nosniff headers. Keep all assets local for offline deployments.
+- Add repeatable before/after CSS layout fixtures: all 696 comparisons passed (87 scenarios × eight widths), with no sampled style/layout differences. All 248 backend tests and functional UI suites passed. See UI_TESTING.md for coverage and limits.
+
 ### Build 101 — v0.5.8
 
 - Merge login session rechecks on load and mobile-tab restoration while preserving dashboard destinations, separate mandatory password changes and fixed session expiry.

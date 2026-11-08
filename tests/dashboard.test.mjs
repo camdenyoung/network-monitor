@@ -4,6 +4,9 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const html = await readFile(new URL('../app/index.html', import.meta.url), 'utf8');
+const mainCss = await readFile(new URL('../app/static/css/dashboard.css', import.meta.url), 'utf8');
+const baseCss = await readFile(new URL('../app/static/css/base.css', import.meta.url), 'utf8');
+const statusCss = await readFile(new URL('../app/static/css/status.css', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const nodes = new Map();
 
@@ -806,8 +809,8 @@ await element('monitoring-toggle').onclick();
 assert.equal(monitoringRequests[1].path, '/api/resume');
 assert.equal(monitoringRequests[1].body.project, '1');
 assert.equal(element('monitoring-toggle').textContent, 'Pause all monitoring');
-assert.match(html, /@keyframes paused-monitoring/);
-assert.match(html, /prefers-reduced-motion: reduce/);
+assert.match(mainCss, /@keyframes paused-monitoring/);
+assert.match(mainCss, /prefers-reduced-motion: reduce/);
 
 publicData.monitoring_paused = true;
 publicData.project = 'Paused event';
@@ -1095,8 +1098,8 @@ pulseData.incidents = [{id:4,number:1,status:'critical',opened:now}];
 await pulseContext.refresh();
 assert.equal(pulseStarts,2);
 assert.equal(pulseClasses.has('issue-attention'),false);
-assert.match(statusPage, /new-issue-attention 0\.9s ease-in-out 3/);
-assert.match(statusPage, /prefers-reduced-motion: reduce/);
+assert.match(statusCss, /new-issue-attention 0\.9s ease-in-out 3/);
+assert.match(baseCss, /prefers-reduced-motion: reduce/);
 console.log('Status attention pulses trigger only for newly observed active issues and stop after three cycles.');
 
 let notificationPauseRequest;
@@ -1412,6 +1415,7 @@ for (const role of ['admin','operator','viewer']) {
     await signOutContext.refresh();
     assert.equal(publicNodes.get('status-logout').hidden,false);
     await publicNodes.get('status-logout').onclick();
+    await publicNodes.get('confirm-signout').onclick();
     const posted = signOutRequests.at(-1);
     assert.equal(posted.headers['X-CSRF-Token'],'logout-session-token');
     assert.equal(posted.method,'POST');
@@ -1425,12 +1429,14 @@ signOutData.viewer = {username:'viewer',role:'viewer'};
 signOutDenied = true;
 await signOutContext.refresh();
 await publicNodes.get('status-logout').onclick();
+    await publicNodes.get('confirm-signout').onclick();
 assert.equal(publicNodes.get('status-logout').hidden,false);
 assert.equal(publicNodes.get('status-logout').disabled,false);
-assert.equal(publicNodes.get('status-ack-feedback').textContent,'Sign out rejected');
+assert.equal(publicNodes.get('signout-feedback').textContent,'Sign out rejected');
 const callsBeforeExpiry = signOutRequests.length;
 signOutExpired = true;
 await publicNodes.get('status-logout').onclick();
+    await publicNodes.get('confirm-signout').onclick();
 assert.equal(signOutRequests.length,callsBeforeExpiry);
 assert.equal(publicNodes.get('status-logout').hidden,true);
 console.log('Status sign-out works for all roles and temporary passwords, uses session CSRF, and handles rejection/expiry.');
@@ -1728,34 +1734,79 @@ for (const [action,selection,path,expectedBody] of [
   assert.equal(element('app-confirmation').open,false);
   assert.equal(element('cancel-app-action').disabled,false);
 }
-// Backup selection is captured before review; Cancel and errors never upload another file.
+// Restore uploads a captured file once, then reviews type/mode before any replacement.
 const approvedBackup = {name:'backup <A>.sqlite3',size:123};
 const replacementBackup = {name:'backup B.sqlite3',size:456};
 const restoreForm = element('restore');
 restoreForm.backupFile = approvedBackup;
-element('restore').onsubmit({preventDefault(){},target:restoreForm});
-assert.equal(element('app-confirmation-context').textContent,approvedBackup.name);
-const beforeRestore = administrativeRequests.length;
-element('cancel-app-action').onclick();
-await element('confirm-app-action').onclick();
-assert.equal(administrativeRequests.length,beforeRestore);
-element('restore').onsubmit({preventDefault(){},target:restoreForm});
-rejectAdministrativeAction = true;
-await element('confirm-app-action').onclick();
-assert.equal(element('app-confirmation').open,true);
-assert.match(element('app-confirmation-feedback').textContent,/Restore rejected/);
-rejectAdministrativeAction = false;
-element('cancel-app-action').onclick();
-element('restore').onsubmit({preventDefault(){},target:restoreForm});
+const restoreRequests = [];
+const originalRestoreFetch = administrativeContext.fetch;
+let rejectPreview = false;
+let rejectApply = false;
+let configurationBackup = false;
+administrativeContext.fetch = async (path, options) => {
+  if (path.startsWith('/api/restore-')) {
+    restoreRequests.push({path,options});
+    if (path==='/api/restore-preview') return {ok:!rejectPreview,status:rejectPreview?413:200,json:async()=>rejectPreview
+      ? {error:'Backup exceeds configured upload limit'}
+      : {token:'review-token',kind:configurationBackup?'configuration':'complete',modes:configurationBackup?['configuration']:['complete','configuration'],projects:2,devices:16,users:3,has_history:!configurationBackup}};
+    return {ok:!rejectApply,status:rejectApply?403:200,json:async()=>rejectApply?{error:'Invalid request token'}:{ok:true}};
+  }
+  return originalRestoreFetch(path,options);
+};
+rejectPreview = true;
+await restoreForm.onsubmit({preventDefault(){},target:restoreForm});
+assert.match(element('restore-feedback').textContent,/upload limit/);
+assert.equal(element('restore-review').open,false);
+rejectPreview = false;
+await restoreForm.onsubmit({preventDefault(){},target:restoreForm});
+assert.equal(restoreRequests.at(-1).options.body,approvedBackup);
+assert.equal(element('restore-review').open,true);
+assert.equal(element('restore-file-name').textContent,approvedBackup.name);
+assert.match(element('restore-summary').textContent,/16 devices/);
+assert.equal(element('restore-mode').value,'complete');
+const beforeApply = restoreRequests.filter(row=>row.path==='/api/restore-apply').length;
+element('cancel-restore').onclick();
+await element('confirm-restore').onclick();
+assert.equal(restoreRequests.filter(row=>row.path==='/api/restore-apply').length,beforeApply);
+assert.equal(restoreRequests.at(-1).path,'/api/restore-discard');
+configurationBackup = true;
+await restoreForm.onsubmit({preventDefault(){},target:restoreForm});
+assert.equal(element('restore-mode').disabled,true);
+assert.equal(element('restore-mode').value,'configuration');
+element('restore-mode').value='complete';
+await element('confirm-restore').onclick();
+assert.equal(restoreRequests.filter(row=>row.path==='/api/restore-apply').length,beforeApply);
+element('cancel-restore').onclick();
+configurationBackup = false;
+await restoreForm.onsubmit({preventDefault(){},target:restoreForm});
 restoreForm.backupFile = replacementBackup;
-await element('confirm-app-action').onclick();
-assert.equal(administrativeRequests.at(-1).body,approvedBackup);
-assert.equal(administrativeRequests.at(-1).headers['Content-Type'],'application/octet-stream');
-assert.equal(administrativeRequests.at(-1).headers['X-CSRF-Token'],'admin-action-token');
-assert.deepEqual(administrativeRedirects,['/login']);
-assert.equal(element('app-confirmation').open,false);
-assert.doesNotMatch(html,/\b(?:confirm|alert|prompt)\s*\(/);
-console.log('All seven admin confirmations support cancellation, target capture, inline rejection, duplicate protection and safe backup selection.');
+element('restore-mode').value='configuration';
+element('restore-mode').onchange();
+assert.match(element('restore-description').textContent,/Existing destination history/);
+rejectApply = true;
+await element('confirm-restore').onclick();
+assert.match(element('restore-review-feedback').textContent,/Invalid request token/);
+assert.equal(element('confirm-restore').disabled,true);
+assert.equal(element('cancel-restore').disabled,false);
+const failedCount=restoreRequests.length;
+await element('confirm-restore').onclick();
+assert.equal(restoreRequests.length,failedCount);
+element('cancel-restore').onclick();
+rejectApply = false;
+restoreForm.backupFile=approvedBackup;
+await restoreForm.onsubmit({preventDefault(){},target:restoreForm});
+element('restore-mode').value='configuration';
+const savingRestore=element('confirm-restore').onclick();
+let blockedEscape=false;
+element('restore-review').oncancel({preventDefault(){blockedEscape=true;}});
+assert.equal(blockedEscape,true);
+await element('confirm-restore').onclick();
+await savingRestore;
+assert.equal(restoreRequests.at(-1).path,'/api/restore-apply');
+assert.deepEqual(JSON.parse(restoreRequests.at(-1).options.body),{token:'review-token',mode:'configuration'});
+assert.equal(element('restore-review').open,false);
+console.log('Administrative confirmations and staged backup review preserve targets, modes, cancellation, errors and single-use replacement.');
 
 // Unacknowledgement is confirmed, revision-bound and available to Operators.
 const undoIssue = {id:501,number:7,service:202,run:1,status:'critical',opened:now-300,
@@ -1999,9 +2050,8 @@ mainLiveDocumentEvents.get('visibilitychange')();
 await mainLiveContext.refresh();
 assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
 assert.match(mainLiveContext.renderIncidents([liveIssue()]),/class="issue-action" data-unack/);
-const mainIssueStyle = html.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
-const publicIssueStyle = statusPage.match(/\.metric \.issue-action \{([^}]+)\}/)[1];
-assert.equal(mainIssueStyle,publicIssueStyle);
+assert.match(baseCss, /\.metric \.issue-action \{[^}]*font-size: 15px;[^}]*line-height: 20px;[^}]*padding: 4px 8px;/);
+assert.doesNotMatch(mainCss + statusCss, /\.metric \.issue-action\s*\{/);
 console.log('Live updates synchronise separate viewers, preserve permissions, serialize racing refreshes and reconnect after navigation; issue action buttons share styling.');
 
 // Presence uses one stable per-page header on normal polling, with no extra endpoint.
@@ -2059,8 +2109,8 @@ assert.doesNotMatch(recoveredMarkup,/data-unack/);
 assert.throws(() => mainLiveContext.openUnacknowledgement(mainLiveContext.recoveredListIssue.id),/recovered/);
 console.log('Resolved acknowledged issues retain attribution without Unacknowledge controls.');
 
-assert.match(html, /#notifications-toggle\.notifications-paused \{[^}]*animation: paused-monitoring/);
-assert.match(html, /#monitoring-toggle\.monitoring-paused, #notifications-toggle\.notifications-paused \{ animation: none;/);
+assert.match(mainCss, /#notifications-toggle\.notifications-paused \{[^}]*animation: paused-monitoring/);
+assert.match(mainCss, /#monitoring-toggle\.monitoring-paused, #notifications-toggle\.notifications-paused \{\s*animation: none;/);
 assert.match(html, /Monitoring and notifications start paused/);
 console.log('Notification pause pulses with reduced-motion support; selected deployments wait for Resume all monitoring.');
 
@@ -2427,7 +2477,7 @@ console.log('Both dashboards disable List while forced to Cards, preserve List t
 assert.ok(html.indexOf('id="toggle-project-configuration"') < html.indexOf('id="toggle-acknowledged"'));
 assert.ok(html.indexOf('id="toggle-live"') < html.indexOf('id="project-configuration"'));
 assert.ok(html.indexOf('id="project-configuration"') < html.indexOf('<h2>Active issues</h2>'));
-assert.match(html, /#monitoring-toggle\.monitoring-paused\s*\{[^}]*color: #e8eff8/);
+assert.match(mainCss, /#monitoring-toggle\.monitoring-paused\s*\{[^}]*color: var\(--colour-text\)/);
 const projectCreationForm = element('project-creation-test');
 projectCreationForm.dataset = {action:'project'};
 projectCreationForm.after = feedback => {projectCreationForm.feedback = feedback;};
@@ -2644,7 +2694,8 @@ assert.match(accessNode('devices').innerHTML,/Private live host/);
 holdOldStatus=true;
 const accessOldRefresh = accessBrowser.refresh();
 await oldStatusGate;
-const signingOut = accessNode('status-logout').onclick();
+accessNode('status-logout').onclick();
+const signingOut = accessNode('confirm-signout').onclick();
 await logoutGate;
 // Let sign-out finish its async session lookup/POST while the old status GET stays blocked.
 for (let step=0;step<40 && !accessNode('live-host-panel').hidden;step++) await Promise.resolve();
@@ -2818,3 +2869,5 @@ await inventoryTransferForm.onsubmit({preventDefault(){},target:inventoryTransfe
 assert.match(element('inventory-feedback').textContent,/valid inventory JSON/);
 assert.equal(inventoryTransferCalls.length,inventoryCallsBeforeInvalid);
 console.log('Inventory import previews, merge/update modes, conflicts, cancellation, stale review errors, immutable file capture and single confirmation passed.');
+
+await import('./signout.test.mjs');

@@ -9,6 +9,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
     environment:
       MONITOR_DATA: /data
+      MONITOR_MAX_RESTORE_MB: ${MONITOR_MAX_RESTORE_MB:-20480}
       MONITOR_ADMIN_PASSWORD: ${MONITOR_ADMIN_PASSWORD:-}
       MONITOR_SECURE_COOKIE: ${MONITOR_SECURE_COOKIE:-false}
     # Allow the non-root process to use Linux ICMP datagram sockets.
