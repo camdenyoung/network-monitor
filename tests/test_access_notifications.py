@@ -980,6 +980,33 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertNotIn('session_expires_at', response['content'])
             self.assertNotIn('session_remaining_seconds', response['content'])
 
+    def test_local_stylesheets_are_public_allowlisted_and_not_cached(self):
+        for name in ('base', 'dashboard', 'status', 'auth'):
+            handler = object.__new__(server.Handler)
+            handler.path = f'/static/css/{name}.css?v=102'
+            handler.headers = {}
+            handler.wfile = io.BytesIO()
+            result = {}
+            handler.send_response = lambda status: result.update(status=status)
+            handler.send_header = lambda key, value: result.setdefault('headers', {}).update({key: value})
+            handler.end_headers = lambda: None
+            handler.do_GET()
+            self.assertEqual(result['status'], 200)
+            self.assertEqual(result['headers']['Content-Type'], 'text/css; charset=utf-8')
+            self.assertEqual(result['headers']['Cache-Control'], 'no-store')
+            self.assertEqual(result['headers']['X-Content-Type-Options'], 'nosniff')
+            self.assertEqual(handler.wfile.getvalue(), server.STYLESHEETS[f'/static/css/{name}.css'].read_bytes())
+        for path in ('/static/css/../auth.py', '/static/css/%2e%2e/auth.py',
+                     '/static/css/missing.css', '/static/css/base.css/extra', '/static/server.py'):
+            self.assertEqual(self.request(path)['status'], 404)
+        for name, stylesheet in (('index.html', 'dashboard'), ('status.html', 'status'),
+                                  ('login.html', 'auth'), ('change-password.html', 'auth')):
+            page = Path(server.__file__).with_name(name).read_text()
+            self.assertIn('/static/css/base.css?v=102', page)
+            self.assertIn(f'/static/css/{stylesheet}.css?v=102', page)
+            self.assertNotIn('<style>', page)
+            self.assertNotIn('style="max-width', page)
+
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):
             response = self.request('/api/backup', token=self.admin_token)

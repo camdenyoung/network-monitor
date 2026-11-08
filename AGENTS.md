@@ -253,7 +253,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.5.8, Build 101. Show it after the title on both the main and
+Current displayed release is v0.5.8, Build 102. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -972,3 +972,22 @@ that order and place .status-navigation below, left-aligned with no auto margin.
 Keep this breakpoint independent of Show/Hide and Cards/List label widths to
 prevent jumping rows. Desktop navigation remains on the right. Preserve IDs,
 authenticated-only host access, toggle colours and localStorage preferences.
+
+
+Stylesheets: app/static/css/base.css centralises shared theme variables and controls,
+issue/host components, tables, navigation links and connection indicators. Load it
+before dashboard.css/status.css/auth.css, which own only differing page layouts.
+Keep readable four-space declarations/comments. Static body widths use .auth-page;
+keep truly dynamic toast CSS variables, graph values and popup positioning in JS.
+No Bootstrap/CDN/build pipeline is required. STYLESHEETS is a fixed server allowlist;
+serve CSS publicly before auth, with text/css, no-store and nosniff. Never turn it
+into arbitrary filesystem serving. Update versioned link queries when CSS changes.
+Application scripts must remain unchanged by this refactor. Existing UI tests load
+CSS explicitly for style assertions. Asset tests cover allowlisting, traversal,
+MIME/cache headers and all page links. tools/style_preview.py and tests/style_matrix.html
+compare the pre-refactor commit with the working tree using identical deterministic
+CSS-only fixtures: eight viewport widths, roles, hosts/issues, panels/dialogs and
+account pages. Computed-property/bounding-box equality supplements functional tests;
+it does not test authorization or all real-world combinations. Never point the preview
+at a live database; it binds loopback only. Coordinate handover for native browser
+interaction; prefer the isolated in-app browser for previews.

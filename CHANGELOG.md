@@ -4,6 +4,13 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 102 — v0.5.8 (shared stylesheets branch)
+
+- Extract embedded CSS from all pages into local shared and page-specific stylesheets, with readable formatting and common colour/spacing variables.
+- Centralise shared controls, issues, host cards and connection indicators; keep existing page layouts, dynamic rendering and account workflows.
+- Serve only four allowlisted CSS assets with versioned links, no-store caching and nosniff headers. Keep all assets local for offline deployments.
+- Add repeatable before/after CSS layout fixtures: all 696 comparisons passed (87 scenarios × eight widths), with no sampled style/layout differences. All 248 backend tests and functional UI suites passed. See UI_TESTING.md for coverage and limits.
+
 ### Build 101 — v0.5.8
 
 - Merge login session rechecks on load and mobile-tab restoration while preserving dashboard destinations, separate mandatory password changes and fixed session expiry.

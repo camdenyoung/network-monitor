@@ -1,0 +1,175 @@
+/* Status Dashboard branding, host layout and attention indicators. */
+:root.issue-attention {
+    --attention-colour: #651f2c;
+    animation: new-issue-attention 0.9s ease-in-out 3;
+}
+
+:root.issue-attention-warning {
+    --attention-colour: #8a6d00;
+}
+
+:root.issue-attention-critical {
+    --attention-colour: #651f2c;
+}
+
+@keyframes new-issue-attention {
+    0%, 100% {
+        background-color: var(--colour-page);
+    }
+
+    50% {
+        background-color: var(--attention-colour);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root.issue-attention {
+        animation: none;
+        background-color: var(--attention-colour);
+    }
+}
+
+.action-menu .menu-buttons {
+    position: absolute;
+    right: 0;
+    top: 34px;
+    z-index: 10;
+    display: grid;
+    gap: 4px;
+    min-width: 170px;
+    padding: 8px;
+    background: var(--colour-control);
+    border: 1px solid var(--colour-border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px #0008;
+}
+
+#history {
+    width: 880px;
+    box-sizing: border-box;
+}
+
+.host-list .metric {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 7px 0;
+}
+
+.host-list .metric-header {
+    flex: 1;
+}
+
+#live-host-panel {
+    border: 1px solid var(--colour-border);
+    border-radius: 10px;
+    margin-top: 24px;
+    padding: 16px;
+}
+
+#devices.grid {
+    margin-top: 16px;
+}
+
+.status-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+}
+
+.status-header h1 {
+    justify-self: start;
+    margin: 0;
+}
+
+.status-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+    max-width: min(420px, 35vw);
+    overflow-wrap: anywhere;
+}
+
+/* Keep visibility toggles together; narrow rows must not depend on label length. */
+.status-visibility-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.status-visibility-controls > button {
+    flex-shrink: 0;
+}
+
+.status-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-left: auto;
+}
+
+.status-account {
+    justify-self: end;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.user-badge {
+    font-size: 13px;
+    padding: 7px 9px;
+    border: 1px solid var(--colour-border);
+    border-radius: 5px;
+    background: var(--colour-control);
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+    .status-header {
+        grid-template-columns: 1fr auto;
+    }
+
+    .status-brand {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        justify-self: center;
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 760px) {
+    .status-section-controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .status-visibility-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        max-width: 100%;
+    }
+
+    .status-section-controls .status-navigation {
+        margin-left: 0;
+        justify-content: flex-start;
+    }
+}
+
+.project-name {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--colour-text);
+}
+

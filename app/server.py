@@ -25,6 +25,11 @@ DATA = Path(os.environ.get('MONITOR_DATA', './data'))
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'monitor.sqlite3'
 LOCK = threading.RLock()
+# Serve only known local stylesheet files, never arbitrary paths from a request.
+STYLESHEETS = {
+    f'/static/css/{name}.css': Path(__file__).with_name('static') / 'css' / f'{name}.css'
+    for name in ('base', 'dashboard', 'status', 'auth')
+}
 
 
 class DatabaseConnection(sqlite3.Connection):
@@ -1623,6 +1628,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/health':
             return self.send('{"ok":true}')
         page = urlsplit(self.path)
+        if page.path.startswith('/static/'):
+            stylesheet = STYLESHEETS.get(page.path)
+            if stylesheet is None:
+                return self.send('{"error":"Not found"}', status=404)
+            return self.send(stylesheet.read_bytes(), 'text/css; charset=utf-8')
         if page.path in ('/login', '/change-password'):
             # Preserve the originating dashboard, but never redirect to arbitrary URLs.
             requested = parse_qs(page.query).get('next', ['/'])[0]

@@ -1,0 +1,33 @@
+/* Login and password-change layouts; controls use base.css. */
+body.auth-page {
+    max-width: 620px;
+}
+
+#password-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+#password-form label {
+    min-width: 0;
+}
+
+#password-form input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.password-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 460px) {
+    #password-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+

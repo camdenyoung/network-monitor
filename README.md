@@ -1,4 +1,4 @@
-# Network Monitor v0.5.8 · Build 101
+# Network Monitor v0.5.8 · Build 102
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -804,3 +804,21 @@ device unit ID in the service. Enter the zero-based register address in decimal
 (for example, `0x0062` becomes `98`); selecting Input (04) changes the read function,
 not the address. TCP port 502 is used. Confirm the register, scaling and unit ID
 against the device documentation; reads currently support one unsigned 16-bit register.
+
+
+### Stylesheets and UI regression checks
+
+All four HTML pages load local files from `app/static/css/`. `base.css` owns
+shared theme variables and components; `dashboard.css`, `status.css` and
+`auth.css` contain page-specific layouts. Keep shared button, form, issue,
+host-card and connection-dialog styling in the base file. Use classes for static
+presentation; inline values are reserved for runtime data such as toast duration,
+graph coordinates and popup positioning. No framework or CDN is required.
+The server allowlists these four CSS files, serves them before authentication,
+and sends `Cache-Control: no-store` plus `nosniff`. Stylesheet links carry a build
+query; update it on all affected pages when changing CSS.
+
+See [UI_TESTING.md](UI_TESTING.md) for the before/after matrix, its coverage,
+limitations, and instructions to repeat it. The Build 102 comparison passed all
+696 cases (87 scenarios × eight viewport widths) with no sampled style/layout
+differences; the backend and functional UI suites also passed.
