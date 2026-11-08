@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 98 — v0.5.7 (login session recheck branch)
+
+- Recheck existing sessions from the loaded login page and when a mobile tab resumes, so an authenticated API session can return to its dashboard without another sign-in.
+- Preserve separate mandatory password changes, safe per-tab return destinations and fixed session expiry. Use replacement navigation, bounded/coalesced checks and stale-response protection during sign-in.
+- Preserve rejected drafts and usable sign-in on connectivity failures. Keep existing cookie security and add regression coverage for session restoration and 96-hour expiry.
+
 ### Build 97 — v0.5.7
 
 - Merge separate login and password-change pages, with session-aware redirects and the original dashboard destination preserved through required changes.

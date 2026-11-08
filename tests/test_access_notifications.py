@@ -929,6 +929,28 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.assertIsNone(auth.session_user(db, 'monitor_session=' + other_token))
             self.assertFalse(auth.session_user(db, 'monitor_session=' + response['token'])['must_change_password'])
 
+    def test_valid_session_survives_96_hours_and_recovers_after_cookie_free_navigation(self):
+        self.assertEqual(self.request('/api/session-settings', {'hours': 96},
+                                      self.admin_token, self.admin['csrf'])['status'], 200)
+        now = auth.time.time()
+        with server.connect() as db:
+            with patch.object(auth.time, 'time', return_value=now):
+                token = auth.new_session(db, 2)
+            original = db.execute('SELECT expires FROM sessions WHERE user_id=2 ORDER BY expires DESC').fetchone()[0]
+        # Model the observed request distinction without asserting its browser-level cause.
+        self.assertIn(b'id="login-form"', self.request('/login')['content'])
+        for hours in (1, 12, 95):
+            with patch.object(auth.time, 'time', return_value=now + hours * 3600):
+                me = self.request('/api/me', token=token)
+                self.assertEqual(me['status'], 200)
+                self.assertEqual(json.loads(me['content'])['username'], 'reader')
+                self.assertEqual(self.request('/', token=token)['status'], 200)
+        with server.connect() as db:
+            # Rechecking is read-only: it must not extend the fixed expiry.
+            self.assertEqual(db.execute('SELECT MAX(expires) FROM sessions WHERE user_id=2').fetchone()[0], original)
+        with patch.object(auth.time, 'time', return_value=now + 96 * 3600):
+            self.assertEqual(self.request('/api/me', token=token)['status'], 401)
+
     def test_backup_requires_admin_and_excludes_live_sessions(self):
         with patch.object(server.time, 'localtime', return_value=(2026, 11, 2, 19, 9, 10, 0, 306, 1)):
             response = self.request('/api/backup', token=self.admin_token)
