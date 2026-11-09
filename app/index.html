@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.5 · Build 125</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.5 · Build 126</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -1586,7 +1586,8 @@
           .find(id => state.projects.some(project => project.id === id));
         selectedProject = preferred == null ? '' : String(preferred);
       }
-      el('project').innerHTML = options(state.projects, row => row.name);
+      el('project').innerHTML = options(state.projects,
+        row => `${row.name}${row.id === run?.project ? ' (active)' : ''}`);
       el('project').value = selectedProject;
       const previousRuns = state.runs.filter(row => String(row.project) === selectedProject).sort((a, b) => b.id - a.id);
       updateOptions('previous-deployment', previousRuns,

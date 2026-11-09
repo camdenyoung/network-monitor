@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 126 — v0.6.5
+
+- Mark the running deployment's project with `(active)` in the Selected project dropdown, matching the deployment selector. Preserve manual selection and omit the marker while monitoring is paused.
+
 ### Build 125 — v0.6.5
 
 - Merge Admin-only deployment renaming and 40-character names, preserving legacy descriptions, deployment identity, history and monitoring state.
