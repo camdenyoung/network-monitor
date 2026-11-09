@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network Monitor</title>
   <link rel="stylesheet" href="/static/css/base.css?v=112">
-  <link rel="stylesheet" href="/static/css/dashboard.css?v=112">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=120">
 </head>
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.3 · Build 119</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.3 · Build 120</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -1908,7 +1908,9 @@
         <div id="save-toast-${id}" class="save-toast" style="--toast-duration: ${SAVE_TOAST_DURATION}ms" role="status" aria-live="polite" aria-atomic="true">
           <div class="save-toast-content">
             <span id="save-toast-message-${id}" class="save-toast-message"></span>
-            <button type="button" data-dismiss-toast="${id}" aria-label="Dismiss confirmation">×</button>
+            <button type="button" class="save-toast-dismiss" data-dismiss-toast="${id}" aria-label="Dismiss confirmation">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+            </button>
           </div>
           <div class="save-toast-progress" aria-hidden="true"></div>
         </div>`);
@@ -1925,6 +1927,23 @@
       el('message').textContent = message;
       el('message').classList.toggle('success', success);
       if (success) showSaveToast(message);
+    }
+
+    function setFormFeedback(id, message, success = false) {
+      el(id).textContent = message;
+      el(id).classList.toggle('success', success);
+    }
+
+    function confirmSaved(message, feedbackId) {
+      if (feedbackId) setFormFeedback(feedbackId, message, true);
+      notify(message, true);
+    }
+
+    async function refreshAfterSave(message, reload = refresh) {
+      // The write is already confirmed. A failed GET must not turn it into a
+      // failed save or leave a destructive action available for resubmission.
+      try { await reload(); }
+      catch (error) { notify(message + ' Dashboard refresh failed; reload to see changes.'); }
     }
 
     function report(error) {
@@ -2041,8 +2060,8 @@
 
     async function performAction(action, body) {
       await request(action, body);
-      notify('Saved successfully.', true);
-      await refresh();
+      confirmSaved('Saved successfully.');
+      await refreshAfterSave('Changes saved.');
     }
     function inventoryFeedback(message, success = false) {
       const feedback = el('inventory-feedback');
@@ -2268,11 +2287,11 @@
       button.disabled = true;
       try {
         await request(action, {device: defaultsDevice, ...details});
-        el('device-default-feedback').textContent = 'Device service defaults saved. Existing projects are unchanged.';
+        const message = 'Device service defaults saved. Existing projects are unchanged.';
+        confirmSaved(message, 'device-default-feedback');
         onSaved?.();
-        try { await refresh(); }
-        catch (error) { notify('Device defaults saved. Dashboard refresh failed; reload to see changes.'); }
-      } catch (error) { el('device-default-feedback').textContent = error.message; }
+        await refreshAfterSave(message);
+      } catch (error) { setFormFeedback('device-default-feedback', error.message); }
       finally { button.disabled = false; }
     }
     el('add-device-default-template').onclick = () => {
@@ -2401,8 +2420,8 @@
           ? `Replaced ${result.replaced} library services with ${result.added}. Library total: ${result.total}.`
           : `Added ${result.added} services; kept ${result.skipped} existing matches. Library total: ${result.total}.`;
         el('library-feedback').classList.add('success');
-        try { await refresh(); }
-        catch (error) { notify('Library imported. Dashboard refresh failed; reload to see changes.'); }
+        confirmSaved(el('library-feedback').textContent);
+        await refreshAfterSave('Library imported.');
       } catch (error) { el('library-import-error').textContent = error.message; }
       finally {
         el('confirm-library-import').disabled = false;
@@ -2779,7 +2798,7 @@
         await request('project-edit', {project: selectedProject, name});
         el('project-feedback').textContent = 'Project name updated successfully.';
         notify(el('project-feedback').textContent, true);
-        await refresh();
+        await refreshAfterSave('Project name saved.');
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
     el('project-duplicate-form').onsubmit = async event => {
@@ -2792,7 +2811,7 @@
         form.reset();
         el('project-feedback').textContent = 'Project duplicated successfully. Select it from the project menu to review or activate it.';
         notify(el('project-feedback').textContent, true);
-        await refresh();
+        await refreshAfterSave('Project duplicated.');
       } catch (error) { el('project-feedback').textContent = error.message; }
       finally { button.disabled = false; }
     };
@@ -2803,7 +2822,7 @@
           enabled: event.target.elements.namedItem('enabled').checked});
         el('project-feedback').textContent = 'Status dashboard acknowledgement settings saved.';
         notify(el('project-feedback').textContent, true);
-        await refresh();
+        await refreshAfterSave('Status dashboard settings saved.');
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
     el('project-logo-form').onsubmit = async event => {
@@ -2830,7 +2849,7 @@
         form.reset();
         el('project-feedback').textContent = 'Project logo updated successfully.';
         notify(el('project-feedback').textContent, true);
-        await refresh();
+        await refreshAfterSave('Project logo saved.');
       } catch (error) { el('project-feedback').textContent = error.message; }
       finally { button.disabled = false; }
     };
@@ -2839,7 +2858,7 @@
         await request('project-logo-remove', {project: selectedProject});
         el('project-feedback').textContent = 'Project logo removed.';
         notify(el('project-feedback').textContent, true);
-        await refresh();
+        await refreshAfterSave('Project logo removed.');
       } catch (error) { el('project-feedback').textContent = error.message; }
     };
 
@@ -2954,9 +2973,14 @@
       el('confirm-deployment').disabled = true;
       el('cancel-deployment').disabled = true;
       try {
-        await performAction('activate', {project: pendingDeploymentProject, description});
+        await request('activate', {project: pendingDeploymentProject, description});
+        // Retire this confirmation before a follow-up GET. A refresh failure
+        // must never let Continue create the same requested deployment again.
         pendingDeploymentProject = null;
         el('deployment-confirmation').close();
+        const message = 'New deployment selected. Monitoring and notifications are paused.';
+        confirmSaved(message);
+        await refreshAfterSave(message);
       } catch (error) {
         el('deployment-confirmation-feedback').textContent = error.message;
       } finally {
@@ -2975,8 +2999,9 @@
       try {
         const paused = state.settings.notifications_paused !== '1';
         await request('notification-pause', {paused});
-        await refresh();
-        notify(paused ? 'Notifications paused. Monitoring continues.' : 'Notifications resumed. Paused alerts will not be replayed.', true);
+        const message = paused ? 'Notifications paused. Monitoring continues.' : 'Notifications resumed. Paused alerts will not be replayed.';
+        confirmSaved(message);
+        await refreshAfterSave(message);
       } catch (error) { report(error); }
       finally { button.disabled = false; }
     };
@@ -3051,7 +3076,7 @@
         el('acknowledgement-dialog').close();
         el('incident-feedback').textContent = 'Issue moved to the acknowledged list.';
         el('incident-feedback').classList.add('success');
-        await refresh();
+        await refreshAfterSave('Issue acknowledged.');
       } catch (error) { el('acknowledgement-feedback').textContent = error.message; }
       finally {
         el('confirm-acknowledgement').disabled = false;
@@ -3070,7 +3095,7 @@
             await request('service-monitoring', {service: data.serviceMonitoring, monitoring: data.enabled === 'true'});
             el('service-feedback').textContent = data.enabled === 'true' ? 'Service monitoring resumed.' : 'Service monitoring paused; configuration and history retained.';
             notify(el('service-feedback').textContent, true);
-            await refresh();
+            await refreshAfterSave(el('service-feedback').textContent);
           } finally { button.disabled = false; }
         }
         if (data.removeAssignment) openAdministrativeConfirmation('remove-assignment', {assignment: data.removeAssignment});
@@ -3295,7 +3320,7 @@
         await request('host-stability', body);
         el('host-stability').close();
         notify('Host flap protection saved.', true);
-        await refresh();
+        await refreshAfterSave('Host flap protection saved.');
       } catch (error) { el('host-stability-feedback').textContent = error.message; }
       finally { button.disabled = false; }
     };
@@ -3416,26 +3441,30 @@
     el('reminder-settings-form').onsubmit = async event => {
       event.preventDefault();
       const button = event.target.querySelector('button');
+      if (button.disabled) return;
       button.disabled = true;
       try {
         await request('reminder-settings', {minutes: Number(event.target.elements.namedItem('minutes').value)});
         reminderSettingsLoaded = false;
-        await refresh();
-        el('reminder-settings-feedback').textContent = 'Reminder interval saved.';
-      } catch (error) { el('reminder-settings-feedback').textContent = error.message; }
+        const message = 'Reminder interval saved.';
+        confirmSaved(message, 'reminder-settings-feedback');
+        await refreshAfterSave(message);
+      } catch (error) { setFormFeedback('reminder-settings-feedback', error.message); }
       finally { button.disabled = false; }
     };
 
     el('session-settings-form').onsubmit = async event => {
       event.preventDefault();
       const button = event.target.querySelector('button');
+      if (button.disabled) return;
       button.disabled = true;
       try {
         await request('session-settings', {hours: Number(event.target.elements.namedItem('hours').value)});
         sessionSettingsLoaded = false;
-        await refresh();
-        el('session-settings-feedback').textContent = 'Session duration saved. Applies to new sign-ins.';
-      } catch (error) { el('session-settings-feedback').textContent = error.message; }
+        const message = 'Session duration saved. Applies to new sign-ins.';
+        confirmSaved(message, 'session-settings-feedback');
+        await refreshAfterSave(message);
+      } catch (error) { setFormFeedback('session-settings-feedback', error.message); }
       finally { button.disabled = false; }
     };
 
@@ -3447,9 +3476,10 @@
       try {
         await request('connection-settings', {maximum: Number(event.target.elements.namedItem('maximum').value)});
         connectionSettingsLoaded = false;
-        await refresh();
-        el('connection-settings-feedback').textContent = 'Connection limit saved. Existing live connections remain open.';
-      } catch (error) { el('connection-settings-feedback').textContent = error.message; }
+        const message = 'Connection limit saved. Existing live connections remain open.';
+        confirmSaved(message, 'connection-settings-feedback');
+        await refreshAfterSave(message);
+      } catch (error) { setFormFeedback('connection-settings-feedback', error.message); }
       finally { button.disabled = false; }
     };
 
@@ -3486,9 +3516,10 @@
           if (action === 'user-edit') el('user-editor').close();
           form.reset();
           if (Number(body.user) === currentUser.id) { location.assign('/login'); return; }
-          el('user-feedback').textContent = action === 'user-edit' ? 'User updated successfully.' : 'User added successfully.';
-          await loadAdmin();
-        } catch (error) { el(feedbackId).textContent = error.message; }
+          const message = action === 'user-edit' ? 'User updated successfully.' : 'User added successfully.';
+          confirmSaved(message, 'user-feedback');
+          await refreshAfterSave(message, loadAdmin);
+        } catch (error) { setFormFeedback(feedbackId, error.message); }
         finally { buttons.forEach(button => { button.disabled = false; }); }
       };
     }
@@ -3508,8 +3539,8 @@
       try {
         await request('telegram-save', body);
         form.elements.namedItem('bot_token').value = '';
-        el('telegram-feedback').textContent = 'Telegram settings saved.';
-      } catch (error) { el('telegram-feedback').textContent = error.message; }
+        confirmSaved('Telegram settings saved.', 'telegram-feedback');
+      } catch (error) { setFormFeedback('telegram-feedback', error.message); }
     };
     el('telegram-chats').onclick = async () => {
       try {
@@ -3529,12 +3560,14 @@
     };
     el('telegram-test').onclick = async () => {
       const button = el('telegram-test');
+      if (button.disabled) return;
       button.disabled = true;
       try {
         await request('telegram-test', {sample_type: el('telegram-sample-type').value || 'test'});
-        el('telegram-feedback').textContent = 'Sample notification queued. Show log to check its delivery status.';
-        await loadAdmin();
-      } catch (error) { el('telegram-feedback').textContent = error.message; }
+        const message = 'Sample notification queued. Show log to check its delivery status.';
+        confirmSaved(message, 'telegram-feedback');
+        await refreshAfterSave(message, loadAdmin);
+      } catch (error) { setFormFeedback('telegram-feedback', error.message); }
       finally { button.disabled = false; }
     };
     el('whatsapp-form').onsubmit = async event => {
@@ -3546,23 +3579,33 @@
       try {
         await request('whatsapp-save', body);
         form.elements.namedItem('bot_token').value = '';
-        el('whatsapp-feedback').textContent = 'WhatsApp Business settings saved.';
-      } catch (error) { el('whatsapp-feedback').textContent = error.message; }
+        confirmSaved('WhatsApp Business settings saved.', 'whatsapp-feedback');
+      } catch (error) { setFormFeedback('whatsapp-feedback', error.message); }
     };
     el('whatsapp-test').onclick = async () => {
+      const button = el('whatsapp-test');
+      if (button.disabled) return;
+      button.disabled = true;
       try {
         await request('whatsapp-test', {});
-        el('whatsapp-feedback').textContent = 'Test message queued. Check its status below.';
-        await loadAdmin();
-      } catch (error) { el('whatsapp-feedback').textContent = error.message; }
+        const message = 'Test message queued. Check its status below.';
+        confirmSaved(message, 'whatsapp-feedback');
+        await refreshAfterSave(message, loadAdmin);
+      } catch (error) { setFormFeedback('whatsapp-feedback', error.message); }
+      finally { button.disabled = false; }
     };
     for (const channel of ['telegram', 'whatsapp']) {
       el(channel + '-retry').onclick = async () => {
+        const button = el(channel + '-retry');
+        if (button.disabled) return;
+        button.disabled = true;
         try {
           await request(channel + '-retry', {});
-          el(channel + '-feedback').textContent = 'Failed messages for the current settings requeued.';
-          await loadAdmin();
-        } catch (error) { el(channel + '-feedback').textContent = error.message; }
+          const message = 'Failed messages for the current settings requeued.';
+          confirmSaved(message, channel + '-feedback');
+          await refreshAfterSave(message, loadAdmin);
+        } catch (error) { setFormFeedback(channel + '-feedback', error.message); }
+        finally { button.disabled = false; }
       };
     }
     configureSignOut('logout', async () => {

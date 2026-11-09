@@ -273,7 +273,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.3, Build 119. Show it after the title on both the main and
+Current displayed release is v0.6.3, Build 120. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -870,6 +870,20 @@ and allow scrolling; use stepped countdowns under prefers-reduced-motion.
 
 Toast stacks use a compact 320px width, shrinking to fit narrow viewports.
 Unacknowledgement keeps inline issue feedback and list updates without a toast.
+
+Confirmed configuration saves and operational changes show one success toast with
+their inline feedback, including Settings, account creation/editing of other users,
+provider settings, library imports and inventory-default library additions. Provider
+tests/retries confirm queueing, never delivery. Acknowledgement/unacknowledgement,
+display-only changes, previews/downloads and sign-in/out/password/restore redirects
+retain their existing inline or navigation feedback without success toasts.
+Show success only after the write response; rejected writes retain drafts and show
+no success toast. A failed follow-up refresh reports that the action succeeded but
+the displayed data may be stale; never report a failed write or replay it. Retire
+new-deployment confirmations before refreshing so stale clicks cannot create an
+extra deployment. Toast dismissal uses a fixed-size circular button in the top-right
+corner with a centred SVG cross. Reserve space for it so wrapped messages do not
+overlap it; shared control padding must not stretch the button.
 
 Admin Resolved issues displays the latest 10, ordered by closed DESC/id DESC.
 Keep snapshot's bounded 200-row list for compatibility. app/resolved.py supplies

@@ -58,6 +58,11 @@ node tests/dashboard_stream.test.mjs
 node tests/host_view.test.mjs
 ```
 
+`tests/toasts.test.mjs` is also imported by the dashboard suite and can run on its
+own. It checks confirmed-save feedback across Settings, accounts, providers,
+imports and operational controls, plus failed refreshes and stale deployment
+confirmations. All requests are mocked; it never sends provider messages.
+
 ## Limits
 
 This is a representative matrix, not every possible cross-product of projects,

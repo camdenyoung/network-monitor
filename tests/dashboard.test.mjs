@@ -3015,3 +3015,5 @@ assert.match(mainCss,/body\[data-role="viewer"\] \[data-deployment-picker\]/);
 assert.match(html,/<button data-admin id="activate"/);
 assert.match(html,/<button data-admin id="delete-selected-deployment"/);
 console.log('Scoped roles follow global project/deployment changes, invalidate stale history/dialogs, restrict controls and bind Operator writes to their displayed deployment.');
+
+await import('./toasts.test.mjs');

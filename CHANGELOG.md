@@ -4,6 +4,13 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 120 — v0.6.3
+
+- Confirm successful Settings, account, provider, library-import and inventory-default saves with one toast alongside inline feedback. Provider tests/retries report queueing; keep acknowledgement, navigation and display-only flows free of save toasts.
+- Separate confirmed writes from follow-up refresh errors, preserving success feedback and avoiding automatic retries. Close new-deployment confirmation immediately after activation succeeds so a failed refresh cannot leave it available for duplicate submission.
+- Give toast dismissal a fixed 28px circular button in the top-right corner with a centred SVG cross and reserved text space; update the affected stylesheet query. Retain independent six-second timers, keyboard access and narrow-screen wrapping.
+- Update displayed build labels and add mocked regression coverage for save failures, refresh failures and duplicate activation, without contacting notification providers.
+
 ### Build 119 — v0.6.3
 
 - Keep release history and implementation changes in this changelog; replace the README's release-style introduction with concise current usage under Dashboard updates and connection limits. Keep historical validation results here and link to repeatable checks from the README.

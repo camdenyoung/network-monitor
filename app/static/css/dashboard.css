@@ -123,6 +123,7 @@ input[type="checkbox"] {
     display: flex;
     align-items: center;
     gap: 16px;
+    padding-right: 28px;
 }
 
 .save-toast-message {
@@ -131,8 +132,32 @@ input[type="checkbox"] {
     overflow-wrap: anywhere;
 }
 
-.save-toast button {
-    flex-shrink: 0;
+.save-toast-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+    line-height: 1;
+}
+
+.save-toast-dismiss svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    pointer-events: none;
 }
 
 .save-toast-progress {
