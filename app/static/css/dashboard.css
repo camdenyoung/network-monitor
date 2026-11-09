@@ -382,6 +382,8 @@ button.danger:hover {
 /* Card status text surrounds this control; keep its label neutral in both views. */
 button[data-host-stability] {
     color: var(--colour-text);
+    padding: 5px 9px;
+    font-size: 13px;
 }
 
 #service-edit-form {
@@ -456,7 +458,8 @@ button[data-host-stability] {
     gap: 6px;
 }
 
-.host-list .service-controls > button, .host-list .action-menu > summary {
+.host-list .service-controls > button, .host-list .action-menu > summary,
+.host-list button[data-host-stability] {
     box-sizing: border-box;
     margin: 0;
     padding: 5px 8px;

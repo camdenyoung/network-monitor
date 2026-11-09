@@ -1006,8 +1006,8 @@ class AccessAndNotificationTests(unittest.TestCase):
         for name, stylesheet in (('index.html', 'dashboard'), ('status.html', 'status'),
                                   ('login.html', 'auth'), ('change-password.html', 'auth')):
             page = Path(server.__file__).with_name(name).read_text()
-            self.assertIn('/static/css/base.css?v=112', page)
-            version = 122 if stylesheet == 'dashboard' else 112
+            self.assertIn('/static/css/base.css?v=123', page)
+            version = 123 if stylesheet == 'dashboard' else 112
             self.assertIn(f'/static/css/{stylesheet}.css?v={version}', page)
             self.assertNotIn('<style>', page)
             self.assertNotIn('style="max-width', page)

@@ -286,6 +286,11 @@ details.action-menu {
     border: 1px solid var(--colour-border);
     border-radius: 5px;
     font-size: 13px;
+    background: var(--colour-control);
+}
+
+.action-menu summary:hover {
+    background: var(--colour-hover);
 }
 
 .action-menu .menu-buttons button {
