@@ -23,8 +23,14 @@ def publish_dashboard_change():
         _CHANGED.notify_all()
 
 
-def wait_for_change(previous, timeout=15):
+def wake_waiters():
+    """Wake cancelled streams without broadcasting a dashboard data change."""
+    with _CHANGED:
+        _CHANGED.notify_all()
+
+
+def wait_for_change(previous, timeout=15, stopped=None):
     """Release the condition while waiting; no database connection is held."""
     with _CHANGED:
-        _CHANGED.wait_for(lambda: _revision != previous, timeout=timeout)
+        _CHANGED.wait_for(lambda: _revision != previous or (stopped is not None and stopped.is_set()), timeout=timeout)
         return _revision

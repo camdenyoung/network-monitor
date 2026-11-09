@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.2 · Build 114</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.2 · Build 115</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -905,7 +905,7 @@
 
     // sessionStorage keeps the same tab identity through refreshes and navigation
     // between dashboards. This opaque ID is not a credential or a user identity.
-    const dashboardConnection = (() => {
+    let dashboardConnection = (() => {
       const key = 'network-monitor.dashboard-connection';
       const create = () => globalThis.crypto?.randomUUID?.() ||
         'dashboard-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
@@ -1391,11 +1391,65 @@
       return refreshPromise;
     }
 
+    // A duplicated tab can inherit sessionStorage. Ask other live documents
+    // before claiming that ID; refresh/navigation closes the old claimant.
+    let dashboardTabChannel = null;
+    let dashboardTabTimer = null;
+    let dashboardTabReady = typeof BroadcastChannel === 'undefined' || typeof setTimeout !== 'function';
+    let dashboardPageActive = true;
+    const dashboardDocumentOwner = globalThis.crypto?.randomUUID?.() ||
+      Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    function prepareDashboardTab() {
+      if (dashboardTabReady || dashboardTabChannel || !dashboardPageActive) return;
+      try {
+        const channel = new BroadcastChannel('network-monitor.dashboard-tabs');
+        dashboardTabChannel = channel;
+        const newIdentity = () => {
+          dashboardConnection = globalThis.crypto?.randomUUID?.() ||
+            'dashboard-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+          try { sessionStorage.setItem('network-monitor.dashboard-connection', dashboardConnection); }
+          catch (error) { /* The new identity remains valid for this document. */ }
+        };
+        channel.onmessage = event => {
+          const message = event.data;
+          if (!dashboardPageActive || !message || message.connection !== dashboardConnection ||
+              typeof message.owner !== 'string' || message.owner === dashboardDocumentOwner) return;
+          if (message.type === 'probe') {
+            // Deterministic arbitration also separates simultaneous cloned tabs.
+            if (!dashboardTabReady && message.owner < dashboardDocumentOwner) newIdentity();
+            else channel.postMessage({type:'occupied',connection:dashboardConnection,
+              owner:dashboardDocumentOwner,target:message.owner});
+          } else if (message.type === 'occupied' && message.target === dashboardDocumentOwner && !dashboardTabReady) {
+            newIdentity();
+          }
+        };
+        dashboardTabTimer = setTimeout(() => {
+          dashboardTabTimer = null;
+          dashboardTabReady = true;
+          connectAcknowledgementUpdates();
+        }, 150);
+        channel.postMessage({type:'probe',connection:dashboardConnection,owner:dashboardDocumentOwner});
+      } catch (error) {
+        dashboardTabChannel?.close();
+        dashboardTabChannel = null;
+        dashboardTabReady = true;
+      }
+    }
+    function releaseDashboardTab() {
+      dashboardPageActive = false;
+      if (dashboardTabTimer !== null) clearTimeout(dashboardTabTimer);
+      dashboardTabTimer = null;
+      dashboardTabChannel?.close();
+      dashboardTabChannel = null;
+      dashboardTabReady = typeof BroadcastChannel === 'undefined' || typeof setTimeout !== 'function';
+    }
+
     let acknowledgementStream = null;
     let acknowledgementRetryAt = 0;
     function connectAcknowledgementUpdates() {
-      if (acknowledgementStream || Date.now() < acknowledgementRetryAt || typeof EventSource === 'undefined') return;
-      const stream = new EventSource('/api/ack-events');
+      if (!dashboardPageActive || acknowledgementStream || Date.now() < acknowledgementRetryAt || typeof EventSource === 'undefined') return;
+      if (!dashboardTabReady) { prepareDashboardTab(); if (!dashboardTabReady) return; }
+      const stream = new EventSource('/api/ack-events?connection=' + encodeURIComponent(dashboardConnection));
       acknowledgementStream = stream;
       stream.onmessage = () => refresh().catch(report);
       stream.onerror = () => {
@@ -1415,11 +1469,13 @@
     });
     globalThis.addEventListener?.('focus', () => refresh().catch(report));
     globalThis.addEventListener?.('pagehide', () => {
+      releaseDashboardTab();
       acknowledgementStream?.close();
       acknowledgementStream = null;
     });
     globalThis.addEventListener?.('pageshow', event => {
       if (event.persisted) {
+        dashboardPageActive = true;
         connectAcknowledgementUpdates();
         refresh().catch(report);
       }

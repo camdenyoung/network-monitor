@@ -2022,7 +2022,7 @@ new vm.Script(script).runInContext(mainLiveContext);
 await mainLiveContext.initializeSession();
 mainLiveContext.connectAcknowledgementUpdates();
 assert.equal(mainLiveSources.length,1);
-assert.equal(mainLiveSources[0].url,'/api/ack-events');
+assert.match(mainLiveSources[0].url,/^\/api\/ack-events\?connection=[A-Za-z0-9-]{16,80}$/);
 sharedAcknowledged = true;
 sharedRevision = 1;
 await mainLiveSources[0].onmessage();
@@ -2126,7 +2126,7 @@ for (const [liveContext, sources] of [[mainLiveContext, mainLiveSources], [statu
 console.log('Failed/full streams retry after cooldown without duplicates or interrupting polling.');
 
 // Reload and dashboard navigation share tab storage; independent tabs do not.
-const tabIdentity = page => page.match(/const dashboardConnection = \(\(\) => \{[\s\S]+?\n    \}\)\(\);/)[0];
+const tabIdentity = page => page.match(/let dashboardConnection = \(\(\) => \{[\s\S]+?\n    \}\)\(\);/)[0];
 function identityFor(page, storage) {
   const browser = vm.createContext({sessionStorage:storage});
   new vm.Script(tabIdentity(page)).runInContext(browser);

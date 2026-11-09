@@ -257,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.2, Build 114. Show it after the title on both the main and
+Current displayed release is v0.6.2, Build 115. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -646,6 +646,21 @@ retaining ten-second polling. Stream slots always release in finally. Ordinary
 requests have a separate pre-thread limit of 32 and 30-second socket inactivity
 timeout, preserving sign-in/Admin capacity even with full stream slots. Counts
 and settings remain Admin-only; anonymous streams consume capacity normally.
+
+Build 115 keys /api/ack-events streams by the validated optional connection query
+ID (the existing browser tab identity). Reconnects reserve/reuse that slot even
+at capacity: cancel the previous socket, wake live_updates waiters without changing
+the revision, and wait at most one second for cleanup AND the actual worker exit.
+Only then start the replacement; timed-out handovers retain real capacity until
+the old worker exits. StreamLease handles isolate generations and delayed cleanup.
+The HTTP server releases registered leases after handler/socket cleanup; do not
+merely decrement the counter while an old worker is still waiting. Legacy clients
+without IDs get independent bounded slots. Browser BroadcastChannel arbitration
+separates duplicated sessionStorage identities before opening streams on both
+dashboards; pagehide releases claims and pageshow rechecks on cached restores.
+Keep the opaque IDs separate from authorization; all existing API roles/CSRF stay.
+Tests use normal 15s heartbeats and held upstream sockets at twenty-stream capacity,
+checking old thread exit, not just counts. Also run dashboard_stream.test.mjs.
 
 Store dashboard connection identity under network-monitor.dashboard-connection
 in sessionStorage on both dashboards. Reuse it on reload/navigation, validate

@@ -15,15 +15,57 @@ import test_access_notifications as support
 
 
 class ConnectionCounterTests(unittest.TestCase):
+    def test_handover_reserves_slot_and_old_cleanup_cannot_remove_replacement(self):
+        streams = connections.StreamConnections()
+        counts = []
+
+        def cancel():
+            counts.append(streams.counts(1)['connections'])
+            streams.release(first)
+            counts.append(streams.counts(1)['connections'])
+
+        first = streams.acquire(1, 'same-tab', cancel)
+        replacement = streams.acquire(1, 'same-tab')
+        self.assertIsNotNone(replacement)
+        self.assertTrue(first.stopped.is_set())
+        self.assertEqual(counts, [1, 1])
+        streams.release(first)
+        self.assertEqual(streams.counts(1)['connections'], 1)
+        streams.release(replacement)
+        self.assertEqual(streams.counts(1)['connections'], 0)
+
+    def test_stalled_handover_retains_real_capacity_and_eventual_cleanup(self):
+        streams = connections.StreamConnections()
+        first = streams.acquire(1, 'same-tab')
+        with patch.object(connections, 'HANDOVER_TIMEOUT', 0.01):
+            self.assertIsNone(streams.acquire(1, 'same-tab'))
+        self.assertTrue(first.stopped.is_set())
+        self.assertIsNone(streams.acquire(1, 'other-tab'))
+        streams.release(first)
+        self.assertIsNotNone(streams.acquire(1, 'same-tab'))
+
+    def test_a_stalled_thread_after_cleanup_still_occupies_its_slot(self):
+        streams = connections.StreamConnections()
+        thread = Mock()
+        thread.is_alive.return_value = True
+        first = streams.acquire(1, 'same-tab', thread=thread)
+        streams.release(first)
+        with patch.object(connections, 'HANDOVER_TIMEOUT', 0.01):
+            self.assertIsNone(streams.acquire(1, 'same-tab'))
+        self.assertEqual(streams.counts(1)['connections'], 1)
+        self.assertIsNone(streams.acquire(1, 'other-tab'))
+        thread.is_alive.return_value = False
+        self.assertIsNotNone(streams.acquire(1, 'other-tab'))
+
     def test_concurrent_admission_never_exceeds_limit_and_lowering_keeps_connections(self):
         streams = connections.StreamConnections()
         with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
             accepted = list(pool.map(lambda _: streams.acquire(20), range(100)))
-        self.assertEqual(sum(accepted), 20)
+        self.assertEqual(sum(lease is not None for lease in accepted), 20)
         self.assertEqual(streams.counts(10), {'connections': 20, 'connection_limit': 10})
         self.assertFalse(streams.acquire(10))
-        for _ in range(11):
-            streams.release()
+        for lease in [lease for lease in accepted if lease is not None][:11]:
+            streams.release(lease)
         self.assertTrue(streams.acquire(10))
         self.assertFalse(streams.acquire(10))
         self.assertTrue(streams.acquire(30))
@@ -46,6 +88,65 @@ class ConnectionSettingsTests(unittest.TestCase):
     tearDown = support.AccessAndNotificationTests.tearDown
     request = support.AccessAndNotificationTests.request
     create_operator = support.AccessAndNotificationTests.create_operator
+
+    def test_malformed_stream_identity_is_rejected_before_admission(self):
+        for query in ('connection=', 'connection=short', 'connection=%3Cscript%3E',
+                      'connection=' + 'x' * 81,
+                      'connection=valid-dashboard-id&connection=second-dashboard-id'):
+            self.assertEqual(self.request('/api/ack-events?' + query)['status'], 400)
+
+    def test_rapid_refresh_at_twenty_stream_capacity_stops_real_old_workers(self):
+        # Keep all old client/upstream sockets open deliberately, as a proxy
+        # may do. Use the real 15s heartbeat: replacement must wake it immediately.
+        streams = connections.StreamConnections()
+        clients, responses, retired = [], [], []
+        with patch.object(connections, 'streams', streams), patch.object(server.Handler, 'log_message'):
+            with server.MonitorHTTPServer(('127.0.0.1', 0), server.Handler) as httpd:
+                worker = threading.Thread(target=httpd.serve_forever, daemon=True)
+                worker.start()
+
+                def connect(key):
+                    client = http.client.HTTPConnection(*httpd.server_address, timeout=3)
+                    clients.append(client)
+                    client.request('GET', '/api/ack-events?connection=' + key)
+                    response = client.getresponse()
+                    responses.append(response)
+                    return response
+
+                try:
+                    for index in range(20):
+                        self.assertEqual(connect(f'dashboard-refresh-{index:02}').status, 200)
+                    self.assertEqual(streams.counts(20)['connections'], 20)
+                    self.assertEqual(connect('dashboard-different-tab').status, 503)
+                    responses[-1].read()
+                    for _ in range(15):
+                        with streams._lock:
+                            old = streams._slots['dashboard-refresh-00']
+                        started = time.monotonic()
+                        self.assertEqual(connect('dashboard-refresh-00').status, 200)
+                        self.assertLess(time.monotonic() - started, 2)
+                        self.assertFalse(old.thread.is_alive())
+                        retired.append(old.thread)
+                        self.assertEqual(streams.counts(20)['connections'], 20)
+                        with httpd._request_lock:
+                            self.assertEqual(len(httpd._stream_requests), 20)
+                    self.assertTrue(all(not thread.is_alive() for thread in retired))
+                finally:
+                    with streams._lock:
+                        leases = list(streams._slots.values())
+                    for lease in leases:
+                        lease.stop()
+                    for lease in leases:
+                        lease.thread.join(timeout=2)
+                        self.assertFalse(lease.thread.is_alive())
+                    for response in responses:
+                        response.close()
+                    for client in clients:
+                        client.close()
+                    httpd.shutdown()
+                    worker.join(timeout=2)
+                    self.assertEqual(streams.counts(20)['connections'], 0)
+
 
     def test_admin_csrf_bounded_values_and_committed_live_setting(self):
         token, operator = self.create_operator()
@@ -123,7 +224,7 @@ class ConnectionSettingsTests(unittest.TestCase):
             self.assertEqual(streams.counts(1)['connections'], expected)
 
         # Fast heartbeats detect real socket closure without a 15-second test wait.
-        def heartbeat(previous):
+        def heartbeat(previous, stopped=None):
             time.sleep(0.02)
             return previous
 
@@ -211,6 +312,7 @@ class ConnectionSettingsTests(unittest.TestCase):
         httpd = object.__new__(server.MonitorHTTPServer)
         httpd._request_lock = threading.Lock()
         httpd._requests = set(range(connections.REQUEST_LIMIT))
+        httpd._stream_requests = {}
         httpd.shutdown_request = Mock()
         request = Mock()
         with patch.object(server.ThreadingHTTPServer, 'process_request') as spawn:

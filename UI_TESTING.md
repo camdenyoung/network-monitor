@@ -54,6 +54,7 @@ python3 -m unittest discover -s tests -q
 python3 -m compileall -q app tools
 node tests/dashboard.test.mjs
 node tests/connection.test.mjs
+node tests/dashboard_stream.test.mjs
 node tests/host_view.test.mjs
 ```
 

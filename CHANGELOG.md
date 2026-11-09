@@ -4,6 +4,13 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 115 — v0.6.2
+
+- Reuse a dashboard tab's live connection slot on refresh, including at full capacity. Cancel the previous stream immediately and wait for its real worker to exit before replacement.
+- Keep stalled handovers bounded, retain their capacity until cleanup, and prevent delayed cleanup from removing a newer stream. Keep legacy clients and polling fallback available.
+- Separate duplicated tabs through browser identity arbitration; clean up claims on navigation and recheck them after cached-page restoration.
+- Verify rapid refreshes at twenty-stream capacity with normal heartbeats and retained upstream sockets, plus thread termination, stalled cleanup and dashboard lifecycle regressions.
+
 ### Build 114 — v0.6.2
 
 - Default live dashboard streams to 20, with an Admin-configurable 1–200 limit in the renamed Settings tab alongside issue reminders; preserve the setting in backups.

@@ -1613,10 +1613,16 @@ class MonitorHTTPServer(ThreadingHTTPServer):
     def __init__(self, *args, **kwargs):
         self._request_lock = threading.Lock()
         self._requests = set()
+        self._stream_requests = {}
         super().__init__(*args, **kwargs)
 
     def release_request(self, request):
         with self._request_lock:
+            self._requests.discard(request)
+
+    def register_stream(self, request, lease):
+        with self._request_lock:
+            self._stream_requests[request] = lease
             self._requests.discard(request)
 
     def process_request(self, request, client_address):
@@ -1645,6 +1651,12 @@ class MonitorHTTPServer(ThreadingHTTPServer):
             super().process_request_thread(request, client_address)
         finally:
             self.release_request(request)
+            with self._request_lock:
+                lease = self._stream_requests.pop(request, None)
+            if lease is not None:
+                # The handler has finished and its socket is closed. Handover
+                # waits for this signal AND joins the old thread before reuse.
+                connections.streams.release(lease)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1803,17 +1815,39 @@ class Handler(BaseHTTPRequestHandler):
 
         No issue IDs, projects, actors, credentials or metrics travel here.
         """
+        query = parse_qs(urlsplit(getattr(self, 'path', '/api/ack-events')).query, keep_blank_values=True)
+        keys = query.get('connection')
+        if keys is not None and (len(keys) != 1 or not isinstance(keys[0], str)
+                or not presence.CONNECTION_ID.fullmatch(keys[0])):
+            return self.send('{"error":"Invalid dashboard connection ID"}', status=400)
+        key = keys[0] if keys else None
+        managed = isinstance(getattr(self, 'server', None), MonitorHTTPServer)
+
+        def cancel():
+            # shutdown interrupts blocked writes even if a proxy retains the
+            # previous upstream socket; waking the condition interrupts waits.
+            try:
+                if managed:
+                    self.request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            finally:
+                live_updates.wake_waiters()
+
         # Serialize admission with Admin setting changes and database restore.
         # Reading the durable setting here also applies restores without restart.
         with LOCK, connect() as db:
-            admitted = connections.streams.acquire(connections.configured_limit(db))
-        if not admitted:
+            lease = connections.streams.acquire(connections.configured_limit(db), key, cancel,
+                                                threading.current_thread() if managed else None)
+        if not lease:
             # End immediately; the dashboard backs off before retrying, while
             # its normal ten-second refresh remains available.
             return self.send('{"error":"Live dashboard connection limit reached"}', status=503)
+        registered = False
         try:
-            if isinstance(getattr(self, 'server', None), MonitorHTTPServer):
-                self.server.release_request(self.request)
+            if managed:
+                self.server.register_stream(self.request, lease)
+                registered = True
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
             self.send_header('Cache-Control', 'no-store')
@@ -1823,8 +1857,10 @@ class Handler(BaseHTTPRequestHandler):
             # Initial state also refreshes reconnecting clients after missed events.
             self.wfile.write(('retry: 30000\ndata: ' + json.dumps({'revision': revision}) + '\n\n').encode())
             self.wfile.flush()
-            while True:
-                updated = live_updates.wait_for_change(revision)
+            while not lease.stopped.is_set():
+                updated = live_updates.wait_for_change(revision, stopped=lease.stopped)
+                if lease.stopped.is_set():
+                    break
                 payload = (': keepalive\n\n' if updated == revision else
                            'data: ' + json.dumps({'revision': updated}) + '\n\n')
                 self.wfile.write(payload.encode())
@@ -1834,16 +1870,17 @@ class Handler(BaseHTTPRequestHandler):
             # Disconnections are normal. Dashboards reconnect after a cooldown.
             pass
         finally:
-            connections.streams.release()
+            if not registered:
+                connections.streams.release(lease)
 
     def do_GET(self):
-        if self.path == '/api/ack-events':
+        page = urlsplit(self.path)
+        if page.path == '/api/ack-events':
             return self.stream_acknowledgement_changes()
         if self.path.startswith('/api/public-logo?'):
             return self.send_logo(public=True)
         if self.path == '/api/health':
             return self.send('{"ok":true}')
-        page = urlsplit(self.path)
         if page.path.startswith('/static/'):
             stylesheet = STYLESHEETS.get(page.path)
             if stylesheet is None:

@@ -1,4 +1,4 @@
-# Network Monitor v0.6.2 · Build 114
+# Network Monitor v0.6.2 · Build 115
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -10,6 +10,15 @@ from 1–200 (default 20). The Admin navigation badge shows **Connections: curre
 using the actual admitted live-update streams, including anonymous status viewers.
 Logged-in users remains a separate approximate count of distinct accounts active
 within 60 seconds. Polling-only tabs do not consume a live connection slot.
+
+Refreshing a dashboard replaces its previous live stream in the same slot, even
+when the limit is full. The server closes the old socket, wakes its waiting worker
+and waits for that thread to exit before admitting the replacement. A stalled
+handover is refused after one second and keeps its slot occupied until cleanup;
+normal polling continues. Older clients without a stream tab ID retain independent
+slots. Both dashboards use the existing per-tab sessionStorage identity, and
+BroadcastChannel separates duplicated tabs that inherit a copy of that storage.
+Without browser storage, refresh identity cannot survive a document reload.
 
 Additional tabs keep the ten-second dashboard refresh and retry live updates after
 a 30-second cooldown. Reducing the limit leaves existing streams open, so the count

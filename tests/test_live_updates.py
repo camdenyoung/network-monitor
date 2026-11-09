@@ -10,6 +10,17 @@ import test_access_notifications as support
 
 
 class LiveUpdateTests(unittest.TestCase):
+    def test_cancel_wakes_stream_without_a_data_revision_change(self):
+        import threading
+        stopped = threading.Event()
+        revision = live_updates.current_revision()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            waiting = pool.submit(live_updates.wait_for_change, revision, 15, stopped)
+            stopped.set()
+            live_updates.wake_waiters()
+            self.assertEqual(waiting.result(timeout=1), revision)
+        self.assertEqual(live_updates.current_revision(), revision)
+
     def test_all_waiters_observe_a_change_and_reconnect_gets_current_revision(self):
         original = live_updates.current_revision()
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
