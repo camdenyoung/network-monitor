@@ -984,7 +984,7 @@ class AccessAndNotificationTests(unittest.TestCase):
     def test_local_stylesheets_are_public_allowlisted_and_not_cached(self):
         for name in ('base', 'dashboard', 'status', 'auth'):
             handler = object.__new__(server.Handler)
-            handler.path = f'/static/css/{name}.css?v=108'
+            handler.path = f'/static/css/{name}.css?v=112'
             handler.headers = {}
             handler.wfile = io.BytesIO()
             result = {}
@@ -1003,8 +1003,8 @@ class AccessAndNotificationTests(unittest.TestCase):
         for name, stylesheet in (('index.html', 'dashboard'), ('status.html', 'status'),
                                   ('login.html', 'auth'), ('change-password.html', 'auth')):
             page = Path(server.__file__).with_name(name).read_text()
-            self.assertIn('/static/css/base.css?v=108', page)
-            self.assertIn(f'/static/css/{stylesheet}.css?v=108', page)
+            self.assertIn('/static/css/base.css?v=112', page)
+            self.assertIn(f'/static/css/{stylesheet}.css?v=112', page)
             self.assertNotIn('<style>', page)
             self.assertNotIn('style="max-width', page)
 

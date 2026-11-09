@@ -330,6 +330,11 @@ button.danger:hover {
     width: 800px;
 }
 
+/* Card status text surrounds this control; keep its label neutral in both views. */
+button[data-host-stability] {
+    color: var(--colour-text);
+}
+
 #service-edit-form {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
