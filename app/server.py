@@ -725,6 +725,7 @@ def poll_one(service, run):
         value, status = None, 'unreachable'
         # subprocess exceptions include command-line credentials; never persist them.
         error = type(exc).__name__
+    dashboard_changed = False
     with LOCK, connect() as db:
         # Discard in-flight results when the operator changes projects or restores.
         if setting(db, 'active_run') != str(run):
@@ -766,6 +767,7 @@ def poll_one(service, run):
                               (service['id'], run)).fetchone()
         if incident and (status == 'healthy' or incident['status'] != status):
             db.execute('UPDATE incidents SET closed=? WHERE id=?', (time.time(), incident['id']))
+            dashboard_changed = True
             if status == 'healthy' and not flap_event:
                 notifications.enqueue_incident(db, incident['id'], 'recovery')
             incident = None
@@ -778,11 +780,17 @@ def poll_one(service, run):
                 (next_record_id(db, 'incidents'), run, service['id'], observed_at, status, number,
                  value, 'Host unreachable' if service['kind'] == 'ping' and value is None else display_value(service, value), service['units'] if service['value_type'] == 'metric' else '',
                  observed_at, error))
+            dashboard_changed = True
             if not flap_event:
                 notifications.enqueue_incident(db, cursor.lastrowid, 'opened')
 
         if flap_event:
             notifications.enqueue_flap_event(db, service['id'], run, flap_event)
+            dashboard_changed = True
+    # Polling changes must be committed before listeners refetch their scoped
+    # state. Only meaningful issue changes signal; ordinary samples stay quiet.
+    if dashboard_changed:
+        live_updates.publish_monitoring_change()
 
 
 def poll_host(services, run):

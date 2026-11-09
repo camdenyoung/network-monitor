@@ -1,9 +1,18 @@
-# Network Monitor v0.6.2 · Build 116
+# Network Monitor v0.6.2 · Build 117
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 See [CHANGELOG.md](CHANGELOG.md) for build history and release notes.
+
+Connected dashboards refresh from live events when monitoring confirms an issue
+opening, severity change or recovery, and when a check enters/leaves flapping.
+Events follow the committed database change and coalesce monitoring bursts for up
+to one second. Acknowledgement and operational controls keep immediate events.
+Device polling and configured persistence still determine when a fault/recovery
+is confirmed; this does not make checks run faster. Ordinary readings and tabs
+without a live stream retain the ten-second dashboard refresh. Global notification
+pause does not pause dashboard updates.
 
 Admins can set **Settings → Dashboard connections → Maximum live connections**
 from 1–200 (default 20). The Admin navigation badge shows **Connections: current/maximum**

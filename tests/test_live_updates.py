@@ -2,6 +2,7 @@
 import concurrent.futures
 import io
 import json
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +11,61 @@ import test_access_notifications as support
 
 
 class LiveUpdateTests(unittest.TestCase):
+    def test_next_burst_cannot_postpone_an_existing_listener(self):
+        clock = [100.0]
+
+        def wait(seconds):
+            clock[0] += seconds
+            live_updates.publish_monitoring_change()
+
+        with patch.object(live_updates, '_monitoring_due', 0), \
+                patch.object(live_updates.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(live_updates._CHANGED, 'wait', side_effect=wait) as waiting:
+            before = live_updates.current_revision()
+            live_updates.publish_monitoring_change()
+            self.assertNotEqual(live_updates.wait_for_change(before), before)
+            self.assertEqual(waiting.call_count, 1)
+            self.assertEqual(clock[0], 101.0)
+
+    def test_monitoring_burst_uses_a_fixed_deadline_and_one_latest_revision(self):
+        clock = [100.0]
+        waits = []
+
+        def wait(seconds):
+            waits.append(seconds)
+            clock[0] += seconds
+
+        with patch.object(live_updates, '_monitoring_due', 0), \
+                patch.object(live_updates.time, 'monotonic', side_effect=lambda: clock[0]), \
+                patch.object(live_updates._CHANGED, 'wait', side_effect=wait):
+            before = live_updates.current_revision()
+            live_updates.publish_monitoring_change()
+            clock[0] = 100.6
+            live_updates.publish_monitoring_change()
+            latest = live_updates.current_revision()
+            self.assertEqual(live_updates._monitoring_due, 101.0)
+            self.assertEqual(live_updates.wait_for_change(before), latest)
+            self.assertEqual(len(waits), 1)
+            self.assertAlmostEqual(waits[0], 0.4)
+            # After the deadline, the next burst gets its own bounded window.
+            live_updates.publish_monitoring_change()
+            self.assertEqual(live_updates._monitoring_due, 102.0)
+
+    def test_interactive_change_and_stream_cancellation_interrupt_coalescing(self):
+        with patch.object(live_updates, '_monitoring_due', 0):
+            before = live_updates.current_revision()
+            live_updates.publish_monitoring_change()
+            with patch.object(live_updates._CHANGED, 'wait', side_effect=lambda _: live_updates.publish_dashboard_change()) as wait:
+                self.assertNotEqual(live_updates.wait_for_change(before), before)
+                self.assertEqual(wait.call_count, 1)
+                self.assertEqual(live_updates._monitoring_due, 0)
+            before = live_updates.current_revision()
+            live_updates.publish_monitoring_change()
+            stopped = threading.Event()
+            with patch.object(live_updates._CHANGED, 'wait', side_effect=lambda _: stopped.set()) as wait:
+                live_updates.wait_for_change(before, stopped=stopped)
+                self.assertEqual(wait.call_count, 1)
+
     def test_cancel_wakes_stream_without_a_data_revision_change(self):
         import threading
         stopped = threading.Event()
@@ -155,3 +211,110 @@ class ControlLiveUpdateTests(unittest.TestCase):
         self.assertEqual(results[0][0], results[1][0])
         self.assertNotIn('access_scope', results[0][1])
         self.assertEqual(results[1][1]['access_scope'], {'project': 1, 'run': 1})
+
+
+class PollingLiveUpdateTests(unittest.TestCase):
+    tearDown = support.AccessAndNotificationTests.tearDown
+    create_host = support.AccessAndNotificationTests.create_host
+    request = support.AccessAndNotificationTests.request
+
+    def setUp(self):
+        support.AccessAndNotificationTests.setUp(self)
+        host = self.create_host()
+        with patch.object(server, 'read_metric', return_value=1):
+            server.poll_one(host, 1)
+            server.poll_one(host, 1)
+        server.mutate('service', {'assignment': 1, 'name': 'RSSI', 'kind': 'snmp',
+                                  'target': '.1.2.3', 'direction': 'below', 'warning': '-65', 'critical': '-75'})
+        with server.connect() as db:
+            self.service = dict(db.execute('''SELECT s.*, d.address FROM services s
+                JOIN assignments a ON a.id=s.assignment JOIN devices d ON d.id=a.device
+                WHERE s.kind='snmp' ''').fetchone())
+
+    def poll(self, value):
+        with patch.object(server, 'read_metric', return_value=value):
+            server.poll_one(self.service, 1)
+
+    def test_issue_open_severity_and_recovery_signal_only_after_commit(self):
+        committed = []
+
+        def observe():
+            # Use a second DB connection: no event may precede committed issue,
+            # evidence, samples, severity replacement or recovery records.
+            with server.connect() as db:
+                committed.append([(row['number'], row['status'], bool(row['closed']), row['trigger_value'])
+                    for row in db.execute('SELECT * FROM incidents ORDER BY id')])
+
+        with patch.object(live_updates, 'publish_monitoring_change', side_effect=observe):
+            self.poll(-55); self.poll(-55)
+            self.poll(-70)
+            self.assertEqual(committed, [])  # Persistence is still required.
+            self.poll(-70)
+            self.assertEqual(committed[-1], [(1, 'warning', False, -70)])
+            self.poll(-71)
+            self.assertEqual(len(committed), 1)  # Same issue, new numeric reading.
+            self.poll(-80); self.poll(-80)
+            self.assertEqual(committed[-1], [(1, 'warning', True, -70), (2, 'critical', False, -80)])
+            self.poll(-55); self.poll(-55)
+            self.assertEqual(committed[-1], [(1, 'warning', True, -70), (2, 'critical', True, -80)])
+            self.assertEqual(len(committed), 3)
+
+    def test_no_signal_on_rollback_blocked_reads_or_invalidated_results(self):
+        self.poll(-80)
+        with server.connect() as db:
+            samples = db.execute('SELECT COUNT(*) FROM samples').fetchone()[0]
+        with patch.object(live_updates, 'publish_monitoring_change') as publish:
+            with patch.object(server.notifications, 'enqueue_incident', side_effect=RuntimeError('Rollback')):
+                with self.assertRaises(RuntimeError):
+                    self.poll(-80)
+            with server.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM samples').fetchone()[0], samples)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM incidents').fetchone()[0], 0)
+            with patch.object(server, 'host_is_up', return_value=False):
+                self.poll(-80)
+            with patch.object(server, 'read_metric', side_effect=lambda _: server.mutate('pause', {}) or -80):
+                server.poll_one(self.service, 1)
+            publish.assert_not_called()
+
+    def test_committed_issue_wakes_admin_viewer_and_public_views_with_notifications_muted(self):
+        server.mutate('notification-pause', {'paused': True})
+        revision = live_updates.current_revision()
+
+        def dashboard(path, token=None):
+            updated = live_updates.wait_for_change(revision, timeout=3)
+            return updated, json.loads(self.request(path, token=token)['content'])
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            clients = [pool.submit(dashboard, '/api/state', self.admin_token),
+                       pool.submit(dashboard, '/api/state', self.viewer_token),
+                       pool.submit(dashboard, '/api/status')]
+            self.poll(-80); self.poll(-80)
+            results = [client.result(timeout=4) for client in clients]
+        self.assertTrue(all(updated != revision for updated, _ in results))
+        self.assertEqual(len({updated for updated, _ in results}), 1)
+        self.assertEqual(len(results[0][1]['incident_lists']['active']), 1)
+        self.assertEqual(len(results[1][1]['incident_lists']['active']), 1)
+        public = results[2][1]
+        self.assertEqual(len(public['incidents']), 1)
+        self.assertNotIn('address', json.dumps(public))
+        self.assertEqual(results[1][1]['service_templates'], [])
+
+    def test_flap_stabilization_signals_without_a_new_or_resolved_issue(self):
+        with server.connect() as db:
+            db.execute('UPDATE services SET persistence=1,flap_changes=2,flap_stable=1 WHERE id=?',
+                       (self.service['id'],))
+        self.service.update(persistence=1, flap_changes=2, flap_stable=1)
+        self.poll(-55); self.poll(-80); self.poll(-55)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT flapping FROM check_stability WHERE service=?',
+                                        (self.service['id'],)).fetchone()[0], 1)
+            db.execute('UPDATE check_stability SET stable_since=? WHERE service=?',
+                       (server.time.time() - 61, self.service['id']))
+            issues_before = [tuple(row) for row in db.execute('SELECT id,closed FROM incidents')]
+        with patch.object(live_updates, 'publish_monitoring_change') as publish:
+            self.poll(-55)
+            publish.assert_called_once_with()
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT flapping FROM check_stability WHERE service=?',
+                                        (self.service['id'],)).fetchone()[0], 0)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT id,closed FROM incidents')], issues_before)

@@ -257,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.2, Build 116. Show it after the title on both the main and
+Current displayed release is v0.6.2, Build 117. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -1120,3 +1120,14 @@ requests and rollbacks emit nothing. Keep /api/ack-events and browser handler na
 compatible: the stream is now a general dashboard invalidation, still only an opaque
 revision. Reuse the existing coalescing, reconnect/focus and 10-second polling fallback.
 Do not change metric polling, role scope or Admin local configuration selection.
+
+Build 117 also signals committed polling-driven issue open/close/severity and
+flap transitions through live_updates.publish_monitoring_change. Signal only after
+the write transaction/monitor lock exits; blocked, unconfirmed, invalidated and
+rolled-back reads do not emit issue-change events. Keep existing persistence,
+polling cadence, evidence, acknowledgements and provider notification rules.
+Existing SSE waiters coalesce monitoring bursts for at most one second, without
+timers or new worker threads; capture their pending deadline so sustained changes
+cannot postpone delivery. Interactive publish_dashboard_change clears the delay,
+and cancellation wakes immediately. Keep ordinary readings quiet and ten-second
+polling as fallback; global provider mute never gates dashboard synchronization.

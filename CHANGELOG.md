@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 117 — v0.6.2
+
+- Send live dashboard invalidations after committed, confirmed issue openings, severity changes, recoveries and flap transitions, independently of provider notification pause.
+- Coalesce monitoring bursts into a one-second window in existing stream waiters, without extra timers/threads. Keep interactive events immediate and stream cancellation responsive.
+- Verify post-commit visibility across Admin, View Only and public views; retain persistence, quiet ordinary samples and no events for rollback/blocked/invalidated reads.
+
 ### Build 116 — v0.6.2
 
 - Resolve duplicate-tab identity conflicts after the startup wait as well as during it, using document age and a unique-owner tie-breaker. Close the losing stream and ignore stale callbacks.
