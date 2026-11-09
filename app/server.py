@@ -19,7 +19,7 @@ import threading
 import time
 import hmac
 from contextlib import closing, contextmanager
-from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer, backups, access
+from . import auth, notifications, logos, service_library, stability, live_updates, presence, project_deletion, history, resolved, inventory_transfer, backups, access, connections
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DATA = Path(os.environ.get('MONITOR_DATA', './data'))
@@ -91,6 +91,7 @@ def initialize():
         ''')
         db.execute("INSERT OR IGNORE INTO settings VALUES ('retention_days','30')")
         db.execute("INSERT OR IGNORE INTO settings VALUES ('session_hours','12')")
+        connections.ensure_settings(db)
         db.execute("INSERT OR IGNORE INTO settings VALUES ('active_run','0')")
         # Older releases stored only active_run=0 when paused; their most recent
         # deployment is the one that can be resumed after upgrading.
@@ -1303,6 +1304,12 @@ def mutate(action, body, actor=None):
             if type(hours) is not int or not 1 <= hours <= 168:
                 raise ValueError('Session duration must be 1–168 whole hours')
             db.execute("INSERT OR REPLACE INTO settings VALUES ('session_hours',?)", (str(hours),))
+        elif action == 'connection-settings':
+            maximum = body['maximum']
+            if type(maximum) is not int or not 1 <= maximum <= connections.MAX_LIMIT:
+                raise ValueError('Connection limit must be 1–200 whole connections')
+            dashboard_changed = connections.configured_limit(db) != maximum
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('dashboard_connection_limit',?)", (str(maximum),))
         elif action == 'retention':
             days = int(body['days'])
             if not 1 <= days <= 3650:
@@ -1555,6 +1562,7 @@ def prepare_restored_database(candidate):
                           (setting(candidate, 'active_run'),))
     candidate.execute("INSERT OR IGNORE INTO settings VALUES ('paused_run','0')")
     candidate.execute("UPDATE settings SET value='0' WHERE key='active_run'")
+    connections.ensure_settings(candidate)
     migrate_inventory_addresses(candidate)
     migrate_service_lifecycle(candidate)
     project_deletion.ensure_table(candidate)
@@ -1593,7 +1601,57 @@ def prepare_restored_database(candidate):
     candidate.commit()
 
 
+class MonitorHTTPServer(ThreadingHTTPServer):
+    """Reserve short-request capacity even when all dashboard streams are in use.
+
+    Admission happens before creating a thread. Once a stream has its own slot,
+    it leaves this pool; slow headers/bodies cannot create unbounded threads.
+    """
+
+    request_queue_size = connections.REQUEST_LIMIT
+
+    def __init__(self, *args, **kwargs):
+        self._request_lock = threading.Lock()
+        self._requests = set()
+        super().__init__(*args, **kwargs)
+
+    def release_request(self, request):
+        with self._request_lock:
+            self._requests.discard(request)
+
+    def process_request(self, request, client_address):
+        with self._request_lock:
+            admitted = len(self._requests) < connections.REQUEST_LIMIT
+            if admitted:
+                self._requests.add(request)
+        if not admitted:
+            try:
+                request.settimeout(1)
+                request.sendall(b'HTTP/1.0 503 Service Unavailable\r\n'
+                                b'Content-Length: 0\r\nRetry-After: 30\r\nConnection: close\r\n\r\n')
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.release_request(request)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.release_request(request)
+
+
 class Handler(BaseHTTPRequestHandler):
+    # An inactivity deadline, not a total upload/download duration. Streams send
+    # heartbeats every 15 seconds, and active large backups can still complete.
+    timeout = connections.REQUEST_TIMEOUT
+
     def send(self, content, mime='application/json', status=200, filename=None):
         if not isinstance(content, bytes):
             content = content.encode()
@@ -1601,6 +1659,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(content)))
         self.send_header('Cache-Control', 'no-store')
+        if status == 503:
+            self.send_header('Retry-After', '30')
         if filename:
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
         self.send_header('X-Content-Type-Options', 'nosniff')
@@ -1743,15 +1803,25 @@ class Handler(BaseHTTPRequestHandler):
 
         No issue IDs, projects, actors, credentials or metrics travel here.
         """
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/event-stream')
-        self.send_header('Cache-Control', 'no-store')
-        self.send_header('X-Accel-Buffering', 'no')
-        self.end_headers()
-        revision = live_updates.current_revision()
+        # Serialize admission with Admin setting changes and database restore.
+        # Reading the durable setting here also applies restores without restart.
+        with LOCK, connect() as db:
+            admitted = connections.streams.acquire(connections.configured_limit(db))
+        if not admitted:
+            # End immediately; the dashboard backs off before retrying, while
+            # its normal ten-second refresh remains available.
+            return self.send('{"error":"Live dashboard connection limit reached"}', status=503)
         try:
+            if isinstance(getattr(self, 'server', None), MonitorHTTPServer):
+                self.server.release_request(self.request)
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Accel-Buffering', 'no')
+            self.end_headers()
+            revision = live_updates.current_revision()
             # Initial state also refreshes reconnecting clients after missed events.
-            self.wfile.write(('retry: 1000\ndata: ' + json.dumps({'revision': revision}) + '\n\n').encode())
+            self.wfile.write(('retry: 30000\ndata: ' + json.dumps({'revision': revision}) + '\n\n').encode())
             self.wfile.flush()
             while True:
                 updated = live_updates.wait_for_change(revision)
@@ -1761,8 +1831,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
                 revision = updated
         except OSError:
-            # Disconnections are normal. EventSource reconnects automatically.
+            # Disconnections are normal. Dashboards reconnect after a cooldown.
             pass
+        finally:
+            connections.streams.release()
 
     def do_GET(self):
         if self.path == '/api/ack-events':
@@ -1854,6 +1926,8 @@ class Handler(BaseHTTPRequestHandler):
                     sessions = dict(db.execute('SELECT csrf,user_id FROM sessions WHERE expires>?',
                                                (time.time(),)))
                 state['dashboard_presence'] = presence.tracker.counts(sessions)
+                with LOCK, connect() as db:
+                    state['dashboard_presence'].update(connections.streams.counts(connections.configured_limit(db)))
                 with connect() as db:
                     state['project_deletions'] = [dict(row) for row in db.execute(
                         'SELECT * FROM project_deletions ORDER BY id DESC LIMIT 20')]
@@ -2041,4 +2115,4 @@ if __name__ == '__main__':
     threading.Thread(target=project_deletion.worker, args=(connect, LOCK), daemon=True).start()
     threading.Thread(target=notifications.worker, args=(connect, LOCK, host_is_up), daemon=True).start()
     print('Local monitor listening on port 8080', flush=True)
-    ThreadingHTTPServer((os.environ.get('MONITOR_HOST', '0.0.0.0'), 8080), Handler).serve_forever()
+    MonitorHTTPServer((os.environ.get('MONITOR_HOST', '0.0.0.0'), 8080), Handler).serve_forever()

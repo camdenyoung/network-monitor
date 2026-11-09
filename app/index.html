@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.2 · Build 113</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.2 · Build 114</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -21,7 +21,7 @@
   <nav id="account-nav" class="toolbar account-nav">
     <span id="signed-in" class="user-badge"></span>
     <span id="dashboard-presence" data-admin class="user-badge" role="status"
-      title="Activity in the last 60 seconds. Connections count dashboard tabs, including anonymous Status Dashboard viewers. Logged-in users count distinct accounts with valid sessions.">Logged-in users: — · Connections: —</span>
+      title="Connections show current live dashboard streams / configured maximum, including anonymous Status Dashboard viewers. Logged-in users count distinct accounts with valid sessions active in the last 60 seconds.">Logged-in users: — · Connections: —/—</span>
     <div id="account-actions" class="account-actions">
       <a class="button-link" href="/status" target="_blank">Status Dashboard</a>
       <button id="logout">Sign out</button>
@@ -201,7 +201,7 @@
     <button id="toggle-permanent-inventory" aria-controls="permanent-inventory" aria-expanded="false" aria-selected="false">Permanent inventory</button>
     <button id="toggle-service-library-panel" aria-controls="service-library-panel" aria-expanded="false" aria-selected="false">Reusable service library</button>
     <button id="toggle-user-management-panel" aria-controls="user-management-panel" aria-expanded="false" aria-selected="false">User management</button>
-    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Issue reminders</button>
+    <button id="toggle-reminder-panel" aria-controls="reminder-panel" aria-expanded="false" aria-selected="false">Settings</button>
     <button id="toggle-telegram-panel" aria-controls="telegram-panel" aria-expanded="false" aria-selected="false">Telegram notifications</button>
     <button id="toggle-whatsapp-panel" aria-controls="whatsapp-panel" aria-expanded="false" aria-selected="false">WhatsApp Business notifications</button>
     <button id="toggle-backup-panel" aria-controls="backup-panel" aria-expanded="false" aria-selected="false">Backup, restore, and retention</button>
@@ -296,7 +296,17 @@
     <p id="session-settings-feedback" class="form-feedback" role="status"></p>
   </section></div>
   <div data-admin id="reminder-panel" hidden><section>
-    <h2>Issue reminders</h2>
+    <h2>Settings</h2>
+    <h3>Dashboard connections</h3>
+    <p>Limit simultaneous live dashboard connections, including anonymous Status Dashboard viewers.
+      Additional tabs continue refreshing every ten seconds. Lowering the limit keeps existing
+      connections open and blocks new live connections until space is available.</p>
+    <form id="connection-settings-form">
+      <label>Maximum live connections<input name="maximum" type="number" min="1" max="200" step="1" value="20" required></label>
+      <button>Save connection limit</button>
+    </form>
+    <p id="connection-settings-feedback" class="form-feedback" role="status"></p>
+    <h3>Issue reminders</h3>
     <p>Repeat notifications for active, unacknowledged issues through enabled Telegram and WhatsApp Business channels.
       Reminders stop when acknowledged or recovered. Paused, stale or suppressed checks do not send reminders.</p>
     <form id="reminder-settings-form">
@@ -921,6 +931,7 @@
     const roleLabels = {admin: 'Admin', operator: 'Operator', viewer: 'View Only'};
     let users = [];
     let sessionSettingsLoaded = false;
+    let connectionSettingsLoaded = false;
     let reminderSettingsLoaded = false;
     let telegramLoaded = false;
     let whatsappLoaded = false;
@@ -1057,7 +1068,7 @@
       ['permanent-inventory', 'Permanent inventory'],
       ['service-library-panel', 'Reusable service library'],
       ['user-management-panel', 'User management'],
-      ['reminder-panel', 'Issue reminders'],
+      ['reminder-panel', 'Settings'],
       ['telegram-panel', 'Telegram notifications'],
       ['whatsapp-panel', 'WhatsApp Business notifications'],
       ['backup-panel', 'Backup, restore, and retention'],
@@ -1381,11 +1392,20 @@
     }
 
     let acknowledgementStream = null;
+    let acknowledgementRetryAt = 0;
     function connectAcknowledgementUpdates() {
-      if (acknowledgementStream || typeof EventSource === 'undefined') return;
-      acknowledgementStream = new EventSource('/api/ack-events');
-      acknowledgementStream.onmessage = () => refresh().catch(report);
-      // EventSource retries broken connections; ordinary polling remains a fallback.
+      if (acknowledgementStream || Date.now() < acknowledgementRetryAt || typeof EventSource === 'undefined') return;
+      const stream = new EventSource('/api/ack-events');
+      acknowledgementStream = stream;
+      stream.onmessage = () => refresh().catch(report);
+      stream.onerror = () => {
+        if (acknowledgementStream !== stream) return;
+        stream.close();
+        acknowledgementStream = null;
+        // A rejected/full stream must not retry rapidly. Normal refresh and
+        // focus handling reconnect after this cooldown without extra timers.
+        acknowledgementRetryAt = Date.now() + 30000;
+      };
     }
     document.addEventListener?.('visibilitychange', () => {
       if (!document.hidden) {
@@ -1425,8 +1445,8 @@
       }
       const presence = state.dashboard_presence;
       el('dashboard-presence').textContent = presence
-        ? `Logged-in users: ${presence.logged_in_users} · Connections: ${presence.connections}`
-        : 'Logged-in users: — · Connections: —';
+        ? `Logged-in users: ${presence.logged_in_users} · Connections: ${presence.connections}/${presence.connection_limit}`
+        : 'Logged-in users: — · Connections: —/—';
       if (!reminderSettingsLoaded) {
         el('reminder-settings-form').elements.namedItem('minutes').value = state.settings.reminder_minutes || '0';
         reminderSettingsLoaded = true;
@@ -1434,6 +1454,10 @@
       if (!sessionSettingsLoaded) {
         el('session-settings-form').elements.namedItem('hours').value = state.settings.session_hours || '12';
         sessionSettingsLoaded = true;
+      }
+      if (!connectionSettingsLoaded) {
+        el('connection-settings-form').elements.namedItem('maximum').value = state.settings.dashboard_connection_limit || '20';
+        connectionSettingsLoaded = true;
       }
       const run = state.runs.find(row => row.id === Number(state.settings.active_run));
       const pausedRun = state.runs.find(row => row.id === Number(state.settings.paused_run));
@@ -3317,6 +3341,20 @@
         await refresh();
         el('session-settings-feedback').textContent = 'Session duration saved. Applies to new sign-ins.';
       } catch (error) { el('session-settings-feedback').textContent = error.message; }
+      finally { button.disabled = false; }
+    };
+
+    el('connection-settings-form').onsubmit = async event => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      if (button.disabled) return;
+      button.disabled = true;
+      try {
+        await request('connection-settings', {maximum: Number(event.target.elements.namedItem('maximum').value)});
+        connectionSettingsLoaded = false;
+        await refresh();
+        el('connection-settings-feedback').textContent = 'Connection limit saved. Existing live connections remain open.';
+      } catch (error) { el('connection-settings-feedback').textContent = error.message; }
       finally { button.disabled = false; }
     };
 

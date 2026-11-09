@@ -257,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.2, Build 113. Show it after the title on both the main and
+Current displayed release is v0.6.2, Build 114. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -634,6 +634,18 @@ against current nonexpired sessions before counting users; never expose IDs/toke
 or counts on public/status or non-Admin state responses. No new DB writes or
 session-lifetime extension. Counts rebuild after restart and are approximate;
 multiple tabs count as multiple connections. UI is a top navigation badge for Admins.
+Build 114 supersedes the badge's approximate connection count: use the actual
+admitted live-update stream count from app/connections.py and display current/limit.
+The presence tracker still supplies the distinct active-account count only.
+Default dashboard_connection_limit=20, Admin/CSRF configurable 1–200 in Settings
+(legacy reminder-panel/tab IDs), alongside issue reminders. Preserve drafts and
+the setting on restart and backup/restore; legacy databases get the default.
+Lowering the limit retains existing streams. Overflow receives 503; both dashboards
+close failed EventSources and retry via normal refresh/focus after 30 seconds,
+retaining ten-second polling. Stream slots always release in finally. Ordinary
+requests have a separate pre-thread limit of 32 and 30-second socket inactivity
+timeout, preserving sign-in/Admin capacity even with full stream slots. Counts
+and settings remain Admin-only; anonymous streams consume capacity normally.
 
 Store dashboard connection identity under network-monitor.dashboard-connection
 in sessionStorage on both dashboards. Reuse it on reload/navigation, validate

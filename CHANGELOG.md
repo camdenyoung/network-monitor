@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 114 — v0.6.2
+
+- Default live dashboard streams to 20, with an Admin-configurable 1–200 limit in the renamed Settings tab alongside issue reminders; preserve the setting in backups.
+- Show actual live connections/configured maximum in the Admin badge. Keep polling available above capacity and back off stream retries for 30 seconds.
+- Bound ordinary HTTP request threads separately, add socket inactivity timeouts, and release connection slots on disconnects and response errors.
+
 ### Build 113 — v0.6.2
 
 - Merge the Host flap protection button colour fix: keep the standard white label in Cards and List views, independently of host status.

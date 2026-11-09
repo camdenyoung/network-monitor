@@ -30,8 +30,10 @@ class LiveUpdateTests(unittest.TestCase):
         handler.send_response = statuses.append
         handler.send_header = lambda key, value: headers.update({key: value})
         handler.end_headers = lambda: None
-        with patch.object(live_updates, 'current_revision', return_value='first-revision'), \
+        with patch.object(server, 'connect') as connect, \
+                patch.object(live_updates, 'current_revision', return_value='first-revision'), \
                 patch.object(live_updates, 'wait_for_change', side_effect=['first-revision', 'next-revision', OSError()]):
+            connect.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = ('20',)
             handler.do_GET()
         text = handler.wfile.getvalue().decode()
         self.assertEqual(statuses, [200])

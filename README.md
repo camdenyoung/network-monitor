@@ -1,9 +1,28 @@
-# Network Monitor v0.6.2 · Build 113
+# Network Monitor v0.6.2 · Build 114
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 See [CHANGELOG.md](CHANGELOG.md) for build history and release notes.
+
+Admins can set **Settings → Dashboard connections → Maximum live connections**
+from 1–200 (default 20). The Admin navigation badge shows **Connections: current/maximum**
+using the actual admitted live-update streams, including anonymous status viewers.
+Logged-in users remains a separate approximate count of distinct accounts active
+within 60 seconds. Polling-only tabs do not consume a live connection slot.
+
+Additional tabs keep the ten-second dashboard refresh and retry live updates after
+a 30-second cooldown. Reducing the limit leaves existing streams open, so the count
+can temporarily exceed the new maximum; new streams wait for capacity. Changes take
+effect without restart and are included in complete/configuration backups. Older
+databases/backups default to 20. Issue reminders now share the **Settings** tab.
+
+Live streams have a separate allocation from 32 short-lived HTTP request slots, so
+filling the stream limit still leaves capacity for sign-in, readings and Admin
+actions. Slow/inactive socket reads and writes time out after 30 seconds; this is
+an inactivity limit, not the total duration of an active backup transfer. This
+bounds request threads, not the total number of viewers or dashboard refresh work.
+The default is a capacity guard, not a measured Raspberry Pi performance guarantee.
 
 ## Start with Docker Compose
 

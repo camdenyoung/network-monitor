@@ -883,6 +883,34 @@ assert.equal(sessionSettingsForm.elements.namedItem('hours').value, '24');
 assert.match(element('session-settings-feedback').textContent, /Applies to new sign-ins/);
 console.log('Admin session-duration form preserves edits and saves the configured lifetime.');
 
+// Settings hosts the connection limit and reminders, retaining its legacy panel ID.
+assert.match(html, /id="toggle-reminder-panel"[^>]*>Settings<\/button>/);
+assert.match(html, /id="reminder-panel"[\s\S]*?<h2>Settings<\/h2>[\s\S]*?id="connection-settings-form"[\s\S]*?id="reminder-settings-form"/);
+const connectionSettingsForm = element('connection-settings-form');
+connectionSettingsForm.elements.namedItem('maximum').value = '40';
+await namedMain.refresh();
+assert.equal(connectionSettingsForm.elements.namedItem('maximum').value, '40');
+let rejectConnectionSettings = true;
+let savedConnectionLimit;
+namedMain.fetch = async (path, options) => {
+    if (path === '/api/connection-settings') {
+        savedConnectionLimit = JSON.parse(options.body).maximum;
+        if (rejectConnectionSettings) return {ok:false,json:async () => ({error:'Cannot save connection limit'})};
+        fixture.settings.dashboard_connection_limit = String(savedConnectionLimit);
+        return {ok:true,json:async () => ({ok:true})};
+    }
+    return originalNamedFetch(path, options);
+};
+await connectionSettingsForm.onsubmit({preventDefault(){},target:connectionSettingsForm});
+assert.equal(savedConnectionLimit,40);
+assert.equal(connectionSettingsForm.elements.namedItem('maximum').value,'40');
+assert.equal(element('connection-settings-feedback').textContent,'Cannot save connection limit');
+rejectConnectionSettings = false;
+await connectionSettingsForm.onsubmit({preventDefault(){},target:connectionSettingsForm});
+assert.equal(connectionSettingsForm.elements.namedItem('maximum').value,'40');
+assert.match(element('connection-settings-feedback').textContent,/Connection limit saved/);
+console.log('Settings connection limit preserves drafts and errors and saves the Admin-configured maximum.');
+
 let adminAcknowledgementRequests = 0;
 let rejectAdminAcknowledgement = false;
 namedMain.fetch = async (path, options) => {
@@ -2064,18 +2092,38 @@ mainLiveContext.fetch = async (path, options) => {
   presenceRequests.push({path, options});
   const response = await originalPresenceFetch(path, options);
   return {ok:true, json:async () => ({...await response.json(),
-    dashboard_presence:{logged_in_users:2,connections:4,activity_window_seconds:60}})};
+    dashboard_presence:{logged_in_users:2,connections:4,connection_limit:20,activity_window_seconds:60}})};
 };
 await mainLiveContext.refresh();
 await mainLiveContext.refresh();
-assert.equal(element('dashboard-presence').textContent, 'Logged-in users: 2 · Connections: 4');
+assert.equal(element('dashboard-presence').textContent, 'Logged-in users: 2 · Connections: 4/20');
 const presenceHeaders = presenceRequests.filter(row => row.path === '/api/state')
   .map(row => row.options.headers['X-Dashboard-Connection']);
 assert.equal(presenceHeaders.length,2);
 assert.equal(presenceHeaders[0],presenceHeaders[1]);
 assert.match(presenceHeaders[0],/^[A-Za-z0-9-]{16,80}$/);
 assert.match(statusPage,/dashboardFetch\('\/api\/status', \{headers: \{'X-Dashboard-Connection': dashboardConnection\}\}\)/);
-console.log('Presence badge shows separate account/tab counts with a stable polling identity.');
+console.log('Presence badge shows live streams/configured capacity separately from account presence.');
+
+// Both dashboards back off failed/full streams while ordinary refresh continues.
+for (const [liveContext, sources] of [[mainLiveContext, mainLiveSources], [statusLiveContext, statusLiveSources]]) {
+  const oldStream = sources.at(-1);
+  oldStream.onerror();
+  const before = sources.length;
+  await liveContext.refresh();
+  liveContext.connectAcknowledgementUpdates();
+  assert.equal(sources.length, before);
+  vm.runInContext('acknowledgementRetryAt = Date.now() - 1', liveContext);
+  await liveContext.refresh();
+  assert.equal(sources.length, before + 1);
+  liveContext.connectAcknowledgementUpdates();
+  assert.equal(sources.length, before + 1);
+  // A delayed error from an old connection cannot close its replacement.
+  oldStream.onerror();
+  liveContext.connectAcknowledgementUpdates();
+  assert.equal(sources.length, before + 1);
+}
+console.log('Failed/full streams retry after cooldown without duplicates or interrupting polling.');
 
 // Reload and dashboard navigation share tab storage; independent tabs do not.
 const tabIdentity = page => page.match(/const dashboardConnection = \(\(\) => \{[\s\S]+?\n    \}\)\(\);/)[0];
