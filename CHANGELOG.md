@@ -4,6 +4,13 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 121 — v0.6.4
+
+- Combine the project-instruction reorganisation and toast fixes into main, preserving both branch histories and the Build 120 changes.
+- Keep AGENTS.md below 8 KiB with ten focused requirements documents and the full 188-block migration audit. Retain newer confirmed-action feedback and top-right circular dismissal requirements in the forms document.
+- Include consistent success toasts, separate refresh warnings, deployment resubmission protection and the centred SVG close button, with the existing inline-only action exceptions.
+- Synchronize both dashboard labels, README and current version context. Retain detailed build notes here and preserve existing release tags.
+
 ### Build 120 — v0.6.3
 
 - Confirm successful Settings, account, provider, library-import and inventory-default saves with one toast alongside inline feedback. Provider tests/retries report queueing; keep acknowledgement, navigation and display-only flows free of save toasts.
@@ -819,3 +826,73 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 - Initial tagged baseline: SNMP/Modbus monitoring, reusable project inventory and services,
   thresholds, issue acknowledgement, dashboards, user roles, notifications and SQLite backup/restore.
 
+
+## Historical implementation context moved from AGENTS.md
+
+These records preserve earlier implementation scope and observations. They are
+historical evidence, not current instructions. Current requirements live under
+[docs/requirements](docs/requirements/README.md); the migration audit records each
+source block. Later outcomes in this section take precedence over the earlier
+observations they qualify.
+
+<a id="instruction-history-r175"></a>
+
+### Earlier Chrome/iCloud diagnostics
+
+Chrome/iCloud diagnostics on 7 November 2026 reproduced Enter cancellation with
+the extension's cachedIsCompletionListVisible=true. Its document keydown handler
+calls preventDefault for Enter while suggestions are marked visible/requested.
+Escape cleared both flags and native submission worked; refocusing also worked
+in one test. Separating forms did not fix Enter or saving. Do not claim credential
+saving is fixed or add a blind Enter handler that submits while choosing a saved
+credential. Temporary browser diagnostics were removed by reload; no credentials
+were saved or passwords changed. Coordinate explicit browser handover before UI
+interaction; concurrent user input invalidates tests.
+
+The later user follow-up below qualifies this diagnostic observation; a reliable
+Escape workaround or particular cache cause was not established.
+
+<a id="instruction-history-r176"></a>
+
+### Later user-confirmed Chrome/iCloud outcome
+
+Follow-up to the Chrome/iCloud diagnostics: the user confirmed that refreshing/
+restarting retained browser state resolved both autofill and Enter with iCloud
+Passwords enabled. The exact reset step was not identified; do not claim a specific
+cache mechanism or a reliable Escape workaround. No keyboard override was needed.
+Keep separate login/change-password pages for their independently confirmed
+routing benefit. v0.5.7 merges these flows and the paired-row password layout.
+
+<a id="instruction-history-r180"></a>
+
+### Build 102 stylesheet-refactor scope
+
+The stylesheet extraction was presentation-only: application scripts had to remain unchanged by that refactor. This is historical scope for Build 102, not a prohibition on future authorised script changes.
+
+<a id="instruction-history-r181"></a>
+
+### Build 103 restore limits before disk-backed transfers
+
+Restore upload limit is MONITOR_MAX_RESTORE_MB (whole MiB, 1–1024; default 256),
+passed through Compose/.env. Reject oversized restore Content-Length with HTTP 413
+and an explicit configured-limit message before reading the body. Other payload
+limits remain unchanged. Restores still use in-memory upload/SQLite validation;
+large limits need spare RAM, so do not remove the bound. Preserve database format,
+integrity checks, role/CSRF checks, migrations and paused/session-invalidating restore.
+Admin restore confirmation displays server error text or an HTTP/proxy fallback,
+not a misleading backup-format message for every failure. Build 103 is a distinct
+restore fix after the presentation-only Build 102; its Admin error-handling JS
+change is intentional and separately tested. Multiple installations on the same
+hostname/IP share cookies across ports; compare using separate browser profiles or
+normal/Incognito contexts, not simultaneous logins in one cookie context.
+
+Build 104 superseded the in-memory implementation and upload defaults above.
+Use the current disk-backed limits, disk checks and review workflow in the
+[backup/restore requirements](docs/requirements/history-backups.md#r182).
+
+<a id="instruction-history-r188"></a>
+
+### Build 118 merge context
+
+v0.6.3 Build 118 merges the dashboard capacity, duplicate-tab and polling-driven
+issue synchronization work into canonical main.
