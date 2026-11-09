@@ -40,6 +40,9 @@ Read the related rules affected by the task; these links do not load documents a
   Neither restricted role can switch projects or create/delete deployments; configuration
   stays Admin-only. Scope APIs server-side, not just controls in the UI.
 
+  Renaming an existing deployment is Admin-only; Operators and View Only users
+  cannot change its name through either the dashboard or the API.
+
 <a id="r035"></a>
 
 ## Bootstrap administrator

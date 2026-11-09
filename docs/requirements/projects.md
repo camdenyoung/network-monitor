@@ -90,11 +90,26 @@ without changing their IDs. Notifications include the deployment ID for context.
 
 ## Deployment descriptions
 
-Starting a deployment requires a 1–500 character description in the confirmation
-dialog, validated on the server. runs stores the description and original start
+Starting a deployment requires a 1–40 character name in the confirmation dialog,
+validated on the server. Retain the existing description API key, database field
+and deployment-description DOM ID. runs stores the name and original start
 timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
-preserves them; older runs retain an empty description rather than invented text.
-Deployment descriptions are included in SQLite backups but not public status APIs.
+preserves the current name and original timestamp. Startup/restore never truncate
+existing longer descriptions; older empty descriptions remain empty.
+Deployment names are included in complete SQLite backups, never public status APIs.
+
+Admins can rename an active, paused or historical deployment using Rename selected
+deployment between the Resume and Delete buttons. Use an app-styled dialog with
+the captured project/run and original description, a 40-character name field,
+Save/Cancel, inline errors and one confirmed-success toast. Preserve drafts during
+refresh, send nothing on open/Cancel/Escape and block duplicate submits/closing
+while saving. Close after the write succeeds even if the following refresh fails.
+/api/rename-deployment requires Admin/CSRF and validates project ownership plus
+expected_description against the stored value; reject stale or deleted targets.
+Update only runs.description and publish an opaque post-commit invalidation on an
+actual change. Preserve ID, start timestamp, issue counter, history/audits/outbox,
+global run/notification state and service configs/flags; do not queue alerts.
+Legacy long descriptions must be explicitly shortened to 40 characters when renamed.
 
 <a id="r104"></a>
 

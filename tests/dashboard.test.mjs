@@ -844,7 +844,7 @@ assert.equal(deploymentRequests.length, 0);
 element('activate').onclick();
 await element('confirm-deployment').onclick();
 assert.equal(deploymentRequests.length, 0);
-assert.match(element('deployment-confirmation-feedback').textContent, /Enter a deployment description/);
+assert.match(element('deployment-confirmation-feedback').textContent, /Enter a deployment name/);
 element('deployment-description').value = 'Stage setup and testing';
 rejectDeployment = true;
 await element('confirm-deployment').onclick();
@@ -3017,3 +3017,4 @@ assert.match(html,/<button data-admin id="delete-selected-deployment"/);
 console.log('Scoped roles follow global project/deployment changes, invalidate stale history/dialogs, restrict controls and bind Operator writes to their displayed deployment.');
 
 await import('./toasts.test.mjs');
+await import('./deployments.test.mjs');

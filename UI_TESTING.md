@@ -63,6 +63,12 @@ own. It checks confirmed-save feedback across Settings, accounts, providers,
 imports and operational controls, plus failed refreshes and stale deployment
 confirmations. All requests are mocked; it never sends provider messages.
 
+`tests/deployments.test.mjs` checks the Admin-only rename editor, Resume/Rename/Delete
+button order, 40-character validation, captured targets, preserved drafts and
+Cancel/Escape/duplicate-submit behaviour. It is imported by the dashboard suite.
+`tests/test_deployments.py` covers API permissions, optimistic rename conflicts,
+unchanged history/state and compatibility with older long deployment descriptions.
+
 ## Limits
 
 This is a representative matrix, not every possible cross-product of projects,

@@ -4,6 +4,13 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 122 — v0.6.4
+
+- Limit new deployment names to 40 characters and add an Admin-only Rename selected deployment button between Resume and Delete. Preserve existing longer descriptions until explicitly renamed.
+- Rename active, paused or historical deployments in an app-styled editor with captured targets, inline validation, stale-edit protection, confirmed-save feedback and draft preservation. Keep run IDs, start times, monitoring state, history and notification records intact.
+- Enforce Admin/CSRF/project ownership and 1–40 character names on the server. Publish only committed name changes through existing opaque live updates; retain backup compatibility and public-data restrictions.
+- Update both dashboard build labels, current documentation and the affected stylesheet query; test permissions, legacy data, rename races and editor lifecycle.
+
 ### Build 121 — v0.6.4
 
 - Combine the project-instruction reorganisation and toast fixes into main, preserving both branch histories and the Build 120 changes.

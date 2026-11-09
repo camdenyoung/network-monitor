@@ -221,7 +221,7 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual([row[0] for row in db.execute('SELECT number FROM incidents ORDER BY id')], [1, 2, 1])
 
     def test_deployment_description_is_required_and_survives_resume(self):
-        for value in (None, '', '   ', 123, 'x' * 501):
+        for value in (None, '', '   ', 123, 'x' * 41):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 server.mutate('activate', {'project': 1, 'description': value})
         with self.assertRaises(ValueError):

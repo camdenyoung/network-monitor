@@ -138,7 +138,7 @@ connection guard. Recovery clears both the original and annotated error messages
 ## Operational update signals
 
 Use app/live_updates.py publish_dashboard_change for deployment
-activation/resume/deletion, monitoring pause/resume, notification pause/resume,
+activation/resume/renaming/deletion, monitoring pause/resume, notification pause/resume,
 individual service pause/resume and assignment monitoring/visibility/notification
 flags. Publish only after the mutation transaction commits; no-op controls, rejected
 requests and rollbacks emit nothing. Keep /api/ack-events and browser handler names

@@ -33,6 +33,22 @@ STYLESHEETS = {
 }
 
 
+class DeploymentEditError(ValueError):
+    """Safe feedback for deployment names and stale rename dialogs."""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
+def deployment_description(value):
+    # Keep the existing database/API field; old longer descriptions remain intact
+    # until an Admin explicitly chooses a new name.
+    if not isinstance(value, str) or not 1 <= len(value.strip()) <= 40:
+        raise DeploymentEditError('Enter a deployment name of 1–40 characters')
+    return value.strip()
+
+
 class DatabaseConnection(sqlite3.Connection):
     """Commit/rollback and close: sqlite3's default context manager does not close."""
 
@@ -1222,14 +1238,12 @@ def mutate(action, body, actor=None):
             cursor = db.execute(f'UPDATE assignments SET {field}=1-{field} WHERE id=? AND removed=0', (int(body['id']),))
             dashboard_changed = cursor.rowcount > 0
         elif action == 'activate':
-            description = body.get('description')
-            if not isinstance(description, str) or not 1 <= len(description.strip()) <= 500:
-                raise ValueError('Enter a deployment description of 1–500 characters')
+            description = deployment_description(body.get('description'))
             project = int(body['project'])
             if not db.execute('SELECT id FROM projects WHERE id=?', (project,)).fetchone():
                 raise ValueError('Unknown project')
             cursor = db.execute('INSERT INTO runs(id,project,started,description) VALUES(?,?,?,?)',
-                                (next_record_id(db, 'runs'), project, time.time(), description.strip()))
+                                (next_record_id(db, 'runs'), project, time.time(), description))
             # Select the deployment without starting checks or sending messages.
             # The existing global Resume action is the explicit monitoring opt-in.
             db.execute("UPDATE settings SET value='0' WHERE key='active_run'")
@@ -1274,6 +1288,27 @@ def mutate(action, body, actor=None):
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused_run',?)", (str(run['id']),))
             notifications.set_paused(db, True)
             dashboard_changed = True
+        elif action == 'rename-deployment':
+            description = deployment_description(body.get('description'))
+            project, target = body.get('project'), body.get('run')
+            if type(project) is not int or type(target) is not int or min(project, target) < 1:
+                raise DeploymentEditError('Choose a deployment for the selected project')
+            run = db.execute('SELECT description FROM runs WHERE id=? AND project=?',
+                             (target, project)).fetchone()
+            if run is None:
+                raise DeploymentEditError('Deployment no longer available for this project', 404)
+            previous = run['description'] or ''
+            if body.get('expected_description') != previous:
+                raise DeploymentEditError('Deployment name changed. Close and reopen the editor to review it.', 409)
+            if description != previous:
+                # Compare again in the UPDATE, retaining every other run field
+                # and all dependent history. A rename never switches deployments.
+                cursor = db.execute("""UPDATE runs SET description=?
+                    WHERE id=? AND project=? AND COALESCE(description,'')=?""",
+                    (description, target, project, previous))
+                if cursor.rowcount != 1:
+                    raise DeploymentEditError('Deployment name changed. Close and reopen the editor to review it.', 409)
+                dashboard_changed = True
         elif action == 'delete-deployment':
             active = int(setting(db, 'active_run'))
             target = int(body['run'])
@@ -2138,6 +2173,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send('{"ok":true}')
         except access.AccessError as error:
             self.send(json.dumps({'error': str(error)}), status=403)
+        except DeploymentEditError as error:
+            self.send(json.dumps({'error': str(error)}), status=error.status)
         except backups.BackupError as error:
             self.send(json.dumps({'error': str(error)}), status=error.status)
         except OSError:
