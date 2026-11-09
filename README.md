@@ -1,9 +1,62 @@
-# Network Monitor v0.6.2 · Build 113
+# Network Monitor v0.6.3 · Build 118
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 See [CHANGELOG.md](CHANGELOG.md) for build history and release notes.
+
+Connected dashboards refresh from live events when monitoring confirms an issue
+opening, severity change or recovery, and when a check enters/leaves flapping.
+Events follow the committed database change and coalesce monitoring bursts for up
+to one second. Acknowledgement and operational controls normally refresh immediately;
+a concurrent monitoring event can give their refresh the same accepted one-second delay.
+Device polling and configured persistence still determine when a fault/recovery
+is confirmed; this does not make checks run faster. Ordinary readings and tabs
+without a live stream retain the ten-second dashboard refresh. Global notification
+pause does not pause dashboard updates.
+
+Admins can set **Settings → Dashboard connections → Maximum live connections**
+from 1–200 (default 20). The Admin navigation badge shows **Connections: current/maximum**
+using the actual admitted live-update streams, including anonymous status viewers.
+Logged-in users remains a separate approximate count of distinct accounts active
+within 60 seconds. Polling-only tabs do not consume a live connection slot.
+
+Refreshing a dashboard replaces its previous live stream in the same slot, even
+when the limit is full. The server closes the old socket, wakes its waiting worker
+and waits for that thread to exit before admitting the replacement. A stalled
+handover is refused after one second and keeps its slot occupied until cleanup;
+normal polling continues. Older clients without a stream tab ID retain independent
+slots. Both dashboards use the existing per-tab sessionStorage identity, and
+BroadcastChannel separates duplicated tabs that inherit a copy of that storage.
+Conflicts are resolved whenever messages arrive, including after the initial
+150 ms wait: the older document keeps the identity, with a unique document ID as
+the tie-breaker. The losing tab closes its previous stream and claims a fresh ID.
+If cross-tab coordination is unavailable or fails, the tab uses ten-second polling
+without a live stream. Cached-page restoration retries coordination. These modes
+affect dashboard updates only; device monitoring and authorized actions continue.
+Without browser storage, refresh identity cannot survive a document reload.
+
+Additional tabs keep the ten-second dashboard refresh and retry live updates after
+a 30-second cooldown. Reducing the limit leaves existing streams open, so the count
+can temporarily exceed the new maximum; new streams wait for capacity. Changes take
+effect without restart and are included in complete/configuration backups. Older
+databases/backups default to 20. Issue reminders now share the **Settings** tab.
+
+Live streams have a separate allocation from 32 short-lived HTTP request slots, so
+filling the stream limit still leaves capacity for sign-in, readings and Admin
+actions. Slow/inactive socket reads and writes time out after 30 seconds; this is
+an inactivity limit, not the total duration of an active backup transfer. This
+bounds request threads, not the total number of viewers or dashboard refresh work.
+The default is a capacity guard, not a measured Raspberry Pi performance guarantee.
+
+Direct HTTP also has a separate browser connection limit. With HTTP/1, Chrome and
+Firefox commonly allow six connections per origin across all tabs; six persistent
+dashboard streams can leave ordinary API requests queued until they time out. Keep
+four or fewer dashboard tabs open per browser when using direct HTTP, leaving room
+for readings and actions. The global server limit still applies across browsers
+and machines. An HTTP/2 connection from the browser to a reverse proxy avoids this
+particular HTTP/1 limit even if the proxy uses HTTP to the app. See the
+[browser SSE connection-limit documentation](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#listening_for_custom_events).
 
 ## Start with Docker Compose
 

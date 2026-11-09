@@ -7,6 +7,8 @@ import re
 import threading
 import time
 
+CONNECTION_ID = re.compile(r'[A-Za-z0-9-]{16,80}')
+
 
 class DashboardPresence:
     def __init__(self, timeout=60, capacity=4096):
@@ -24,7 +26,7 @@ class DashboardPresence:
     def record(self, connection, user=None):
         # A random per-page ID distinguishes tabs without relying on NAT/IPs.
         # Legacy clients/probes without the header do not create phantom viewers.
-        if not isinstance(connection, str) or not re.fullmatch(r'[A-Za-z0-9-]{16,80}', connection):
+        if not isinstance(connection, str) or not CONNECTION_ID.fullmatch(connection):
             return
         now = time.monotonic()
         with self._lock:

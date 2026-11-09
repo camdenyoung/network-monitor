@@ -73,7 +73,10 @@ class AccessAndNotificationTests(unittest.TestCase):
             self.request('/api/status', token=self.viewer_token, connection='viewer-second-dashboard')
             response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
             counts = json.loads(response['content'])['dashboard_presence']
-            self.assertEqual(counts['connections'], 4)
+            # Polling presence counts users; only admitted live streams count
+            # towards the connection limit. This fixture opens no streams.
+            self.assertEqual(counts['connections'], 0)
+            self.assertEqual(counts['connection_limit'], 20)
             self.assertEqual(counts['logged_in_users'], 2)
             # Session revocation takes effect even if the old tab has not polled.
             with server.connect() as db:
@@ -84,7 +87,7 @@ class AccessAndNotificationTests(unittest.TestCase):
             # A public poll with an expired cookie becomes an anonymous connection.
             self.request('/api/status', token=self.viewer_token, connection='viewer-dashboard-tab')
             response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
-            self.assertEqual(json.loads(response['content'])['dashboard_presence']['connections'], 4)
+            self.assertEqual(json.loads(response['content'])['dashboard_presence']['connections'], 0)
 
     def test_project_deletion_requires_admin_csrf_and_exposes_progress_only_to_admin(self):
         self.create_host()

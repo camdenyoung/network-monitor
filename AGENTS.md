@@ -257,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.2, Build 113. Show it after the title on both the main and
+Current displayed release is v0.6.3, Build 118. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -634,6 +634,46 @@ against current nonexpired sessions before counting users; never expose IDs/toke
 or counts on public/status or non-Admin state responses. No new DB writes or
 session-lifetime extension. Counts rebuild after restart and are approximate;
 multiple tabs count as multiple connections. UI is a top navigation badge for Admins.
+Build 114 supersedes the badge's approximate connection count: use the actual
+admitted live-update stream count from app/connections.py and display current/limit.
+The presence tracker still supplies the distinct active-account count only.
+Default dashboard_connection_limit=20, Admin/CSRF configurable 1–200 in Settings
+(legacy reminder-panel/tab IDs), alongside issue reminders. Preserve drafts and
+the setting on restart and backup/restore; legacy databases get the default.
+Lowering the limit retains existing streams. Overflow receives 503; both dashboards
+close failed EventSources and retry via normal refresh/focus after 30 seconds,
+retaining ten-second polling. Stream slots always release in finally. Ordinary
+requests have a separate pre-thread limit of 32 and 30-second socket inactivity
+timeout, preserving sign-in/Admin capacity even with full stream slots. Counts
+and settings remain Admin-only; anonymous streams consume capacity normally.
+
+Build 115 keys /api/ack-events streams by the validated optional connection query
+ID (the existing browser tab identity). Reconnects reserve/reuse that slot even
+at capacity: cancel the previous socket, wake live_updates waiters without changing
+the revision, and wait at most one second for cleanup AND the actual worker exit.
+Only then start the replacement; timed-out handovers retain real capacity until
+the old worker exits. StreamLease handles isolate generations and delayed cleanup.
+The HTTP server releases registered leases after handler/socket cleanup; do not
+merely decrement the counter while an old worker is still waiting. Legacy clients
+without IDs get independent bounded slots. Browser BroadcastChannel arbitration
+separates duplicated sessionStorage identities before opening streams on both
+dashboards; pagehide releases claims and pageshow rechecks on cached restores.
+Keep the opaque IDs separate from authorization; all existing API roles/CSRF stay.
+Tests use normal 15s heartbeats and held upstream sockets at twenty-stream capacity,
+checking old thread exit, not just counts. Also run dashboard_stream.test.mjs.
+
+Build 116 resolves BroadcastChannel conflicts throughout the document lifetime,
+including replies after the initial 150ms startup wait. Older document timestamps
+win, with unique document-owner IDs breaking ties; Build 115 messages without a
+timestamp count as older peers for compatibility. Losing documents close their
+old EventSource, persist a fresh tab ID, and announce/recheck the new claim. Ignore
+wrong-target, malformed, stale-channel and stale-stream callbacks. Missing/failed
+coordination uses ten-second polling WITHOUT opening an EventSource; cancel timers,
+close the channel/stream and retry coordination on cached-page restoration. Retain
+server admission/handover limits, monitoring, role checks and acknowledgement CSRF.
+The global 20-stream default does not override browser HTTP/1 per-origin socket
+limits; six streams in one browser can starve API requests. Document that separate
+limit and leave browser-level stream sharing outside this focused fix.
 
 Store dashboard connection identity under network-monitor.dashboard-connection
 in sessionStorage on both dashboards. Reuse it on reload/navigation, validate
@@ -1080,3 +1120,20 @@ requests and rollbacks emit nothing. Keep /api/ack-events and browser handler na
 compatible: the stream is now a general dashboard invalidation, still only an opaque
 revision. Reuse the existing coalescing, reconnect/focus and 10-second polling fallback.
 Do not change metric polling, role scope or Admin local configuration selection.
+
+Build 117 also signals committed polling-driven issue open/close/severity and
+flap transitions through live_updates.publish_monitoring_change. Signal only after
+the write transaction/monitor lock exits; blocked, unconfirmed, invalidated and
+rolled-back reads do not emit issue-change events. Keep existing persistence,
+polling cadence, evidence, acknowledgements and provider notification rules.
+Existing SSE waiters coalesce monitoring bursts for at most one second, without
+timers or new worker threads; capture their pending deadline so sustained changes
+cannot postpone delivery. Interactive publish_dashboard_change clears the delay,
+and cancellation wakes immediately. Keep ordinary readings quiet and ten-second
+polling as fallback; global provider mute never gates dashboard synchronization.
+
+v0.6.3 Build 118 merges the dashboard capacity, duplicate-tab and polling-driven
+issue synchronization work into canonical main. The user accepts an occasional
+one-second acknowledgement/operational refresh delay when a monitoring event
+follows an immediate event before a listener wakes. Preserve that accepted timing
+unless asked to change it; committed actions and monitoring data are unaffected.

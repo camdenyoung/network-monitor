@@ -4,6 +4,38 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 118 — v0.6.3
+
+- Merge configurable live dashboard capacity: default 20 streams, an Admin setting in Settings, current/maximum counts, separate bounded HTTP request capacity and socket inactivity timeouts.
+- Include refresh-safe stream replacement, duplicate-tab conflict resolution and safe polling fallback when browser coordination fails.
+- Synchronize confirmed issue openings, severity changes, recoveries and flap transitions across dashboards using coalesced live events. Retain monitoring persistence, history, permissions and provider notification rules.
+- Update both dashboard labels, README and version context. Retain the accepted occasional one-second interactive refresh delay during concurrent monitoring events and the documented browser HTTP/1 tab limit.
+
+### Build 117 — v0.6.2
+
+- Send live dashboard invalidations after committed, confirmed issue openings, severity changes, recoveries and flap transitions, independently of provider notification pause.
+- Coalesce monitoring bursts into a one-second window in existing stream waiters, without extra timers/threads. Keep interactive events immediate and stream cancellation responsive.
+- Verify post-commit visibility across Admin, View Only and public views; retain persistence, quiet ordinary samples and no events for rollback/blocked/invalidated reads.
+
+### Build 116 — v0.6.2
+
+- Resolve duplicate-tab identity conflicts after the startup wait as well as during it, using document age and a unique-owner tie-breaker. Close the losing stream and ignore stale callbacks.
+- Use ten-second polling without a live stream when cross-tab coordination is missing or fails; clean up pending timers/channels and retry coordination on cached-page restoration.
+- Cover delayed/reordered replies, simultaneous clones, ties, legacy messages, runtime failures and full-capacity handling on both dashboards. Document the separate per-browser HTTP/1 connection limit.
+
+### Build 115 — v0.6.2
+
+- Reuse a dashboard tab's live connection slot on refresh, including at full capacity. Cancel the previous stream immediately and wait for its real worker to exit before replacement.
+- Keep stalled handovers bounded, retain their capacity until cleanup, and prevent delayed cleanup from removing a newer stream. Keep legacy clients and polling fallback available.
+- Separate duplicated tabs through browser identity arbitration; clean up claims on navigation and recheck them after cached-page restoration.
+- Verify rapid refreshes at twenty-stream capacity with normal heartbeats and retained upstream sockets, plus thread termination, stalled cleanup and dashboard lifecycle regressions.
+
+### Build 114 — v0.6.2
+
+- Default live dashboard streams to 20, with an Admin-configurable 1–200 limit in the renamed Settings tab alongside issue reminders; preserve the setting in backups.
+- Show actual live connections/configured maximum in the Admin badge. Keep polling available above capacity and back off stream retries for 30 seconds.
+- Bound ordinary HTTP request threads separately, add socket inactivity timeouts, and release connection slots on disconnects and response errors.
+
 ### Build 113 — v0.6.2
 
 - Merge the Host flap protection button colour fix: keep the standard white label in Cards and List views, independently of host status.
