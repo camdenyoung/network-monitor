@@ -1,4 +1,4 @@
-# Network Monitor v0.6.1 · Build 111
+# Network Monitor v0.6.2 · Build 113
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.

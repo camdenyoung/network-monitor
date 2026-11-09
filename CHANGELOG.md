@@ -4,6 +4,15 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 113 — v0.6.2
+
+- Merge the Host flap protection button colour fix: keep the standard white label in Cards and List views, independently of host status.
+- Update dashboard release labels and documentation; retain existing monitoring behaviour and permissions.
+
+### Build 112 — v0.6.1 (host flap button colour)
+
+- Keep Host flap protection button text in the standard white colour in Cards and List views, independently of the host status colour.
+
 ### Build 111 — v0.6.1
 
 - Merge scoped roles: View Only follows the global project/deployment; Operators stay within its project with existing-deployment resume and monitoring/notification controls. Keep configuration and deployment creation/deletion Admin-only.
