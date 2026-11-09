@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 119 — v0.6.3
+
+- Keep release history and implementation changes in this changelog; replace the README's release-style introduction with concise current usage under Dashboard updates and connection limits. Keep historical validation results here and link to repeatable checks from the README.
+- Move existing documentation/release instructions near the start of AGENTS.md so they are included earlier during instruction loading. Update build labels and version context; application behaviour is unchanged.
+
 ### Build 118 — v0.6.3
 
 - Merge configurable live dashboard capacity: default 20 streams, an Admin setting in Settings, current/maximum counts, separate bounded HTTP request capacity and socket inactivity timeouts.
@@ -26,7 +31,7 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 ### Build 115 — v0.6.2
 
 - Reuse a dashboard tab's live connection slot on refresh, including at full capacity. Cancel the previous stream immediately and wait for its real worker to exit before replacement.
-- Keep stalled handovers bounded, retain their capacity until cleanup, and prevent delayed cleanup from removing a newer stream. Keep legacy clients and polling fallback available.
+- Bound stalled handovers to one second, retain their capacity until cleanup, and prevent delayed cleanup from removing a newer stream. Keep legacy clients without stream tab IDs in independent slots and retain polling fallback.
 - Separate duplicated tabs through browser identity arbitration; clean up claims on navigation and recheck them after cached-page restoration.
 - Verify rapid refreshes at twenty-stream capacity with normal heartbeats and retained upstream sockets, plus thread termination, stalled cleanup and dashboard lifecycle regressions.
 
@@ -34,7 +39,7 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 - Default live dashboard streams to 20, with an Admin-configurable 1–200 limit in the renamed Settings tab alongside issue reminders; preserve the setting in backups.
 - Show actual live connections/configured maximum in the Admin badge. Keep polling available above capacity and back off stream retries for 30 seconds.
-- Bound ordinary HTTP request threads separately, add socket inactivity timeouts, and release connection slots on disconnects and response errors.
+- Reserve 32 ordinary HTTP request slots separately from live streams, add 30-second socket inactivity timeouts, and release connection slots on disconnects and response errors. The upload timeout measures inactivity rather than total transfer duration.
 
 ### Build 113 — v0.6.2
 

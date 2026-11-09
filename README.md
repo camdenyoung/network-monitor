@@ -1,62 +1,9 @@
-# Network Monitor v0.6.3 · Build 118
+# Network Monitor v0.6.3 · Build 119
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 See [CHANGELOG.md](CHANGELOG.md) for build history and release notes.
-
-Connected dashboards refresh from live events when monitoring confirms an issue
-opening, severity change or recovery, and when a check enters/leaves flapping.
-Events follow the committed database change and coalesce monitoring bursts for up
-to one second. Acknowledgement and operational controls normally refresh immediately;
-a concurrent monitoring event can give their refresh the same accepted one-second delay.
-Device polling and configured persistence still determine when a fault/recovery
-is confirmed; this does not make checks run faster. Ordinary readings and tabs
-without a live stream retain the ten-second dashboard refresh. Global notification
-pause does not pause dashboard updates.
-
-Admins can set **Settings → Dashboard connections → Maximum live connections**
-from 1–200 (default 20). The Admin navigation badge shows **Connections: current/maximum**
-using the actual admitted live-update streams, including anonymous status viewers.
-Logged-in users remains a separate approximate count of distinct accounts active
-within 60 seconds. Polling-only tabs do not consume a live connection slot.
-
-Refreshing a dashboard replaces its previous live stream in the same slot, even
-when the limit is full. The server closes the old socket, wakes its waiting worker
-and waits for that thread to exit before admitting the replacement. A stalled
-handover is refused after one second and keeps its slot occupied until cleanup;
-normal polling continues. Older clients without a stream tab ID retain independent
-slots. Both dashboards use the existing per-tab sessionStorage identity, and
-BroadcastChannel separates duplicated tabs that inherit a copy of that storage.
-Conflicts are resolved whenever messages arrive, including after the initial
-150 ms wait: the older document keeps the identity, with a unique document ID as
-the tie-breaker. The losing tab closes its previous stream and claims a fresh ID.
-If cross-tab coordination is unavailable or fails, the tab uses ten-second polling
-without a live stream. Cached-page restoration retries coordination. These modes
-affect dashboard updates only; device monitoring and authorized actions continue.
-Without browser storage, refresh identity cannot survive a document reload.
-
-Additional tabs keep the ten-second dashboard refresh and retry live updates after
-a 30-second cooldown. Reducing the limit leaves existing streams open, so the count
-can temporarily exceed the new maximum; new streams wait for capacity. Changes take
-effect without restart and are included in complete/configuration backups. Older
-databases/backups default to 20. Issue reminders now share the **Settings** tab.
-
-Live streams have a separate allocation from 32 short-lived HTTP request slots, so
-filling the stream limit still leaves capacity for sign-in, readings and Admin
-actions. Slow/inactive socket reads and writes time out after 30 seconds; this is
-an inactivity limit, not the total duration of an active backup transfer. This
-bounds request threads, not the total number of viewers or dashboard refresh work.
-The default is a capacity guard, not a measured Raspberry Pi performance guarantee.
-
-Direct HTTP also has a separate browser connection limit. With HTTP/1, Chrome and
-Firefox commonly allow six connections per origin across all tabs; six persistent
-dashboard streams can leave ordinary API requests queued until they time out. Keep
-four or fewer dashboard tabs open per browser when using direct HTTP, leaving room
-for readings and actions. The global server limit still applies across browsers
-and machines. An HTTP/2 connection from the browser to a reverse proxy avoids this
-particular HTTP/1 limit even if the proxy uses HTTP to the app. See the
-[browser SSE connection-limit documentation](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#listening_for_custom_events).
 
 ## Start with Docker Compose
 
@@ -144,6 +91,27 @@ preferences are preserved for signed-in users. Logout/session expiry clears host
 cards, readings and cached layout markup. The Status Dashboard still excludes IP
 addresses, credentials, OIDs, other projects' inventory, history, account lists and
 configuration. This does not create the future public-facing relay.
+
+## Dashboard updates and connection limits
+
+Admins can set **Settings → Dashboard connections → Maximum live connections**
+from 1–200 (default 20). The navigation badge shows current live connections and
+the configured maximum. Logged-in users is a separate count of distinct accounts
+active within the last 60 seconds.
+
+Connected dashboards receive confirmed issue changes promptly, with up to one
+second of update batching. Ordinary readings refresh every ten seconds. Tabs that
+cannot establish a live connection also use ten-second polling; this does not
+pause device monitoring or prevent authorized actions.
+
+Reducing the limit leaves existing connections open until they close, so the
+count can temporarily exceed the new maximum. The setting applies without restart
+and is included in backups.
+
+For direct HTTP/1 access, keep four or fewer dashboard tabs open per browser to
+leave connections available for readings and actions. The global server limit
+applies across browsers and machines. Browser-to-proxy HTTP/2 avoids this particular
+HTTP/1 restriction; see the [browser connection-limit documentation](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#listening_for_custom_events).
 
 ## Initial workflow
 
@@ -305,8 +273,8 @@ credential redaction, OID validation, backup preservation, full inventory edits,
 transactional deletion and isolation from delayed polling results. Hardware polling
 requires validation with real equipment. See AGENTS.md for full agent context.
 
-Removed services are now disabled rather than detached from their equipment. This
-preserves their history and allows subsequent full-device deletion to remove it.
+Removing a service disables it and preserves its history. Permanently deleting
+its inventory device also removes the linked service history.
 Older versions could leave history for already-deleted services without ownership;
 those legacy orphan records cannot reliably be attributed to an inventory item.
 
@@ -909,10 +877,8 @@ The server allowlists these four CSS files, serves them before authentication,
 and sends `Cache-Control: no-store` plus `nosniff`. Stylesheet links carry a build
 query; update it on all affected pages when changing CSS.
 
-See [UI_TESTING.md](UI_TESTING.md) for the before/after matrix, its coverage,
-limitations, and instructions to repeat it. The Build 102 comparison passed all
-696 cases (87 scenarios × eight viewport widths) with no sampled style/layout
-differences; the backend and functional UI suites also passed.
+See [UI_TESTING.md](UI_TESTING.md) for UI check coverage, limitations and
+instructions to run the checks.
 
 
 ### Restore upload size and comparison installations

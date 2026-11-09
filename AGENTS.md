@@ -3,6 +3,22 @@
 Build a local-first equipment monitor for 100–150 network and power devices.
 The user requested readable, consistently indented code and explanatory comments.
 
+## Documentation and release workflow
+
+Keep build history and release notes in CHANGELOG.md, linked near the top of
+README.md. README.md contains setup/usage guidance, not duplicated release logs.
+
+Every displayed version change must update the README title and add concise release
+notes in CHANGELOG.md describing that release. Keep both dashboard labels and this version context
+in sync; do not add versions to browser tab titles.
+
+Every future update commit must increment the displayed build number on BOTH
+dashboards, update the README current build and add a brief build note to
+CHANGELOG.md in the same commit. Keep the small inline format vVERSION · Build N. Build numbers
+increase monotonically across releases; do not reset them when the version changes.
+Do not put version/build numbers in browser tab titles. Build 1 starts this policy;
+earlier commits were not numbered.
+
 ## Requirements
 - Project assignment aliases are editable independently; preserve assignment IDs,
   services, history and aliases in other projects.
@@ -257,7 +273,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.3, Build 118. Show it after the title on both the main and
+Current displayed release is v0.6.3, Build 119. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -292,10 +308,6 @@ and Actions controls so varying names, values and labels do not shift buttons.
 Main account navigation keeps the signed-in badge left and groups Status Dashboard
 and Sign out on the right, wrapping the action group on narrow screens. Do not
 show a separate Change password link in the Admin Dashboard top navigation.
-
-Every displayed version change must update the README title and add concise release
-notes in CHANGELOG.md describing that release. Keep both dashboard labels and this version context
-in sync; do not add versions to browser tab titles.
 
 Sign-in from the status dashboard uses /login?next=%2Fstatus and returns there
 after login, including any required password change. Admin dashboard sign-in
@@ -353,13 +365,6 @@ dialog, validated on the server. runs stores the description and original start
 timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
 preserves them; older runs retain an empty description rather than invented text.
 Deployment descriptions are included in SQLite backups but not public status APIs.
-
-Every future update commit must increment the displayed build number on BOTH
-dashboards, update the README current build and add a brief build note to
-CHANGELOG.md in the same commit. Keep the small inline format vVERSION · Build N. Build numbers
-increase monotonically across releases; do not reset them when the version changes.
-Do not put version/build numbers in browser tab titles. Build 1 starts this policy;
-earlier commits were not numbered.
 
 Permanent inventory devices have independent standard service definitions in
 `device_service_defaults`. New project assignments materialize copies of these
@@ -735,9 +740,6 @@ same fallback if a selected project becomes unavailable; handle empty inventory.
 Admin project toolbar's fixed logo slot shows a themed network-icon placeholder
 when the selected project has no logo; hide it when an image is present. With no
 project, label it Select a project. Keep toolbar dimensions/alignment unchanged.
-
-Keep build history and release notes in CHANGELOG.md, linked near the top of
-README.md. README.md contains setup/usage guidance, not duplicated release logs.
 
 Project deletion: app/project_deletion.py owns a durable project_deletions job table.
 Admin/CSRF project-delete queues a named/captured project, rejects a running target,
