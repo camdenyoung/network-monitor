@@ -4,6 +4,28 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 125 — v0.6.5
+
+- Merge Admin-only deployment renaming and 40-character names, preserving legacy descriptions, deployment identity, history and monitoring state.
+- Include solid Actions backgrounds, compact host flap controls and consistent service-control typography with centred Actions arrows across responsive views.
+- Synchronize dashboard labels, README and current version context; retain existing release tags and detailed prior build notes.
+
+### Build 124 — v0.6.4
+
+- Keep service Pause/Resume, Actions and host flap-protection controls at a consistent compact text size and height across Cards, List and configured services.
+- Centre the Actions label and geometric disclosure marker together, retaining native menu toggling and keyboard behaviour. Update affected stylesheet queries and build labels.
+
+### Build 123 — v0.6.4
+
+- Give service Actions controls the same solid background and hover colour as Pause/Resume buttons, including on severity-tinted hosts, List view and configured services. Make Host flap protection controls match the compact service-control sizing in Cards and List views. Preserve menu behaviour and update stylesheet queries and build labels.
+
+### Build 122 — v0.6.4
+
+- Limit new deployment names to 40 characters and add an Admin-only Rename selected deployment button between Resume and Delete. Preserve existing longer descriptions until explicitly renamed.
+- Rename active, paused or historical deployments in an app-styled editor with captured targets, inline validation, stale-edit protection, confirmed-save feedback and draft preservation. Keep run IDs, start times, monitoring state, history and notification records intact.
+- Enforce Admin/CSRF/project ownership and 1–40 character names on the server. Publish only committed name changes through existing opaque live updates; retain backup compatibility and public-data restrictions.
+- Update both dashboard build labels, current documentation and the affected stylesheet query; test permissions, legacy data, rename races and editor lifecycle.
+
 ### Build 121 — v0.6.4
 
 - Combine the project-instruction reorganisation and toast fixes into main, preserving both branch histories and the Build 120 changes.

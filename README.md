@@ -1,4 +1,4 @@
-# Network Monitor v0.6.4 · Build 121
+# Network Monitor v0.6.5 · Build 125
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
@@ -610,10 +610,10 @@ UI and notification labels. runs.issue_counter is durable across deletions and
 pause/resume. Startup/restore number legacy issues by ID order within each run,
 without changing their IDs. Notifications include the deployment ID for context.
 
-Starting a deployment requires a 1–500 character description in the confirmation
-dialog, validated on the server. runs stores the description and original start
-timestamp. The main dashboard shows both for the active or paused run. Pause/Resume
-preserves them; older runs retain an empty description rather than invented text.
+Starting a deployment requires a name of 1–40 characters in the confirmation
+dialog. The dashboard shows its name and original start time for the active or
+paused deployment. Pause/Resume preserves both. Existing longer descriptions are
+kept until an Admin explicitly renames them; older unnamed deployments stay unnamed.
 Deployment descriptions are included in SQLite backups but not public status APIs.
 
 ## Transfer permanent inventory
@@ -746,6 +746,16 @@ Fresh checks are required, and notifications start paused until explicitly resum
 The normal Pause/Resume monitoring button still resumes the most recently paused
 run without changing its notification setting. The new selector can instead
 resume any existing run belonging to the selected project. Only Admins can do so.
+
+## Rename a deployment
+
+Admins can choose an active, paused or historical run under **Previous deployments**
+and click **Rename selected deployment**, between Resume and Delete. Edit the name
+(1–40 characters), then choose **Save deployment name** or **Cancel**. The deployment
+number, original start time, readings, issues and monitoring state stay intact.
+If another Admin renamed it while the editor was open, close and reopen the editor
+to review the new name before saving. Older descriptions longer than 40 characters
+must be shortened when renamed; they are never automatically truncated.
 
 ## Delete a deployment
 

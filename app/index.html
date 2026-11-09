@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network Monitor</title>
-  <link rel="stylesheet" href="/static/css/base.css?v=112">
-  <link rel="stylesheet" href="/static/css/dashboard.css?v=120">
+  <link rel="stylesheet" href="/static/css/base.css?v=124">
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=124">
 </head>
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.4 · Build 121</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.5 · Build 125</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -56,6 +56,7 @@
       <label>Previous deployments<select id="previous-deployment"><option value="">Choose a deployment…</option></select></label>
       <div id="deployment-actions" class="deployment-actions">
         <button id="resume-selected-deployment" disabled>Resume selected deployment</button>
+        <button data-admin id="rename-selected-deployment" disabled>Rename selected deployment</button>
         <button data-admin id="delete-selected-deployment" class="danger" disabled>Delete selected deployment</button>
       </div>
       <small id="previous-deployment-details">Choose a previous deployment for the selected project.</small>
@@ -487,10 +488,23 @@
     </div>
     <p id="resume-deployment-feedback" class="form-feedback" role="status"></p>
   </dialog>
+  <dialog id="rename-deployment-dialog" class="acknowledgement-dialog" aria-labelledby="rename-deployment-title">
+    <h2 id="rename-deployment-title">Rename deployment</h2>
+    <p id="rename-deployment-context"></p>
+    <p>The deployment number, original start time, history and monitoring state are kept.</p>
+    <form id="rename-deployment-form">
+      <label>Deployment name (up to 40 characters)<input id="rename-deployment-name" name="description" type="text" maxlength="40" required></label>
+      <div class="display-controls">
+        <button id="save-deployment-name" type="submit" class="primary">Save deployment name</button>
+        <button id="cancel-deployment-name" type="button">Cancel</button>
+      </div>
+    </form>
+    <p id="rename-deployment-feedback" class="form-feedback" role="status"></p>
+  </dialog>
   <dialog id="deployment-confirmation" aria-labelledby="deployment-confirmation-title">
     <h2 id="deployment-confirmation-title">Start a new deployment?</h2>
     <p id="deployment-confirmation-project"></p>
-    <label>Deployment description<textarea id="deployment-description" rows="3" maxlength="500" required placeholder="When / why is this deployment being started?"></textarea></label>
+    <label>Deployment name (up to 40 characters)<input id="deployment-description" type="text" maxlength="40" required placeholder="A short name for this deployment"></label>
     <p>This starts a new deployment with a fresh monitoring history and issue list.
       Previous deployment data remains stored, but is no longer shown in the current dashboard.</p>
     <p>Monitoring and notifications start paused. Choose Resume all monitoring to begin checks, then Resume notifications to enable Telegram and WhatsApp delivery.</p>
@@ -1360,6 +1374,7 @@
       const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
       const active = Number(state.settings.active_run);
       el('resume-selected-deployment').disabled = !run || run.id === active;
+      el('rename-selected-deployment').disabled = currentUser?.role !== 'admin' || !run;
       el('delete-selected-deployment').disabled = !run || run.id === active;
       el('delete-selected-deployment').title = run?.id === active
         ? 'Pause monitoring before deleting the active deployment.' : 'Permanently delete this deployment and its history.';
@@ -2950,6 +2965,55 @@
       } catch (error) { el('resume-deployment-feedback').textContent = error.message; }
       finally { button.disabled = false; cancel.disabled = false; }
     };
+    let pendingDeploymentRename = null;
+    let deploymentRenameBusy = false;
+    el('rename-selected-deployment').onclick = () => {
+      if (currentUser?.role !== 'admin' || deploymentRenameBusy) return;
+      const run = state.runs.find(row => String(row.id) === el('previous-deployment').value && String(row.project) === selectedProject);
+      if (!run) { report(new Error('Choose a deployment first.')); return; }
+      pendingDeploymentRename = {project: run.project, run: run.id, expected_description: run.description || ''};
+      // Populate only on opening. Background refreshes must not replace drafts
+      // or make this editor target a different selected project/deployment.
+      el('rename-deployment-context').textContent = `Deployment #${run.id} · ${state.projects.find(row => row.id === run.project)?.name || 'Project'} · ${run.description || 'No description recorded'}`;
+      el('rename-deployment-name').value = run.description || '';
+      el('rename-deployment-feedback').textContent = '';
+      el('rename-deployment-dialog').showModal();
+      el('rename-deployment-name').focus();
+    };
+    el('cancel-deployment-name').onclick = () => {
+      if (!deploymentRenameBusy) el('rename-deployment-dialog').close();
+    };
+    el('rename-deployment-dialog').onclose = () => {
+      if (!deploymentRenameBusy) pendingDeploymentRename = null;
+    };
+    el('rename-deployment-dialog').oncancel = event => {
+      if (deploymentRenameBusy) event.preventDefault();
+    };
+    el('rename-deployment-form').onsubmit = async event => {
+      event.preventDefault();
+      if (currentUser?.role !== 'admin' || !pendingDeploymentRename || deploymentRenameBusy || !el('rename-deployment-dialog').open) return;
+      const description = el('rename-deployment-name').value.trim();
+      if (!description || description.length > 40) {
+        el('rename-deployment-feedback').textContent = 'Enter a deployment name of 1–40 characters';
+        return;
+      }
+      deploymentRenameBusy = true;
+      el('save-deployment-name').disabled = true;
+      el('cancel-deployment-name').disabled = true;
+      try {
+        await request('rename-deployment', {...pendingDeploymentRename, description});
+        pendingDeploymentRename = null;
+        el('rename-deployment-dialog').close();
+        confirmSaved('Deployment name saved.', 'project-feedback');
+        await refreshAfterSave('Deployment name saved.');
+      } catch (error) { el('rename-deployment-feedback').textContent = error.message; }
+      finally {
+        deploymentRenameBusy = false;
+        el('save-deployment-name').disabled = false;
+        el('cancel-deployment-name').disabled = false;
+      }
+    };
+
     let pendingDeploymentProject = null;
     el('activate').onclick = () => {
       const project = state.projects.find(row => String(row.id) === selectedProject);
@@ -2966,8 +3030,8 @@
     el('confirm-deployment').onclick = async () => {
       if (pendingDeploymentProject === null || el('confirm-deployment').disabled) return;
       const description = el('deployment-description').value.trim();
-      if (!description || description.length > 500) {
-        el('deployment-confirmation-feedback').textContent = 'Enter a deployment description of 1–500 characters.';
+      if (!description || description.length > 40) {
+        el('deployment-confirmation-feedback').textContent = 'Enter a deployment name of 1–40 characters.';
         return;
       }
       el('confirm-deployment').disabled = true;

@@ -126,6 +126,10 @@ resize close it. Escape restores trigger focus. Internal menu scrolling remains
 usable. Polling restores only a unique location:service key, never both live and
 catalogue occurrences; clear it if the target disappears. Keep popup within the
 viewport, opening upward near the bottom. Other details elements are unaffected.
+The Actions summary uses the same opaque control background and hover colour as
+Pause/Resume buttons, including on tinted host cards and in List/catalogue views.
+Host flap-protection buttons use the compact Actions sizing in Cards and the shared
+service-control sizing in List view; retain their neutral text and existing action.
 
 <a id="r129"></a>
 
@@ -248,3 +252,8 @@ account pages. Computed-property/bounding-box equality supplements functional te
 it does not test authorization or all real-world combinations. Never point the preview
 at a live database; it binds loopback only. Coordinate handover for native browser
 interaction; prefer the isolated in-app browser for previews.
+
+Service Pause/Resume, Actions and host flap-protection controls keep the same 13px
+text, 18px line height and compact padding in Cards, List and configured-service
+views. Centre the Actions label and geometric disclosure marker together; retain
+native details/summary keyboard behaviour and open-menu positioning.
