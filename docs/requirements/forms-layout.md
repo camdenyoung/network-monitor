@@ -252,3 +252,8 @@ account pages. Computed-property/bounding-box equality supplements functional te
 it does not test authorization or all real-world combinations. Never point the preview
 at a live database; it binds loopback only. Coordinate handover for native browser
 interaction; prefer the isolated in-app browser for previews.
+
+Service Pause/Resume, Actions and host flap-protection controls keep the same 13px
+text, 18px line height and compact padding in Cards, List and configured-service
+views. Centre the Actions label and geometric disclosure marker together; retain
+native details/summary keyboard behaviour and open-menu positioning.

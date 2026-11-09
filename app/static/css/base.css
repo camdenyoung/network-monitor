@@ -282,11 +282,36 @@ details.action-menu {
 }
 
 .action-menu summary {
-    padding: 5px 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    list-style: none;
+    padding: 4px 8px;
     border: 1px solid var(--colour-border);
     border-radius: 5px;
     font-size: 13px;
+    line-height: 18px;
     background: var(--colour-control);
+}
+
+.action-menu summary::-webkit-details-marker {
+    display: none;
+}
+
+/* A geometric marker avoids native disclosure-arrow baseline differences. */
+.action-menu summary::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid currentColor;
+}
+
+.action-menu[open] > summary::before {
+    transform: rotate(90deg);
 }
 
 .action-menu summary:hover {

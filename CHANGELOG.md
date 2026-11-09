@@ -4,6 +4,11 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 124 — v0.6.4
+
+- Keep service Pause/Resume, Actions and host flap-protection controls at a consistent compact text size and height across Cards, List and configured services.
+- Centre the Actions label and geometric disclosure marker together, retaining native menu toggling and keyboard behaviour. Update affected stylesheet queries and build labels.
+
 ### Build 123 — v0.6.4
 
 - Give service Actions controls the same solid background and hover colour as Pause/Resume buttons, including on severity-tinted hosts, List view and configured services. Make Host flap protection controls match the compact service-control sizing in Cards and List views. Preserve menu behaviour and update stylesheet queries and build labels.

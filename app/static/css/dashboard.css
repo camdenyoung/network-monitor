@@ -243,6 +243,14 @@ input[type="checkbox"] {
     gap: 6px;
 }
 
+.service-controls > button, button[data-host-stability] {
+    box-sizing: border-box;
+    padding: 4px 8px;
+    font-size: 13px;
+    line-height: 18px;
+    white-space: nowrap;
+}
+
 #service-catalogue .metric {
     display: flex;
     justify-content: space-between;
@@ -382,8 +390,6 @@ button.danger:hover {
 /* Card status text surrounds this control; keep its label neutral in both views. */
 button[data-host-stability] {
     color: var(--colour-text);
-    padding: 5px 9px;
-    font-size: 13px;
 }
 
 #service-edit-form {
@@ -462,9 +468,6 @@ button[data-host-stability] {
 .host-list button[data-host-stability] {
     box-sizing: border-box;
     margin: 0;
-    padding: 5px 8px;
-    font-size: 13px;
-    line-height: 20px;
 }
 
 .host-list .metric-header > button {
