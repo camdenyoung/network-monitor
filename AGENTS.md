@@ -257,7 +257,7 @@ network-monitor-backup-YYYY-MM-DD_HH-MM-SS.sqlite3 filename via Content-Disposit
 using the monitoring host local timezone. Compose mounts /etc/localtime read-only
 from the host so container time follows the host, including daylight saving.
 
-Current displayed release is v0.6.2, Build 115. Show it after the title on both the main and
+Current displayed release is v0.6.2, Build 116. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Dashboard version labels use a muted 13px inline small.app-version beside the
@@ -661,6 +661,19 @@ dashboards; pagehide releases claims and pageshow rechecks on cached restores.
 Keep the opaque IDs separate from authorization; all existing API roles/CSRF stay.
 Tests use normal 15s heartbeats and held upstream sockets at twenty-stream capacity,
 checking old thread exit, not just counts. Also run dashboard_stream.test.mjs.
+
+Build 116 resolves BroadcastChannel conflicts throughout the document lifetime,
+including replies after the initial 150ms startup wait. Older document timestamps
+win, with unique document-owner IDs breaking ties; Build 115 messages without a
+timestamp count as older peers for compatibility. Losing documents close their
+old EventSource, persist a fresh tab ID, and announce/recheck the new claim. Ignore
+wrong-target, malformed, stale-channel and stale-stream callbacks. Missing/failed
+coordination uses ten-second polling WITHOUT opening an EventSource; cancel timers,
+close the channel/stream and retry coordination on cached-page restoration. Retain
+server admission/handover limits, monitoring, role checks and acknowledgement CSRF.
+The global 20-stream default does not override browser HTTP/1 per-origin socket
+limits; six streams in one browser can starve API requests. Document that separate
+limit and leave browser-level stream sharing outside this focused fix.
 
 Store dashboard connection identity under network-monitor.dashboard-connection
 in sessionStorage on both dashboards. Reuse it on reload/navigation, validate

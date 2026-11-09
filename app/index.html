@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.2 · Build 115</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.2 · Build 116</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -1391,67 +1391,106 @@
       return refreshPromise;
     }
 
-    // A duplicated tab can inherit sessionStorage. Ask other live documents
-    // before claiming that ID; refresh/navigation closes the old claimant.
+    // A duplicated tab can inherit sessionStorage. Resolve ownership for the
+    // lifetime of the document; the startup timer is not proof of ownership.
     let dashboardTabChannel = null;
     let dashboardTabTimer = null;
-    let dashboardTabReady = typeof BroadcastChannel === 'undefined' || typeof setTimeout !== 'function';
+    let dashboardTabReady = false;
+    let dashboardTabPollingOnly = false;
     let dashboardPageActive = true;
+    const dashboardDocumentStarted = Date.now();
     const dashboardDocumentOwner = globalThis.crypto?.randomUUID?.() ||
       Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    function closeDashboardTabClaim() {
+      if (dashboardTabTimer !== null) clearTimeout(dashboardTabTimer);
+      dashboardTabTimer = null;
+      const channel = dashboardTabChannel;
+      dashboardTabChannel = null;
+      try { channel?.close(); } catch (error) { /* Polling remains available. */ }
+      dashboardTabReady = false;
+    }
+    function useDashboardPolling() {
+      dashboardTabPollingOnly = true;
+      closeDashboardTabClaim();
+      const stream = acknowledgementStream;
+      acknowledgementStream = null;
+      stream?.close();
+    }
     function prepareDashboardTab() {
-      if (dashboardTabReady || dashboardTabChannel || !dashboardPageActive) return;
+      if (dashboardTabReady || dashboardTabChannel || dashboardTabPollingOnly || !dashboardPageActive) return;
+      if (typeof BroadcastChannel !== 'function' || typeof setTimeout !== 'function') {
+        useDashboardPolling();
+        return;
+      }
       try {
         const channel = new BroadcastChannel('network-monitor.dashboard-tabs');
         dashboardTabChannel = channel;
+        const announce = (type, target) => channel.postMessage({type,target,
+          connection:dashboardConnection,owner:dashboardDocumentOwner,started:dashboardDocumentStarted});
+        const waitForClaim = () => {
+          if (dashboardTabTimer !== null) clearTimeout(dashboardTabTimer);
+          dashboardTabTimer = setTimeout(() => {
+            dashboardTabTimer = null;
+            if (dashboardTabChannel !== channel || !dashboardPageActive || dashboardTabPollingOnly) return;
+            dashboardTabReady = true;
+            connectAcknowledgementUpdates();
+          }, 150);
+        };
         const newIdentity = () => {
+          const stream = acknowledgementStream;
+          acknowledgementStream = null;
+          stream?.close();
+          acknowledgementRetryAt = 0;
+          dashboardTabReady = false;
           dashboardConnection = globalThis.crypto?.randomUUID?.() ||
             'dashboard-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
           try { sessionStorage.setItem('network-monitor.dashboard-connection', dashboardConnection); }
           catch (error) { /* The new identity remains valid for this document. */ }
+          waitForClaim();
+          announce('probe');
         };
         channel.onmessage = event => {
+          if (dashboardTabChannel !== channel || !dashboardPageActive || dashboardTabPollingOnly) return;
           const message = event.data;
-          if (!dashboardPageActive || !message || message.connection !== dashboardConnection ||
-              typeof message.owner !== 'string' || message.owner === dashboardDocumentOwner) return;
-          if (message.type === 'probe') {
-            // Deterministic arbitration also separates simultaneous cloned tabs.
-            if (!dashboardTabReady && message.owner < dashboardDocumentOwner) newIdentity();
-            else channel.postMessage({type:'occupied',connection:dashboardConnection,
-              owner:dashboardDocumentOwner,target:message.owner});
-          } else if (message.type === 'occupied' && message.target === dashboardDocumentOwner && !dashboardTabReady) {
-            newIdentity();
-          }
+          if (!message || message.connection !== dashboardConnection ||
+              typeof message.owner !== 'string' || !message.owner || message.owner.length > 80 ||
+              message.owner === dashboardDocumentOwner) return;
+          if (message.type !== 'probe' && (message.type !== 'occupied' || message.target !== dashboardDocumentOwner)) return;
+          // Older documents keep the identity; the unique owner breaks ties.
+          // Build 115 claimants lack a timestamp and are treated as older peers.
+          const started = message.started === undefined ? 0 : message.started;
+          if (!Number.isFinite(started) || started < 0) return;
+          const peerWins = started < dashboardDocumentStarted ||
+            (started === dashboardDocumentStarted && message.owner < dashboardDocumentOwner);
+          try {
+            if (peerWins) newIdentity();
+            else announce('occupied', message.owner);
+          } catch (error) { useDashboardPolling(); }
         };
-        dashboardTabTimer = setTimeout(() => {
-          dashboardTabTimer = null;
-          dashboardTabReady = true;
-          connectAcknowledgementUpdates();
-        }, 150);
-        channel.postMessage({type:'probe',connection:dashboardConnection,owner:dashboardDocumentOwner});
-      } catch (error) {
-        dashboardTabChannel?.close();
-        dashboardTabChannel = null;
-        dashboardTabReady = true;
-      }
+        channel.onmessageerror = () => {
+          if (dashboardTabChannel === channel) useDashboardPolling();
+        };
+        waitForClaim();
+        announce('probe');
+      } catch (error) { useDashboardPolling(); }
     }
     function releaseDashboardTab() {
       dashboardPageActive = false;
-      if (dashboardTabTimer !== null) clearTimeout(dashboardTabTimer);
-      dashboardTabTimer = null;
-      dashboardTabChannel?.close();
-      dashboardTabChannel = null;
-      dashboardTabReady = typeof BroadcastChannel === 'undefined' || typeof setTimeout !== 'function';
+      closeDashboardTabClaim();
+      // A cached-page restore can try coordination again if it becomes available.
+      dashboardTabPollingOnly = false;
     }
 
     let acknowledgementStream = null;
     let acknowledgementRetryAt = 0;
     function connectAcknowledgementUpdates() {
-      if (!dashboardPageActive || acknowledgementStream || Date.now() < acknowledgementRetryAt || typeof EventSource === 'undefined') return;
-      if (!dashboardTabReady) { prepareDashboardTab(); if (!dashboardTabReady) return; }
+      if (!dashboardPageActive || dashboardTabPollingOnly || acknowledgementStream || Date.now() < acknowledgementRetryAt || typeof EventSource === 'undefined') return;
+      if (!dashboardTabReady) { prepareDashboardTab(); if (!dashboardTabReady || dashboardTabPollingOnly) return; }
       const stream = new EventSource('/api/ack-events?connection=' + encodeURIComponent(dashboardConnection));
       acknowledgementStream = stream;
-      stream.onmessage = () => refresh().catch(report);
+      stream.onmessage = () => {
+        if (acknowledgementStream === stream && dashboardPageActive) return refresh().catch(report);
+      };
       stream.onerror = () => {
         if (acknowledgementStream !== stream) return;
         stream.close();

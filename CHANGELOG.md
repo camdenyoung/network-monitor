@@ -4,6 +4,12 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 116 — v0.6.2
+
+- Resolve duplicate-tab identity conflicts after the startup wait as well as during it, using document age and a unique-owner tie-breaker. Close the losing stream and ignore stale callbacks.
+- Use ten-second polling without a live stream when cross-tab coordination is missing or fails; clean up pending timers/channels and retry coordination on cached-page restoration.
+- Cover delayed/reordered replies, simultaneous clones, ties, legacy messages, runtime failures and full-capacity handling on both dashboards. Document the separate per-browser HTTP/1 connection limit.
+
 ### Build 115 — v0.6.2
 
 - Reuse a dashboard tab's live connection slot on refresh, including at full capacity. Cancel the previous stream immediately and wait for its real worker to exit before replacement.

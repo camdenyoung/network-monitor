@@ -1994,6 +1994,11 @@ let maximumMainReads = 0;
 const mainLiveSources = [];
 const mainLiveEvents = new Map();
 const mainLiveDocumentEvents = new Map();
+const liveTabCoordination = {
+  BroadcastChannel: class {postMessage(){} close(){}},
+  setTimeout(callback, delay) {if (delay === 150) queueMicrotask(callback); return {};},
+  clearTimeout(){},
+};
 const liveIssue = () => ({...undoIssue,id:701,number:9,closed:null,
   acknowledged:sharedAcknowledged ? now : null,ack_revision:sharedRevision});
 function liveMainData() {
@@ -2004,6 +2009,7 @@ function liveMainData() {
 const mainLiveContext = vm.createContext({document:{...context.document,
   addEventListener(type,handler){mainLiveDocumentEvents.set(type,handler);}},localStorage:context.localStorage,
   setInterval(){},addEventListener(type,handler){mainLiveEvents.set(type,handler);},
+  ...liveTabCoordination,
   EventSource:class {constructor(url){this.url=url;this.closed=false;mainLiveSources.push(this);}close(){this.closed=true;}},
   fetch:async path => {
     if (path === '/api/me') return {ok:true,json:async () => ({id:3,username:'Alice',role:'operator',csrf:'alice-token'})};
@@ -2030,6 +2036,7 @@ assert.match(element('acknowledged-incidents').innerHTML,/Issue #9/);
 
 const statusLiveSources = [];
 const statusLiveContext = vm.createContext({document:publicContext.document,localStorage:publicContext.localStorage,
+  ...liveTabCoordination,
   setInterval(){},EventSource:class {constructor(url){this.url=url;statusLiveSources.push(this);}close(){}},
   fetch:async () => {
     const issue = {...liveIssue(),device:'Switch',alias:'Stage',service:'Port status'};
