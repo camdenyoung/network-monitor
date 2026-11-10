@@ -2276,11 +2276,23 @@ for (const [settings, expected] of [
 ]) {
   const {browser} = await projectSelectionContext(settings);
   assert.equal(element('project').value,expected);
+  assert.equal(element('project').innerHTML.includes('Running (active)'),settings.active_run === '12');
+  assert.equal((element('project').innerHTML.match(/\(active\)/g) || []).length,settings.active_run === '12' ? 1 : 0);
   element('project').value='1';
   element('project').onchange();
   await browser.refresh();
   assert.equal(element('project').value,'1');
+  assert.equal(element('project').innerHTML.includes('Running (active)'),settings.active_run === '12');
 }
+const activeProjectMarker = await projectSelectionContext({active_run:'12',paused_run:'13'});
+activeProjectMarker.data.settings.active_run = '13';
+await activeProjectMarker.browser.refresh();
+assert.match(element('project').innerHTML,/Paused \(active\)/);
+assert.doesNotMatch(element('project').innerHTML,/Running \(active\)/);
+assert.equal(element('project').value,'2');
+activeProjectMarker.data.settings.active_run = '0';
+await activeProjectMarker.browser.refresh();
+assert.doesNotMatch(element('project').innerHTML,/\(active\)/);
 const unavailableProject = await projectSelectionContext({active_run:'12',paused_run:'13'});
 unavailableProject.data.projects = [{id:1,name:'First'},{id:3,name:'Paused'}];
 await unavailableProject.browser.refresh();

@@ -38,6 +38,9 @@ Read the related rules affected by the task; these links do not load documents a
 ## Active project and deployments
 
 - Exactly one active project. Each activation creates a deployment run; retain history.
+- The Selected project dropdown appends `(active)` to the project owning active_run,
+  matching the deployment dropdown. Omit the marker when monitoring is paused or no
+  active run exists; never derive it from the Admin's local selection or alter names.
 
 <a id="r080"></a>
 
