@@ -135,6 +135,8 @@ this display name. The main navigation link is labelled Status Dashboard.
 User management keeps the add-user form independent. Edit opens a native dialog
 with all account fields and inline errors; Cancel leaves the creation form intact.
 Populate the editor only when opened; background refresh must preserve edits.
+Keep the must-change-password setting in the account editor, without displaying
+assigned-password/change-required text in the user list.
 
 <a id="r074"></a>
 

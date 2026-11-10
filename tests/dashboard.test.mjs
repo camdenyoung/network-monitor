@@ -181,7 +181,7 @@ assert.equal(submittedUser.path, '/api/user-create');
 assert.equal(submittedUser.body.email, 'reader@example.com');
 assert.equal(submittedUser.body.must_change_password, false);
 assert.match(element('users').innerHTML, /reader@example.com/);
-assert.match(element('users').innerHTML, /Assigned password allowed/);
+assert.doesNotMatch(element('users').innerHTML, /Assigned password allowed|Password change required/);
 console.log('Account email and password-policy form smoke tests passed.');
 
 // User edits use an independent dialog and preserve the add-user draft.
