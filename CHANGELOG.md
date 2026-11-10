@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 130 — v0.6.6
+
+- Place the User management Online badge after the account role, at the end of the user details.
+
 ### Build 129 — v0.6.6
 
 - Remove assigned-password/change-required text from the User management list. Keep the password-change setting in the account editor and preserve Online badges and other account details.

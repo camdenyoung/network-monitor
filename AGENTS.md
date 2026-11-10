@@ -126,7 +126,7 @@ earlier commits were not numbered.
 
 <a id="current-release"></a>
 
-Current displayed release is v0.6.6, Build 129. Show it after the title on both the main and
+Current displayed release is v0.6.6, Build 130. Show it after the title on both the main and
 status dashboards. Browser page titles omit the version.
 
 Keep this entry point within 8 KiB. Put detailed rules in the indexed topic

@@ -3039,7 +3039,7 @@ onlineBadgeContext.browser.fetch = async path => path === '/api/users'
   ? {ok:true,json:async () => [{id:2,username:'reader',full_name:'Test Reader',role:'viewer',online:badgeOnline}]}
   : onlineBadgeFetch(path);
 await onlineBadgeContext.browser.loadAdmin();
-assert.match(element('users').innerHTML,/>Online<\/small>/);
+assert.match(element('users').innerHTML,/View Only <small[^>]*>Online<\/small><\/span>/);
 assert.match(element('users').innerHTML,/last 60 seconds/);
 badgeOnline = false;
 await onlineBadgeContext.browser.loadAdmin();
