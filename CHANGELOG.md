@@ -4,6 +4,23 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 131 — v0.6.7
+
+- Merge Admin-only Online badges into User management, based on recent dashboard activity and valid sessions. Place badges after account roles and keep password-policy details in the account editor.
+- Synchronize dashboard release labels, README and current version context.
+
+### Build 130 — v0.6.6
+
+- Place the User management Online badge after the account role, at the end of the user details.
+
+### Build 129 — v0.6.6
+
+- Remove assigned-password/change-required text from the User management list. Keep the password-change setting in the account editor and preserve Online badges and other account details.
+
+### Build 128 — v0.6.6
+
+- Show an Admin-only Online badge beside accounts with dashboard activity in the last 60 seconds. Reuse bounded in-memory presence, deduplicate tabs/sessions and exclude expired or revoked sessions without extending sign-ins or writing presence to disk.
+
 ### Build 127 — v0.6.6
 
 - Merge the active-project dropdown indicator into main. Identify the running project with `(active)`, matching deployment labels while preserving manual selection and paused behavior.

@@ -89,6 +89,34 @@ class AccessAndNotificationTests(unittest.TestCase):
             response = self.request('/api/state', token=self.admin_token, connection='admin-dashboard-tab')
             self.assertEqual(json.loads(response['content'])['dashboard_presence']['connections'], 0)
 
+    def test_online_badges_are_admin_only_and_follow_recent_valid_sessions(self):
+        from app.presence import DashboardPresence
+        with patch.object(server.presence, 'tracker', DashboardPresence()):
+            token, _ = self.create_operator()
+            self.assertEqual(self.request('/api/users')['status'], 401)
+            for restricted in (self.viewer_token, token):
+                self.assertEqual(self.request('/api/users', token=restricted)['status'], 403)
+            with server.connect() as db:
+                before = [tuple(row) for row in db.execute('SELECT * FROM sessions ORDER BY token_hash')]
+            with patch('app.presence.time.monotonic', return_value=100):
+                self.request('/api/status', token=self.viewer_token, connection='viewer-dashboard-tab')
+                self.request('/api/state', token=self.viewer_token, connection='viewer-second-dashboard')
+                rows = json.loads(self.request('/api/users', token=self.admin_token)['content'])
+                self.assertEqual({row['id']: row['online'] for row in rows}, {1: False, 2: True, 3: False})
+                self.assertNotIn('csrf', rows[1])
+                self.assertNotIn('online', json.loads(self.request('/api/me', token=self.viewer_token)['content']))
+            with patch('app.presence.time.monotonic', return_value=160):
+                rows = json.loads(self.request('/api/users', token=self.admin_token)['content'])
+                self.assertFalse(any(row['online'] for row in rows))
+            with server.connect() as db:
+                self.assertEqual(before, [tuple(row) for row in db.execute('SELECT * FROM sessions ORDER BY token_hash')])
+            with patch('app.presence.time.monotonic', return_value=170):
+                self.request('/api/status', token=self.viewer_token, connection='viewer-dashboard-tab')
+                with server.connect() as db:
+                    db.execute('UPDATE sessions SET expires=0 WHERE user_id=2')
+                rows = json.loads(self.request('/api/users', token=self.admin_token)['content'])
+                self.assertFalse(any(row['online'] for row in rows))
+
     def test_project_deletion_requires_admin_csrf_and_exposes_progress_only_to_admin(self):
         self.create_host()
         body = {'project': 1, 'expected_name': 'Deployment'}

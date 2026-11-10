@@ -10,7 +10,7 @@
 <body data-role="viewer">
   <header>
     <div>
-      <h1>Network Monitor <small class="app-version">v0.6.6 · Build 127</small></h1>
+      <h1>Network Monitor <small class="app-version">v0.6.7 · Build 131</small></h1>
       <p>Project based network monitoring</p>
     </div>
     <div class="project-run-summary" role="status">
@@ -3480,7 +3480,7 @@
       const responses = await Promise.all([dashboardFetch('/api/users'), dashboardFetch('/api/telegram'), dashboardFetch('/api/whatsapp')]);
       if (responses.some(response => !response.ok)) throw new Error('Could not load administration settings.');
       users = await responses[0].json();
-      el('users').innerHTML = users.map(user => `<div class="user-entry"><span class="user-details">${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} · ${user.must_change_password ? 'Password change required' : 'Assigned password allowed'}</span>
+      el('users').innerHTML = users.map(user => `<div class="user-entry"><span class="user-details">${escapeHtml(user.full_name || user.username)} (${escapeHtml(user.username)}) · ${escapeHtml(user.email || 'No email')} · ${escapeHtml(roleLabels[user.role] || 'Unknown')} ${user.online === true ? '<small class="monitoring-badge monitoring-active" title="Dashboard activity within the last 60 seconds">Online</small>' : ''}</span>
         <div class="user-actions"><button data-edit-user="${user.id}">Edit</button>
         ${user.id !== currentUser.id ? `<button data-delete-user="${user.id}">Remove</button>` : '(you)'}</div></div>`).join('');
       const telegram = await responses[1].json();

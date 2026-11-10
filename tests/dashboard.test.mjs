@@ -181,7 +181,7 @@ assert.equal(submittedUser.path, '/api/user-create');
 assert.equal(submittedUser.body.email, 'reader@example.com');
 assert.equal(submittedUser.body.must_change_password, false);
 assert.match(element('users').innerHTML, /reader@example.com/);
-assert.match(element('users').innerHTML, /Assigned password allowed/);
+assert.doesNotMatch(element('users').innerHTML, /Assigned password allowed|Password change required/);
 console.log('Account email and password-policy form smoke tests passed.');
 
 // User edits use an independent dialog and preserve the add-user draft.
@@ -3030,3 +3030,18 @@ console.log('Scoped roles follow global project/deployment changes, invalidate s
 
 await import('./toasts.test.mjs');
 await import('./deployments.test.mjs');
+
+// User presence badges follow the server result on each account-list refresh.
+const onlineBadgeContext = await projectSelectionContext({active_run:'12'});
+const onlineBadgeFetch = onlineBadgeContext.browser.fetch;
+let badgeOnline = true;
+onlineBadgeContext.browser.fetch = async path => path === '/api/users'
+  ? {ok:true,json:async () => [{id:2,username:'reader',full_name:'Test Reader',role:'viewer',online:badgeOnline}]}
+  : onlineBadgeFetch(path);
+await onlineBadgeContext.browser.loadAdmin();
+assert.match(element('users').innerHTML,/View Only <small[^>]*>Online<\/small><\/span>/);
+assert.match(element('users').innerHTML,/last 60 seconds/);
+badgeOnline = false;
+await onlineBadgeContext.browser.loadAdmin();
+assert.doesNotMatch(element('users').innerHTML,/>Online</);
+console.log('User management shows Online only for server-confirmed recent account activity and clears it on refresh.');

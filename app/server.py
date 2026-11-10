@@ -1996,7 +1996,11 @@ class Handler(BaseHTTPRequestHandler):
                     'outbox': [dict(row) for row in db.execute('SELECT id,event,state,attempts,error,created FROM notification_outbox WHERE channel=? ORDER BY id DESC LIMIT 50', (channel,))]}))
         elif self.path == '/api/users':
             with connect() as db:
-                users = [auth.public_user(row) for row in db.execute('SELECT * FROM users ORDER BY username')]
+                sessions = dict(db.execute('SELECT csrf,user_id FROM sessions WHERE expires>?',
+                                           (time.time(),)))
+                online = presence.tracker.online_users(sessions)
+                users = [{**auth.public_user(row), 'online': row['id'] in online}
+                         for row in db.execute('SELECT * FROM users ORDER BY username')]
             self.send(json.dumps(users))
         elif self.path == '/api/state':
             presence.tracker.record(self.headers.get('X-Dashboard-Connection'), user)

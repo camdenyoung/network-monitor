@@ -38,12 +38,22 @@ class DashboardPresence:
                 'seen': now, 'csrf': user['csrf'] if user else None,
             }
 
+    def _active_users(self, valid_sessions):
+        # Caller holds the tracker lock; session validity comes from SQLite.
+        return {valid_sessions[entry['csrf']] for entry in self._connections.values()
+                if entry['csrf'] in valid_sessions}
+
+    def online_users(self, valid_sessions):
+        """Return recently active account IDs for the Admin user list only."""
+        with self._lock:
+            self._prune(time.monotonic())
+            return self._active_users(valid_sessions)
+
     def counts(self, valid_sessions):
         """Deduplicate accounts and exclude logged-out, expired or revoked sessions."""
         with self._lock:
             self._prune(time.monotonic())
-            users = {valid_sessions[entry['csrf']] for entry in self._connections.values()
-                     if entry['csrf'] in valid_sessions}
+            users = self._active_users(valid_sessions)
             return {'logged_in_users': len(users), 'connections': len(self._connections),
                     'activity_window_seconds': self.timeout}
 

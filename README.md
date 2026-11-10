@@ -1,9 +1,13 @@
-# Network Monitor v0.6.6 · Build 127
+# Network Monitor v0.6.7 · Build 131
 
 Local-first equipment monitoring for a single server and roughly 100–150 devices.
 This is a runnable development foundation, not the completed production system.
 
 See [CHANGELOG.md](CHANGELOG.md) for build history and release notes.
+
+User management shows an Online badge for accounts with dashboard activity in the
+last 60 seconds. This is an approximate presence indicator; closing a browser or
+losing connectivity can leave it visible until the window expires.
 
 ## Start with Docker Compose
 

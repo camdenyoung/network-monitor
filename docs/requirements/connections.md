@@ -34,7 +34,11 @@ entries at 60 seconds using monotonic time; cap at 4,096. Validate session CSRF 
 against current nonexpired sessions before counting users. Never expose IDs/tokens
 or counts on public/status or non-Admin state responses. No new DB writes or
 session-lifetime extension. Presence rebuilds after restart and supplies the
-approximate distinct active-account count only.
+approximate distinct active-account count and Admin-only User management Online badges.
+/api/users includes only an online boolean per account, based on the same 60-second
+window and current valid sessions; never expose session tokens or connection IDs.
+Refresh badges through existing polling; preserve account editor drafts. Absence of
+a badge means no recent dashboard activity, not necessarily that no session exists.
 
 The Admin top-navigation badge shows actual admitted live-update streams from
 app/connections.py as current/limit, separately from active accounts. Polling-only

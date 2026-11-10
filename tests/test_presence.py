@@ -15,6 +15,8 @@ class PresenceTests(unittest.TestCase):
         sessions = {'alice-session-a': 1, 'alice-session-b': 1, 'bob-session': 2}
         self.assertEqual(tracker.counts(sessions), {
             'logged_in_users': 2, 'connections': 4, 'activity_window_seconds': 60})
+        self.assertEqual(tracker.online_users(sessions), {1, 2})
+        self.assertEqual(tracker.online_users({}), set())
         # Logging out or revoking a session removes attribution immediately.
         self.assertEqual(tracker.counts({})['logged_in_users'], 0)
         tracker.record('first-dashboard-tab')
