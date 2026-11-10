@@ -4,6 +4,10 @@ Build history and release notes for Network Monitor. See [README.md](README.md) 
 
 ## Build history
 
+### Build 128 — v0.6.6
+
+- Show an Admin-only Online badge beside accounts with dashboard activity in the last 60 seconds. Reuse bounded in-memory presence, deduplicate tabs/sessions and exclude expired or revoked sessions without extending sign-ins or writing presence to disk.
+
 ### Build 127 — v0.6.6
 
 - Merge the active-project dropdown indicator into main. Identify the running project with `(active)`, matching deployment labels while preserving manual selection and paused behavior.

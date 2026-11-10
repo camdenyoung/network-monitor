@@ -3030,3 +3030,18 @@ console.log('Scoped roles follow global project/deployment changes, invalidate s
 
 await import('./toasts.test.mjs');
 await import('./deployments.test.mjs');
+
+// User presence badges follow the server result on each account-list refresh.
+const onlineBadgeContext = await projectSelectionContext({active_run:'12'});
+const onlineBadgeFetch = onlineBadgeContext.browser.fetch;
+let badgeOnline = true;
+onlineBadgeContext.browser.fetch = async path => path === '/api/users'
+  ? {ok:true,json:async () => [{id:2,username:'reader',full_name:'Test Reader',role:'viewer',online:badgeOnline}]}
+  : onlineBadgeFetch(path);
+await onlineBadgeContext.browser.loadAdmin();
+assert.match(element('users').innerHTML,/>Online<\/small>/);
+assert.match(element('users').innerHTML,/last 60 seconds/);
+badgeOnline = false;
+await onlineBadgeContext.browser.loadAdmin();
+assert.doesNotMatch(element('users').innerHTML,/>Online</);
+console.log('User management shows Online only for server-confirmed recent account activity and clears it on refresh.');
